@@ -1,0 +1,39 @@
+{
+  "name": "app",
+  "version": "1.0.0",
+  "description": "A self contained electron based database, renderer and pdf viewer for IECD interrogations",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "start": "npm run build && electron .",
+    "build": "npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "dev": "vite",
+    "clean": "rm -rf dist"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alexanderlanganke/KardiSynch.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/alexanderlanganke/KardiSynch/issues"
+  },
+  "homepage": "https://github.com/alexanderlanganke/KardiSynch#readme",
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12",
+    "svelte": "^5.43.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.12"
+  },
+  "dependencies": {
+    "@types/sqlite3": "^3.1.11",
+    "sqlite3": "^5.1.7"
+  }
+}
