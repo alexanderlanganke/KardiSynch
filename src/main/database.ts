@@ -46,8 +46,66 @@ const createTables = (db: sqlite3.Database) => {
   });
 };
 
+let dbInstance: sqlite3.Database;
+
 export const initializeDatabase = () => {
-  const db = createDbConnection();
-  createTables(db);
-  return db;
+  if (!dbInstance) {
+    dbInstance = createDbConnection();
+    createTables(dbInstance);
+  }
+  return dbInstance;
+};
+
+export const getDb = () => {
+  if (!dbInstance) {
+    throw new Error('Database not initialized. Call initializeDatabase first.');
+  }
+  return dbInstance;
+};
+
+export const findPatient = (name: string, dob: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.get('SELECT * FROM Patients WHERE name = ? AND dob = ?', [name, dob], (err, row) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(row);
+      }
+    });
+  });
+};
+
+export const createPatient = (patient: { id: string; name: string; dob: string; }): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run(
+      'INSERT INTO Patients (id, name, dob) VALUES (?, ?, ?)',
+      [patient.id, patient.name, patient.dob],
+      (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
+};
+
+export const createReport = (report: { id: string; patient_id: string; visit_date: string; pdf_paths: string; data_path: string; }): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run(
+      'INSERT INTO Reports (id, patient_id, visit_date, pdf_paths, data_path) VALUES (?, ?, ?, ?, ?)',
+      [report.id, report.patient_id, report.visit_date, report.pdf_paths, report.data_path],
+      (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
 };
