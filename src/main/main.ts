@@ -1,5 +1,6 @@
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
+import { initializeDatabase } from './database';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -18,6 +19,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  initializeDatabase();
   createWindow();
   console.log('Electron app is ready.');
 

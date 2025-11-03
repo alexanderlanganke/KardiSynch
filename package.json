@@ -25,15 +25,14 @@
   "homepage": "https://github.com/alexanderlanganke/KardiSynch#readme",
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@types/sqlite3": "^3.1.11",
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12",
     "svelte": "^5.43.2",
+    "sqlite3": "^5.1.7",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.12"
   },
-  "dependencies": {
-    "@types/sqlite3": "^3.1.11",
-    "sqlite3": "^5.1.7"
-  }
+  "dependencies": {}
 }
