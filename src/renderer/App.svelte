@@ -1,5 +1,6 @@
 <script lang="ts">
   import PatientDashboard from './PatientDashboard.svelte';
+  import PatientDetail from './PatientDetail.svelte';
   import Settings from './Settings.svelte';
   import { currentView } from './stores';
 </script>
@@ -14,6 +15,8 @@
     <PatientDashboard />
   {:else if $currentView === 'settings'}
     <Settings />
+  {:else if $currentView === 'patientDetail'}
+    <PatientDetail />
   {/if}
 </main>
 

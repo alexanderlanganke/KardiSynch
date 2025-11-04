@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { currentView, currentPatientId } from './stores';
 
   let patients = [];
   let filters = {
@@ -26,6 +27,11 @@
 
   function handleFilterChange() {
     fetchPatients();
+  }
+
+  function selectPatient(patientId) {
+    currentView.set('patientDetail');
+    currentPatientId.set(patientId);
   }
 </script>
 
@@ -67,7 +73,7 @@
     </thead>
     <tbody>
       {#each patients as patient}
-        <tr>
+        <tr on:click={() => selectPatient(patient.id)}>
           <td>{patient.name}</td>
           <td>{patient.dob}</td>
           <td>{patient.hospitalPatientId}</td>
