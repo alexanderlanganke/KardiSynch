@@ -102,6 +102,19 @@ export const createPatient = (patient: { id: string; name: string; dob: string; 
   });
 };
 
+export const getPatientReports = (patientId: string): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all('SELECT * FROM Reports WHERE patient_id = ? ORDER BY visit_date DESC', [patientId], (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows);
+      }
+    });
+  });
+};
+
 export const getSettings = (): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
