@@ -1,4 +1,4 @@
-import pdf from 'pdf-parse';
+const pdf = require('pdf-parse');
 import { createWorker } from 'tesseract.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,7 +7,7 @@ import { parseBiotronikXML } from './parsers/biotronik-parser';
 import { parseBostonScientificBnk } from './parsers/boston-scientific-parser';
 
 /**
- * Extracts text from a PDF file, using OCR as a fallback.
+ * Extracts text from a PDF file, using OCR as a fallback if no text layer is present.
  *
  * @param filePath The path to the PDF file.
  * @returns A promise that resolves with the extracted text.
@@ -15,15 +15,15 @@ import { parseBostonScientificBnk } from './parsers/boston-scientific-parser';
 export const extractTextFromPdf = async (filePath: string): Promise<string> => {
   const dataBuffer = fs.readFileSync(filePath);
 
-  // First, try to extract text using pdf-parse
+  // First, try to extract a text layer using pdf-parse.
   const data = await pdf(dataBuffer);
 
-  // If text is found, return it
+  // If a text layer is found, return it.
   if (data.text && data.text.trim().length > 0) {
     return data.text;
   }
 
-  // If no text is found, perform OCR
+  // If no text layer is present, fall back to OCR with Tesseract.
   const worker = await createWorker('eng');
   const ret = await worker.recognize(dataBuffer);
   await worker.terminate();
@@ -32,7 +32,7 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
 
 /**
  * Extracts structured data from the raw text extracted from a PDF.
- * This is a placeholder for manufacturer-specific parsing logic.
+ * This function serves as a placeholder for manufacturer-specific parsing logic.
  *
  * @param text The raw text from the PDF.
  * @returns A structured data object conforming to the UnifiedReport interface.
@@ -40,8 +40,9 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
 export const extractStructuredData = (text: string): UnifiedReport => {
   console.log('Extracting structured data from text...');
 
-  // This is a placeholder implementation. In a real scenario, this function
-  // would contain complex logic to parse the text and populate the fields.
+  // This is a placeholder implementation. In a real-world scenario, this function
+  // would contain complex logic to parse the text and populate the fields of a
+  // UnifiedReport object.
   const placeholderReport: UnifiedReport = {
     manufacturer: 'Unknown',
     interrogation_date: new Date().toISOString().split('T')[0], // Today's date as a placeholder
@@ -65,8 +66,14 @@ export const extractStructuredData = (text: string): UnifiedReport => {
   return placeholderReport;
 };
 
-
-// This module will be responsible for parsing the proprietary text files.
+/**
+ * Acts as a dispatcher, routing files to the appropriate parser based on their
+ * file type and naming conventions. It handles PDFs (with OCR fallback),
+ * Biotronik XML files, and Boston Scientific .bnk files.
+ * @param filePath The path to the file to be parsed.
+ * @returns A promise that resolves with a UnifiedReport object, or null if the
+ * file type is not supported.
+ */
 export const parseFile = async (filePath: string): Promise<UnifiedReport | null> => {
   console.log(`Parsing file: ${filePath}`);
   const fileExtension = path.extname(filePath).toLowerCase();

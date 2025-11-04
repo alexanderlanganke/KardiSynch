@@ -2,7 +2,7 @@
 
 import { PDFDocument } from 'pdf-lib';
 import * as fs from 'fs';
-import pdf from 'pdf-parse';
+const pdf = require('pdf-parse');
 
 /**
  * Extracts text from a PDF file.
