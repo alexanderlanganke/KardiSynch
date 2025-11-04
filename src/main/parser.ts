@@ -1,7 +1,9 @@
 import pdf from 'pdf-parse';
 import { createWorker } from 'tesseract.js';
 import * as fs from 'fs';
+import * as path from 'path';
 import { UnifiedReport } from './reports';
+import { parseBiotronikXML } from './parsers/biotronik-parser';
 
 /**
  * Extracts text from a PDF file, using OCR as a fallback.
@@ -64,9 +66,19 @@ export const extractStructuredData = (text: string): UnifiedReport => {
 
 
 // This module will be responsible for parsing the proprietary text files.
-export const parseFile = async (filename: string) => {
-  console.log(`Parsing file: ${filename}`);
-  const rawText = await extractTextFromPdf(filename);
-  const structuredData = extractStructuredData(rawText);
-  return structuredData;
+export const parseFile = async (filePath: string): Promise<UnifiedReport | null> => {
+  console.log(`Parsing file: ${filePath}`);
+  const fileExtension = path.extname(filePath).toLowerCase();
+  const filename = path.basename(filePath);
+
+  if (fileExtension === '.pdf') {
+    const rawText = await extractTextFromPdf(filePath);
+    return extractStructuredData(rawText);
+  } else if (fileExtension === '.xml' && filename.startsWith('BIOSTD_')) {
+    const xmlData = fs.readFileSync(filePath, 'utf-8');
+    return parseBiotronikXML(xmlData);
+  } else {
+    console.warn(`Unsupported file type: ${fileExtension}`);
+    return null;
+  }
 };
