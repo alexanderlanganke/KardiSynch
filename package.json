@@ -26,6 +26,7 @@
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@types/sqlite3": "^3.1.11",
+    "@types/uuid": "^10.0.0",
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12",
     "sqlite3": "^5.1.7",
@@ -36,7 +37,6 @@
   },
   "dependencies": {
     "@types/pdf-parse": "^1.1.5",
-    "@types/uuid": "^10.0.0",
     "fast-xml-parser": "^5.3.1",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",

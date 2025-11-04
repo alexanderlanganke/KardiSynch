@@ -6,4 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPdfData: (filePath: string) => ipcRenderer.invoke('get-pdf-data', filePath),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (settings: any) => ipcRenderer.invoke('set-settings', settings),
+  onUnmatchedFiles: (callback: (files: string[]) => void) => {
+    ipcRenderer.on('unmatched-files', (event, files) => callback(files));
+  },
 });
