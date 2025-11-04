@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { UnifiedReport } from './reports';
 import { parseBiotronikXML } from './parsers/biotronik-parser';
+import { parseBostonScientificBnk } from './parsers/boston-scientific-parser';
 
 /**
  * Extracts text from a PDF file, using OCR as a fallback.
@@ -77,6 +78,9 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
   } else if (fileExtension === '.xml' && filename.startsWith('BIOSTD_')) {
     const xmlData = fs.readFileSync(filePath, 'utf-8');
     return parseBiotronikXML(xmlData);
+  } else if (fileExtension === '.bnk') {
+    const bnkData = fs.readFileSync(filePath, 'utf-8');
+    return parseBostonScientificBnk(bnkData);
   } else {
     console.warn(`Unsupported file type: ${fileExtension}`);
     return null;
