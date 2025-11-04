@@ -21,7 +21,8 @@
   async function fetchPatients() {
     try {
       patients = await window.electronAPI.getAllPatients(filters);
-    } catch (error)      console.error('Error fetching patients:', error);
+    } catch (error) {
+      console.error('Error fetching patients:', error);
     }
   }
 
