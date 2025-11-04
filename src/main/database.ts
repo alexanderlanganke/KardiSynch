@@ -45,6 +45,13 @@ const createTables = (db: sqlite3.Database) => {
         FOREIGN KEY (patient_id) REFERENCES Patients (id)
       );
     `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS Settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      );
+    `);
   });
 };
 
@@ -92,6 +99,42 @@ export const createPatient = (patient: { id: string; name: string; dob: string; 
         }
       }
     );
+  });
+};
+
+export const getSettings = (): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all('SELECT * FROM Settings', (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        const settings = rows.reduce((acc, row) => {
+          acc[row.key] = row.value;
+          return acc;
+        }, {});
+        resolve(settings);
+      }
+    });
+  });
+};
+
+export const setSettings = (settings: any): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.serialize(() => {
+      const stmt = db.prepare('INSERT OR REPLACE INTO Settings (key, value) VALUES (?, ?)');
+      for (const key in settings) {
+        stmt.run(key, settings[key]);
+      }
+      stmt.finalize((err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      });
+    });
   });
 };
 
