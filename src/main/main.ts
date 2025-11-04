@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
+import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientReports, getSettings, setSettings } from './database';
 import { initializeWatcher } from './watcher';
 import { seedDatabase } from './seed';
@@ -84,6 +85,16 @@ ipcMain.handle('set-settings', async (event, settings) => {
     await setSettings(settings);
   } catch (error) {
     console.error('Failed to set settings:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-pdf-data', async (event, filePath) => {
+  try {
+    const data = await fs.readFile(filePath);
+    return data;
+  } catch (error) {
+    console.error('Failed to read PDF file:', error);
     throw error;
   }
 });
