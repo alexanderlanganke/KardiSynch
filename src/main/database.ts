@@ -122,7 +122,7 @@ export const getSettings = (): Promise<any> => {
       if (err) {
         reject(err);
       } else {
-        const settings = rows.reduce((acc, row) => {
+        const settings = rows.reduce((acc: any, row: any) => {
           acc[row.key] = row.value;
           return acc;
         }, {});

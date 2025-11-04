@@ -33,7 +33,7 @@ return null;
 * Finds a value from a
 * E.g., findTableEntry(table, 'SERHSM') -> '88763967'
 */
-function findEntry(tableEntries: any[], attributeName: string): string | null {
+function findEntry(tableEntries: any[] | null, attributeName: string): string | null {
 if (!tableEntries) return null;
 try {
 const entry = tableEntries.find(e => e['carddas:AttributeName'] === attributeName);
