@@ -27,6 +27,7 @@ const createTables = (db: sqlite3.Database) => {
         id TEXT PRIMARY KEY,
         name TEXT,
         dob TEXT,
+        hospitalPatientId TEXT,
         last_device_model TEXT,
         last_seen_date TEXT
       );
@@ -37,6 +38,7 @@ const createTables = (db: sqlite3.Database) => {
         id TEXT PRIMARY KEY,
         patient_id TEXT,
         visit_date TEXT,
+        hospitalVisitId TEXT,
         device_manufacturer TEXT,
         pdf_paths TEXT,
         data_path TEXT,
@@ -90,6 +92,55 @@ export const createPatient = (patient: { id: string; name: string; dob: string; 
         }
       }
     );
+  });
+};
+
+export const getAllPatients = (filters: any): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    let query = 'SELECT DISTINCT p.* FROM Patients p LEFT JOIN Reports r ON p.id = r.patient_id WHERE 1=1';
+    const params: any[] = [];
+
+    if (filters.name) {
+      query += ' AND p.name LIKE ?';
+      params.push(`%${filters.name}%`);
+    }
+    if (filters.dob) {
+      query += ' AND p.dob = ?';
+      params.push(filters.dob);
+    }
+    if (filters.patientId) {
+      query += ' AND p.id LIKE ?';
+      params.push(`%${filters.patientId}%`);
+    }
+    if (filters.hospitalPatientId) {
+      query += ' AND p.hospitalPatientId LIKE ?';
+      params.push(`%${filters.hospitalPatientId}%`);
+    }
+    if (filters.hospitalVisitId) {
+      query += ' AND r.hospitalVisitId LIKE ?';
+      params.push(`%${filters.hospitalVisitId}%`);
+    }
+    if (filters.deviceManufacturer) {
+      query += ' AND r.device_manufacturer = ?';
+      params.push(filters.deviceManufacturer);
+    }
+    if (filters.lastSeenStartDate) {
+      query += ' AND p.last_seen_date >= ?';
+      params.push(filters.lastSeenStartDate);
+    }
+    if (filters.lastSeenEndDate) {
+      query += ' AND p.last_seen_date <= ?';
+      params.push(filters.lastSeenEndDate);
+    }
+
+    db.all(query, params, (err, rows) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(rows);
+      }
+    });
   });
 };
 
