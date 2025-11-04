@@ -11,7 +11,8 @@
     "dev": "vite",
     "clean": "rm -rf dist",
     "test": "vitest",
-    "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test"
+    "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test",
+    "test:e2e:ci": "npm run build && playwright test"
   },
   "repository": {
     "type": "git",
