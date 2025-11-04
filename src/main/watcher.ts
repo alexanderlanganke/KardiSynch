@@ -1,62 +1,113 @@
 import fs from 'fs';
 import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+import { sendUnmatchedFiles } from './main';
 import { routeFiles } from './router';
+import { parseFile } from './parser';
+import { UnifiedReport } from './reports';
+import { extractTextFromPdf, verifyPdfMatch } from './pdf-merger';
 
 const importDir = path.join(__dirname, '..', '..', '_IMPORT');
+const unmatchedDir = path.join(__dirname, '..', '..', '_UNMATCHED');
 
-const processFiles = () => {
-  fs.readdir(importDir, (err, files) => {
+const processFiles = async () => {
+  fs.readdir(importDir, async (err, files) => {
     if (err) {
       console.error(`Error reading import directory: ${err}`);
       return;
     }
 
-    // Group files by patient
-    const patientFolders = files.reduce((acc, file) => {
-      const patientName = path.basename(file, path.extname(file)).split('_')[0];
-      if (!acc[patientName]) {
-        acc[patientName] = [];
-      }
-      acc[patientName].push(file);
+    const patientFileGroups = files.reduce((acc, file) => {
+      const patientId = path.basename(file, path.extname(file)).split('_')[0];
+      if (!acc[patientId]) acc[patientId] = [];
+      acc[patientId].push(file);
       return acc;
     }, {} as Record<string, string[]>);
 
-    // Process each patient's files
-    for (const patientName in patientFolders) {
-      const patientFiles = patientFolders[patientName];
-      const bnkFile = patientFiles.find(file => path.extname(file).toLowerCase() === '.bnk');
-      const pdfFiles = patientFiles.filter(file => path.extname(file).toLowerCase() === '.pdf');
+    const allUnmatchedFiles: string[] = [];
 
-      if (bnkFile && pdfFiles.length > 0) {
-        // Create a subdirectory for the patient
-        const patientDir = path.join(importDir, patientName);
-        if (!fs.existsSync(patientDir)) {
-          fs.mkdirSync(patientDir, { recursive: true });
+    for (const patientId in patientFileGroups) {
+      const patientFiles = patientFileGroups[patientId];
+      const potentialPrimaryFiles = patientFiles.filter(file => path.extname(file).toLowerCase() !== '.pdf');
+      const primaryReports: { file: string; data: UnifiedReport }[] = [];
+
+      for (const file of potentialPrimaryFiles) {
+        const reportData = await parseFile(path.join(importDir, file));
+        if (reportData) {
+          primaryReports.push({ file, data: reportData });
         }
-
-        // Move the files to the subdirectory
-        patientFiles.forEach(file => {
-          const oldPath = path.join(importDir, file);
-          const newPath = path.join(patientDir, file);
-          fs.renameSync(oldPath, newPath);
-        });
-
-        // Route the files for processing
-        routeFiles(patientDir);
       }
+      const pdfFiles = patientFiles.filter(file => path.extname(file).toLowerCase() === '.pdf');
+      const matchedFiles = new Set<string>();
+
+      if (primaryReports.length === 0) {
+        console.warn(`No primary report found for patient ${patientId}. Moving all associated files to _UNMATCHED.`);
+        for (const file of patientFiles) {
+          const oldPath = path.join(importDir, file);
+          const newPath = path.join(unmatchedDir, file);
+          fs.renameSync(oldPath, newPath);
+          allUnmatchedFiles.push(file);
+        }
+        continue;
+      }
+
+      const visits: { reportFile: string; reportData: UnifiedReport; pdfs: string[] }[] = [];
+      for (const report of primaryReports) {
+        visits.push({ reportFile: report.file, reportData: report.data, pdfs: [] });
+        matchedFiles.add(report.file);
+      }
+
+      for (const pdfFile of pdfFiles) {
+        const pdfPath = path.join(importDir, pdfFile);
+        const pdfText = await extractTextFromPdf(pdfPath);
+        for (const visit of visits) {
+          if (verifyPdfMatch(pdfText, visit.reportData)) {
+            visit.pdfs.push(pdfFile);
+            matchedFiles.add(pdfFile);
+            break;
+          }
+        }
+      }
+
+      for (const visit of visits) {
+        const visitId = `${patientId}_${visit.reportData.interrogation_date.split('T')[0]}_${uuidv4()}`;
+        const visitDir = path.join(importDir, visitId);
+        fs.mkdirSync(visitDir, { recursive: true });
+
+        const allVisitFiles = [visit.reportFile, ...visit.pdfs];
+        for (const file of allVisitFiles) {
+          const oldPath = path.join(importDir, file);
+          const newPath = path.join(visitDir, file);
+          fs.renameSync(oldPath, newPath);
+        }
+        routeFiles(visitDir);
+      }
+
+      patientFiles.forEach(file => {
+        if (!matchedFiles.has(file)) {
+          const oldPath = path.join(importDir, file);
+          const newPath = path.join(unmatchedDir, file);
+          fs.renameSync(oldPath, newPath);
+          allUnmatchedFiles.push(file);
+          console.warn(`Moved unmatched file to _UNMATCHED: ${file}`);
+        }
+      });
+    }
+
+    if (allUnmatchedFiles.length > 0) {
+      sendUnmatchedFiles(allUnmatchedFiles);
     }
   });
 };
 
 export const initializeWatcher = () => {
-  // Ensure the _IMPORT directory exists
-  if (!fs.existsSync(importDir)) {
-    fs.mkdirSync(importDir, { recursive: true });
-  }
+  [importDir, unmatchedDir].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  });
 
   console.log(`Watching for file changes on ${importDir}`);
-
-  // Process existing files on startup
   processFiles();
 
   fs.watch(importDir, (eventType, filename) => {
