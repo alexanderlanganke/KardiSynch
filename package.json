@@ -9,7 +9,9 @@
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "dev": "vite",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test": "vitest",
+    "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test"
   },
   "repository": {
     "type": "git",
@@ -24,16 +26,19 @@
   },
   "homepage": "https://github.com/alexanderlanganke/KardiSynch#readme",
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@types/sqlite3": "^3.1.11",
     "@types/uuid": "^10.0.0",
+    "cross-env": "^10.1.0",
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12",
     "sqlite3": "^5.1.7",
     "svelte": "^5.43.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "vite": "^7.1.12"
+    "vite": "^7.1.12",
+    "vitest": "^4.0.7"
   },
   "dependencies": {
     "@types/pdf-parse": "^1.1.5",
