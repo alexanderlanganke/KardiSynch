@@ -15,17 +15,9 @@ Core Framework: Electron. It is the only mature technology that perfectly satisf
 
 Language: TypeScript. For a project with data parsing and a database, you want type safety. It will save you from countless bugs.
 
-UI Library: Svelte (recommended) or React.
+UI Library: Svelte. Its lightweight, extremely fast, and compiles to tiny vanilla JavaScript. Its philosophy of "write less, do more" feels aligned with the subtle, efficient aesthetic (~<*>~) you appreciate.
 
-Svelte: It's lightweight, extremely fast, and compiles to tiny vanilla JavaScript. Its philosophy of "write less, do more" feels aligned with the subtle, efficient aesthetic (~<*>~) you appreciate.
-
-React: Also an excellent choice. It's more popular, with a larger ecosystem, but can be heavier.
-
-Database: A Hybrid Approach.
-
-SQLite: For the index. This is a single, file-based database (database.db) that is fast, robust, and perfect for an embedded app. It will store the patient list, metadata, and pointers to the files.
-
-JSON Files: For the data. The parsed, structured text reports will be saved as human-readable .json files. This gives you the "plain-text readable" database you wanted.
+Database: SQLite. This is a single, file-based database (database.db) that is fast, robust, and perfect for an embedded app. It will store the patient list, metadata, and all parsed report data.
 
 PDF Viewing: PDF.js (by Mozilla). This is the standard for rendering PDFs in a web-based UI.
 
@@ -38,16 +30,14 @@ KardiSynch/
 │   ├── (files from your PowerShell script)
 │
 ├── _DATA/                   <-- The main data store
-│   ├── database.db          <-- The SQLite index file
+│   ├── database.db          <-- The SQLite database file
 │   └── Patients/
 │       ├── [Patient_UUID_1]/
 │       │   ├── [Visit_UUID_A]/
 │       │   │   ├── report_1.pdf
-│       │   │   ├── report_2.pdf
-│       │   │   └── data.json
+│       │   │   └── report_2.pdf
 │       │   └── [Visit_UUID_B]/
-│       │       ├── report_1.pdf
-│       │       └── data.json
+│       │       └── report_1.pdf
 │       └── [Patient_UUID_2]/
 │           └── ...
 │
@@ -63,7 +53,7 @@ Function: Its only job is to poll the USB drives and move all files (PDFs, text)
 Phase 1: The "Core" (Application Shell & Data)
 Electron Shell:
 
-Set up the main Electron project with TypeScript and Svelte/React.
+Set up the main Electron project with TypeScript and Svelte.
 
 Create the main browser window.
 
@@ -79,18 +69,18 @@ Schema Definition:
 
 Patients: id (UUID), name, dob, last_device_model, last_seen_date.
 
-Reports: id (UUID), patient_id (FK), visit_date, device_manufacturer, pdf_paths (JSON array), data_path (path to data.json).
+Reports: id (UUID), patient_id (FK), visit_date, device_manufacturer, pdf_paths (JSON array), data (JSON object).
 
 Phase 2: The "Ingestion Engine" (The Core Logic)
 File Watcher (watcher.ts):
 
 The Electron app will use Node.js's fs.watch to monitor the _IMPORT/ folder.
 
+If files are not able to be matched to a report, the user is notified via a dismissible message in the UI.
+
 File Router (router.ts):
 
-When new files appear, this module's job is to "group" them.
-
-It will need to be smart. For example, it will wait 10 seconds to see if a .txt file and two .pdf files all with a similar name (e.g., Patient_123...) arrive together. This group is a single "Visit."
+When new files appear, this module's job is to "group" them into a single "Visit."
 
 Parser Pipeline (parser.ts):
 
@@ -118,18 +108,16 @@ Once a "Visit" is grouped and parsed:
 
 Check the DB if the patient exists (by name/DOB). If not, create a new Patient and a new UUID folder.
 
-Create a new Report entry in the DB.
+Create a new Report entry in the DB, storing the parsed data in the `data` column.
 
 Create a new Visit UUID folder (e.g., _DATA/Patients/[Patient_UUID]/[Visit_UUID]/).
-
-Save the parsed JSON as data.json in this folder.
 
 Move all associated PDFs (report_1.pdf, etc.) into this folder.
 
 Delete the original files from _IMPORT/.
 
 Phase 3: The "UI" (The User Application)
-This is the Svelte/React app the user sees.
+This is the Svelte app the user sees. It uses a simple Svelte store for state management.
 
 Component 1: Patient Dashboard (Main View)
 
@@ -149,21 +137,11 @@ Component 3: Report Viewer (The "Compare" View)
 
 This is the core feature.
 
-"PDF" Tab:
+A multi-pane view that allows the user to view PDF reports and the structured data side-by-side.
 
-A dropdown to select the "Current" visit (e.g., "Oct 2025").
+Component 4: Unmatched Files Notification
 
-A dropdown to select the "Compare" visit (e.g., "Apr 2025").
-
-Left Panel: A PDF.js viewer showing the PDF(s) for the "Current" visit.
-
-Right Panel: A PDF.js viewer showing the PDF(s) for the "Compare" visit.
-
-"Structured Data" Tab:
-
-Renders the data.json for the "Current" visit in a clean, readable HTML table.
-
-This is for viewing the raw, parsed parameters (thresholds, battery, etc.) in a consistent format, regardless of the manufacturer.
+A dismissible notification that appears at the top of the application window to inform the user when files in the `_IMPORT` directory cannot be matched to a patient.
 
 Phase 4: Packaging & Deployment
 Use electron-builder or electron-forge to package the entire application.
