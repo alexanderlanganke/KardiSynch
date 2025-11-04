@@ -3,11 +3,9 @@
   import PatientDetail from './PatientDetail.svelte';
   import Settings from './Settings.svelte';
   import { currentView } from './stores';
-  import UnmatchedFilesNotification from './UnmatchedFilesNotification.svelte';
 </script>
 
 <main>
-  <UnmatchedFilesNotification />
   <nav>
     <button on:click={() => currentView.set('dashboard')}>Dashboard</button>
     <button on:click={() => currentView.set('settings')}>Settings</button>
