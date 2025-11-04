@@ -8,5 +8,9 @@
   "include": [
     "src/main/**/*",
     "src/preload/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "src/main/tests"
   ]
 }
