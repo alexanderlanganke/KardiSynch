@@ -5,8 +5,16 @@ import { initializeDatabase, getDb, getAllPatients, getPatientReports, getSettin
 import { initializeWatcher } from './watcher';
 import { seedDatabase } from './seed';
 
+let mainWindow: BrowserWindow | null;
+
+export function sendUnmatchedFiles(files: string[]) {
+  if (mainWindow) {
+    mainWindow.webContents.send('unmatched-files', files);
+  }
+}
+
 function createWindow() {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {

@@ -16,17 +16,39 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
     return data.text;
 };
 
+import { UnifiedReport } from './reports';
+
 /**
- * Verifies that a PDF belongs to the correct patient.
+ * Verifies that a PDF's content matches the metadata from a primary report.
  *
  * @param pdfText The text extracted from the PDF.
- * @param patientFirstName The patient's first name.
- * @param patientLastName The patient's last name.
- * @returns A boolean indicating whether the PDF is verified.
+ * @param reportData The UnifiedReport object containing the metadata to verify against.
+ * @returns A boolean indicating whether the PDF content matches the report data.
  */
-export const verifyPdf = (pdfText: string, patientFirstName: string, patientLastName: string): boolean => {
-    // This is a simple verification logic. In a real scenario, this would be more robust.
-    return pdfText.includes(patientFirstName) && pdfText.includes(patientLastName);
+export const verifyPdfMatch = (pdfText: string, reportData: UnifiedReport): boolean => {
+  const { patient, interrogation_date, device } = reportData;
+
+  // Normalize all text to lowercase for case-insensitive matching
+  const lowerPdfText = pdfText.toLowerCase();
+
+  // Check for patient's first and last name
+  if (!lowerPdfText.includes(patient.first_name.toLowerCase()) || !lowerPdfText.includes(patient.last_name.toLowerCase())) {
+    return false;
+  }
+
+  // Check for the interrogation date
+  // This can be tricky due to different date formats. For now, we'll do a simple includes check.
+  // A more robust solution might involve regex and date parsing.
+  if (!lowerPdfText.includes(interrogation_date.split('T')[0])) {
+    return false;
+  }
+
+  // Check for device model and serial number
+  if (!lowerPdfText.includes(device.model.toLowerCase()) || !lowerPdfText.includes(device.serial_number.toLowerCase())) {
+    return false;
+  }
+
+  return true;
 };
 
 
