@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
-import { initializeDatabase, getDb, getAllPatients } from './database';
+import { initializeDatabase, getDb, getAllPatients, getSettings, setSettings } from './database';
 import { initializeWatcher } from './watcher';
 import { seedDatabase } from './seed';
 
@@ -55,6 +55,25 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
     return patients;
   } catch (error) {
     console.error('Failed to get all patients:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-settings', async () => {
+  try {
+    const settings = await getSettings();
+    return settings;
+  } catch (error) {
+    console.error('Failed to get settings:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('set-settings', async (event, settings) => {
+  try {
+    await setSettings(settings);
+  } catch (error) {
+    console.error('Failed to set settings:', error);
     throw error;
   }
 });
