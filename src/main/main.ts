@@ -1,7 +1,8 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, ipcMain } from 'electron';
 import path from 'path';
-import { initializeDatabase } from './database';
+import { initializeDatabase, getDb, getAllPatients } from './database';
 import { initializeWatcher } from './watcher';
+import { seedDatabase } from './seed';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -21,6 +22,22 @@ function createWindow() {
 
 app.whenReady().then(() => {
   initializeDatabase();
+
+  const db = getDb();
+  db.get('SELECT COUNT(*) as count FROM Patients', (err, row: { count: number }) => {
+    if (err) {
+      console.error('Error checking patient count:', err);
+      return;
+    }
+
+    if (row.count === 0) {
+      console.log('Database is empty, seeding with mock data...');
+      seedDatabase();
+    } else {
+      console.log('Database already contains data, skipping seed.');
+    }
+  });
+
   initializeWatcher();
   createWindow();
   console.log('Electron app is ready.');
@@ -30,6 +47,16 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+ipcMain.handle('get-all-patients', async (event, filters) => {
+  try {
+    const patients = await getAllPatients(filters);
+    return patients;
+  } catch (error) {
+    console.error('Failed to get all patients:', error);
+    throw error;
+  }
 });
 
 app.on('window-all-closed', () => {
