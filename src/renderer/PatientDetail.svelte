@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { currentPatientId } from './stores';
+  import { dndzone } from 'svelte-dnd-action';
+  import { currentPatientId, viewerSlots, type ViewerSlot } from './stores';
+  import ViewerArea from './ViewerArea.svelte';
 
   let reports = [];
   let patientId = $currentPatientId;
@@ -19,6 +21,31 @@
     }
   }
 
+  function handleDndConsider(e) {
+    const { items, info } = e.detail;
+    reports = items;
+  }
+
+  function handleDndFinalize(e) {
+    const { items, info } = e.detail;
+    if (info.trigger === 'droppedIntoZone') {
+      const report = info.id;
+      const slotIndex = info.zone.id;
+      viewerSlots.update(slots => {
+        slots[slotIndex] = { report: report, viewMode: 'pdf' };
+        return slots;
+      });
+    }
+    reports = items;
+  }
+
+  function handleClose(slotIndex: number) {
+    viewerSlots.update(slots => {
+      slots[slotIndex] = null;
+      return slots;
+    });
+  }
+
   currentPatientId.subscribe(id => {
     if (id) {
       patientId = id;
@@ -28,54 +55,71 @@
 </script>
 
 <main>
-  <h1>Patient Detail</h1>
+  <div class="viewer-container">
+    {#each $viewerSlots as slot, i}
+      <div class="viewer-slot" use:dndzone={{ items: [], id: i }} on:consider={handleDndConsider} on:finalize={handleDndFinalize}>
+        {#if slot}
+          <ViewerArea bind:slot={slot} on:close={() => handleClose(i)} />
+        {:else}
+          <div class="placeholder">Drop a report here</div>
+        {/if}
+      </div>
+    {/each}
+  </div>
 
-  {#if reports.length > 0}
-    <div class="timeline">
-      {#each reports as report}
+  <div class="timeline-container">
+    <div use:dndzone={{ items: reports }} on:consider={handleDndConsider} on:finalize={handleDndFinalize}>
+      {#each reports as report (report.id)}
         <div class="timeline-item">
-          <div class="timeline-content">
-            <h2>{report.visit_date}</h2>
-            <p><strong>Hospital Visit ID:</strong> {report.hospitalVisitId}</p>
-            <p><strong>Device Manufacturer:</strong> {report.device_manufacturer}</p>
-          </div>
+          <p>{report.visit_date}</p>
         </div>
       {/each}
     </div>
-  {:else}
-    <p>No reports found for this patient.</p>
-  {/if}
+  </div>
 </main>
 
 <style>
   main {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  .viewer-container {
+    flex-grow: 1;
+    display: flex;
+    gap: 1em;
     padding: 1em;
   }
-  .timeline {
-    position: relative;
-    margin: 0;
-    padding: 0;
-    list-style: none;
+  .viewer-slot {
+    flex: 1;
+    border: 2px dashed #ccc;
+    border-radius: 6px;
+    padding: 1em;
+    display: flex;
+    justify-content: center;
+    align-items: center;
   }
-  .timeline::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 20px;
-    width: 4px;
-    background: #ddd;
+  .placeholder {
+    color: #999;
+  }
+  .timeline-container {
+    flex-shrink: 0;
+    height: 150px;
+    background: #f0f0f0;
+    padding: 1em;
+    overflow-x: auto;
+    white-space: nowrap;
   }
   .timeline-item {
-    position: relative;
-    margin-bottom: 2em;
-  }
-  .timeline-content {
-    position: relative;
-    margin-left: 60px;
+    display: inline-block;
+    width: 150px;
+    height: 100px;
     background: #fff;
-    padding: 1em;
+    border: 1px solid #ddd;
     border-radius: 6px;
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    margin-right: 1em;
+    padding: 1em;
+    cursor: grab;
+    user-select: none;
   }
 </style>
