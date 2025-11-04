@@ -1,6 +1,7 @@
 import pdf from 'pdf-parse';
 import { createWorker } from 'tesseract.js';
 import * as fs from 'fs';
+import { UnifiedReport } from './reports';
 
 /**
  * Extracts text from a PDF file, using OCR as a fallback.
@@ -31,16 +32,34 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
  * This is a placeholder for manufacturer-specific parsing logic.
  *
  * @param text The raw text from the PDF.
- * @returns A structured data object (currently, a placeholder).
+ * @returns A structured data object conforming to the UnifiedReport interface.
  */
-export const extractStructuredData = (text: string) => {
+export const extractStructuredData = (text: string): UnifiedReport => {
   console.log('Extracting structured data from text...');
-  // Placeholder for future manufacturer-specific parsing logic
-  return {
-    rawText: text.substring(0, 500) + '...', // Return a snippet for now
+
+  // This is a placeholder implementation. In a real scenario, this function
+  // would contain complex logic to parse the text and populate the fields.
+  const placeholderReport: UnifiedReport = {
     manufacturer: 'Unknown',
-    // ... other structured fields will go here
+    interrogation_date: new Date().toISOString().split('T')[0], // Today's date as a placeholder
+    patient: {
+      first_name: 'Unknown',
+      last_name: 'Unknown',
+      dob: '1900-01-01', // Placeholder DOB
+    },
+    device: {
+      type: 'Unknown',
+      model: 'Unknown',
+      serial_number: 'Unknown',
+    },
+    battery: {
+      // Empty placeholder
+    },
+    leads: [], // Default to an empty array
+    raw_text: text, // Store the full raw text
   };
+
+  return placeholderReport;
 };
 
 
