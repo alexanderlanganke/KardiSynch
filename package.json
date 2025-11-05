@@ -40,7 +40,8 @@
     },
     "files": [
       "dist/**/*"
-    ]
+    ],
+    "publish": "onTagOrDraft"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
