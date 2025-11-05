@@ -12,7 +12,14 @@
     "clean": "rm -rf dist",
     "test": "vitest",
     "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test",
-    "test:e2e:ci": "npm run build && playwright test"
+    "test:e2e:ci": "npm run build && cross-os e2e-test-runner"
+  },
+  "cross-os": {
+    "e2e-test-runner": {
+      "linux": "xvfb-run --auto-servernum --server-args=\\\"-screen 0 1280x960x24\\\" -- playwright test",
+      "win32": "playwright test",
+      "darwin": "playwright test"
+    }
   },
   "repository": {
     "type": "git",
@@ -32,6 +39,7 @@
     "@types/sqlite3": "^3.1.11",
     "@types/uuid": "^10.0.0",
     "cross-env": "^10.1.0",
+    "cross-os": "^1.3.0",
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12",
     "sqlite3": "^5.1.7",
