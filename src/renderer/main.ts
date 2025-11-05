@@ -1,13 +1,20 @@
 import App from './App.svelte';
 
-const target = document.getElementById('app');
+function mountApp() {
+  const target = document.getElementById('app');
+  if (!target) {
+    throw new Error('Could not find target element');
+  }
 
-if (!target) {
-  throw new Error('Could not find target element');
+  const app = new App({
+    target
+  });
+
+  return app;
 }
 
-const app = new App({
-  target
-});
-
-export default app;
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mountApp);
+} else {
+  mountApp();
+}
