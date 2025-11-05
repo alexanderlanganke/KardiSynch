@@ -12,7 +12,8 @@
     "clean": "rm -rf dist",
     "test": "vitest",
     "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test",
-    "test:e2e:ci": "npm run build && cross-os e2e-test-runner"
+    "test:e2e:ci": "npm run build && cross-os e2e-test-runner",
+    "package": "electron-builder"
   },
   "cross-os": {
     "e2e-test-runner": {
