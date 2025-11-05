@@ -34,3 +34,12 @@ jobs:
 
       - name: Run end-to-end tests
         run: npm run test:e2e:ci
+
+      - name: Build and package
+        run: npm run package
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: package-${{ matrix.os }}
+          path: dist/*
