@@ -41,7 +41,9 @@
     "files": [
       "dist/**/*"
     ],
-    "publish": "onTagOrDraft"
+    "publish": {
+      "provider": "github"
+    }
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
