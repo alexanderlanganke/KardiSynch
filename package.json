@@ -14,7 +14,7 @@
     "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test",
     "test:e2e:ci": "npm run build && cross-os e2e-test-runner",
     "package": "electron-builder",
-    "postinstall": "@electron/rebuild"
+    "postinstall": "npx @electron/rebuild"
   },
   "cross-os": {
     "e2e-test-runner": {
@@ -48,7 +48,7 @@
     }
   },
   "devDependencies": {
-    "@electron/rebuild": "^4.0.1",
+    "@electron/rebuild": "^3.6.0",
     "@playwright/test": "^1.56.1",
     "@sveltejs/vite-plugin-svelte": "^6.2.1",
     "@types/sqlite3": "^3.1.11",
