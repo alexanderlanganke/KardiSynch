@@ -35,11 +35,11 @@
   },
   "homepage": "https://github.com/alexanderlanganke/KardiSynch#readme",
   "build": {
-    "extraFiles": [
-      {
-        "from": "dist",
-        "to": "dist"
-      }
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*"
     ]
   },
   "devDependencies": {
