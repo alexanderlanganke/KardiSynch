@@ -22,6 +22,10 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install xvfb on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Install dependencies
         run: npm install
 
