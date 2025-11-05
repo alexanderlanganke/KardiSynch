@@ -8,6 +8,8 @@ on:
 
 jobs:
   build-and-test:
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -38,9 +40,5 @@ jobs:
 
       - name: Build and package
         run: npm run package
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-${{ matrix.os }}
-          path: release/*
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
