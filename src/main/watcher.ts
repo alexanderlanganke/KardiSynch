@@ -23,7 +23,7 @@ const getAllFiles = (dir: string): string[] => {
       return isDirectory ? [...files, ...getAllFiles(name)] : [...files, name];
     } catch (error) {
       console.error(`Error processing file ${name}:`, error);
-      sendNotification(`Error processing file ${name}: ${error.message}`, 'error');
+      sendNotification(`Error processing file ${name}: ${(error as Error).message}`, 'error');
       return files;
     }
   }, [] as string[]);
@@ -72,7 +72,7 @@ const processFiles = async () => {
           allUnmatchedFiles.push(path.basename(file));
         } catch (error) {
           console.error(`Error moving unmatched file ${file}:`, error);
-          sendNotification(`Error moving unmatched file ${file}: ${error.message}`, 'error');
+          sendNotification(`Error moving unmatched file ${file}: ${(error as Error).message}`, 'error');
         }
       }
       continue;
@@ -109,7 +109,7 @@ const processFiles = async () => {
         routeFiles(visitDir);
       } catch (error) {
         console.error(`Error creating visit directory for patient ${patientId}:`, error);
-        sendNotification(`Error creating visit directory for patient ${patientId}: ${error.message}`, 'error');
+        sendNotification(`Error creating visit directory for patient ${patientId}: ${(error as Error).message}`, 'error');
       }
     }
 
@@ -122,7 +122,7 @@ const processFiles = async () => {
           console.warn(`Moved unmatched file to _UNMATCHED: ${path.basename(file)}`);
         } catch (error) {
           console.error(`Error moving unmatched file ${file}:`, error);
-          sendNotification(`Error moving unmatched file ${file}: ${error.message}`, 'error');
+          sendNotification(`Error moving unmatched file ${file}: ${(error as Error).message}`, 'error');
         }
       }
     });
@@ -141,7 +141,7 @@ const processFiles = async () => {
       }
     } catch (error) {
       console.error(`Error removing empty directory ${dir}:`, error);
-      sendNotification(`Error removing empty directory ${dir}: ${error.message}`, 'error');
+      sendNotification(`Error removing empty directory ${dir}: ${(error as Error).message}`, 'error');
     }
   });
 };
@@ -159,7 +159,7 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string)
       }
     } catch (error) {
       console.error(`Error creating directory ${dir}:`, error);
-      sendNotification(`Error creating directory ${dir}: ${error.message}`, 'error');
+      sendNotification(`Error creating directory ${dir}: ${(error as Error).message}`, 'error');
     }
   });
 
