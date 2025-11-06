@@ -9,4 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onUnmatchedFiles: (callback: (files: string[]) => void) => {
     ipcRenderer.on('unmatched-files', (event, files) => callback(files));
   },
+  onNotify: (callback: (type: 'info' | 'warning' | 'error', message: string) => void) => {
+    ipcRenderer.on('notify', (event, { type, message }) => callback(type, message));
+  }
 });
