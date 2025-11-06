@@ -5,6 +5,7 @@ import PatientDetail from './PatientDetail';
 import Settings from './Settings';
 import { ThemeProvider } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
+import NotificationArea from './NotificationArea';
 
 const App: React.FC = () => {
   const { currentView, setCurrentView } = useAppContext();
@@ -43,6 +44,7 @@ const App: React.FC = () => {
           </nav>
         </aside>
         <main className="flex-1 p-6 overflow-auto">{renderView()}</main>
+        <NotificationArea />
       </div>
     </ThemeProvider>
   );

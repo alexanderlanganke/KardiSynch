@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sendUnmatchedFiles } from './main';
+import { sendUnmatchedFiles, sendNotification } from './main';
 import { routeFiles } from './router';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
@@ -18,8 +18,14 @@ let unmatchedDir: string;
 const getAllFiles = (dir: string): string[] => {
   return fs.readdirSync(dir).reduce((files, file) => {
     const name = path.join(dir, file);
-    const isDirectory = fs.statSync(name).isDirectory();
-    return isDirectory ? [...files, ...getAllFiles(name)] : [...files, name];
+    try {
+      const isDirectory = fs.statSync(name).isDirectory();
+      return isDirectory ? [...files, ...getAllFiles(name)] : [...files, name];
+    } catch (error) {
+      console.error(`Error processing file ${name}:`, error);
+      sendNotification(`Error processing file ${name}: ${error.message}`, 'error');
+      return files;
+    }
   }, [] as string[]);
 };
 
@@ -60,9 +66,14 @@ const processFiles = async () => {
     if (primaryReports.length === 0) {
       console.warn(`No primary report found for patient ${patientId}. Moving all associated files to _UNMATCHED.`);
       for (const file of patientFiles) {
-        const newPath = path.join(unmatchedDir, path.basename(file));
-        fs.renameSync(file, newPath);
-        allUnmatchedFiles.push(path.basename(file));
+        try {
+          const newPath = path.join(unmatchedDir, path.basename(file));
+          fs.renameSync(file, newPath);
+          allUnmatchedFiles.push(path.basename(file));
+        } catch (error) {
+          console.error(`Error moving unmatched file ${file}:`, error);
+          sendNotification(`Error moving unmatched file ${file}: ${error.message}`, 'error');
+        }
       }
       continue;
     }
@@ -85,24 +96,34 @@ const processFiles = async () => {
     }
 
     for (const visit of visits) {
-      const visitId = `${patientId}_${visit.reportData.interrogation_date.split('T')[0]}_${uuidv4()}`;
-      const visitDir = path.join(importDir, visitId);
-      fs.mkdirSync(visitDir, { recursive: true });
+      try {
+        const visitId = `${patientId}_${visit.reportData.interrogation_date.split('T')[0]}_${uuidv4()}`;
+        const visitDir = path.join(importDir, visitId);
+        fs.mkdirSync(visitDir, { recursive: true });
 
-      const allVisitFiles = [visit.reportFile, ...visit.pdfs];
-      for (const file of allVisitFiles) {
-        const newPath = path.join(visitDir, path.basename(file));
-        fs.renameSync(file, newPath);
+        const allVisitFiles = [visit.reportFile, ...visit.pdfs];
+        for (const file of allVisitFiles) {
+          const newPath = path.join(visitDir, path.basename(file));
+          fs.renameSync(file, newPath);
+        }
+        routeFiles(visitDir);
+      } catch (error) {
+        console.error(`Error creating visit directory for patient ${patientId}:`, error);
+        sendNotification(`Error creating visit directory for patient ${patientId}: ${error.message}`, 'error');
       }
-      routeFiles(visitDir);
     }
 
     patientFiles.forEach(file => {
       if (!matchedFiles.has(file)) {
-        const newPath = path.join(unmatchedDir, path.basename(file));
-        fs.renameSync(file, newPath);
-        allUnmatchedFiles.push(path.basename(file));
-        console.warn(`Moved unmatched file to _UNMATCHED: ${path.basename(file)}`);
+        try {
+          const newPath = path.join(unmatchedDir, path.basename(file));
+          fs.renameSync(file, newPath);
+          allUnmatchedFiles.push(path.basename(file));
+          console.warn(`Moved unmatched file to _UNMATCHED: ${path.basename(file)}`);
+        } catch (error) {
+          console.error(`Error moving unmatched file ${file}:`, error);
+          sendNotification(`Error moving unmatched file ${file}: ${error.message}`, 'error');
+        }
       }
     });
   }
@@ -113,9 +134,14 @@ const processFiles = async () => {
 
   // Clean up empty directories
   processedDirs.forEach(dir => {
-    if (fs.readdirSync(dir).length === 0 && dir !== importDir) {
-      fs.rmdirSync(dir);
-      console.log(`Removed empty directory: ${dir}`);
+    try {
+      if (fs.readdirSync(dir).length === 0 && dir !== importDir) {
+        fs.rmdirSync(dir);
+        console.log(`Removed empty directory: ${dir}`);
+      }
+    } catch (error) {
+      console.error(`Error removing empty directory ${dir}:`, error);
+      sendNotification(`Error removing empty directory ${dir}: ${error.message}`, 'error');
     }
   });
 };
@@ -127,8 +153,13 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string)
   importDir = appImportDir;
   unmatchedDir = appUnmatchedDir;
   [importDir, unmatchedDir].forEach(dir => {
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
+    try {
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+    } catch (error) {
+      console.error(`Error creating directory ${dir}:`, error);
+      sendNotification(`Error creating directory ${dir}: ${error.message}`, 'error');
     }
   });
 

@@ -15,6 +15,12 @@ export function sendUnmatchedFiles(files: string[]) {
   }
 }
 
+export function sendNotification(message: string, type: 'info' | 'warning' | 'error' = 'info') {
+  if (mainWindow) {
+    mainWindow.webContents.send('notify', { type, message });
+  }
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 800,
