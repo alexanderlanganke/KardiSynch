@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { ModeToggle } from '@/components/ui/ModeToggle';
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -36,23 +41,46 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <main>
-      <h1>Settings</h1>
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-6">Settings</h1>
+      <div className='flex items-center justify-between'>
+        <p className="text-xl font-bold mb-6">Theme</p>
+        <ModeToggle />
+      </div>
 
-      <form onSubmit={saveSettings}>
-        <div className="form-group">
-          <label htmlFor="some-setting">Some Setting:</label>
-          <input id="some-setting" type="text" name="someSetting" value={settings.someSetting} onChange={handleInputChange} />
-        </div>
-
-        <div className="form-group">
-          <label htmlFor="another-setting">Another Setting:</label>
-          <input id="another-setting" type="text" name="anotherSetting" value={settings.anotherSetting} onChange={handleInputChange} />
-        </div>
-
-        <button type="submit">Save</button>
-      </form>
-    </main>
+      <Card>
+        <CardHeader>
+          <CardTitle>Application Settings</CardTitle>
+        </CardHeader>
+        <form onSubmit={saveSettings}>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="some-setting">Some Setting:</Label>
+              <Input
+                id="some-setting"
+                type="text"
+                name="someSetting"
+                value={settings.someSetting}
+                onChange={handleInputChange}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="another-setting">Another Setting:</Label>
+              <Input
+                id="another-setting"
+                type="text"
+                name="anotherSetting"
+                value={settings.anotherSetting}
+                onChange={handleInputChange}
+              />
+            </div>
+          </CardContent>
+          <CardFooter>
+            <Button type="submit">Save</Button>
+          </CardFooter>
+        </form>
+      </Card>
+    </div>
   );
 };
 
