@@ -105,8 +105,9 @@ ipcMain.handle('get-patient-reports', async (event, patientId) => {
 
 ipcMain.handle('get-settings', async () => {
   try {
-    const settings = await getSettings();
-    return settings;
+    const dbSettings = await getSettings();
+    const config = getConfig();
+    return { ...dbSettings, dbPath: config.dbPath };
   } catch (error) {
     console.error('Failed to get settings:', error);
     throw error;
@@ -115,12 +116,11 @@ ipcMain.handle('get-settings', async () => {
 
 ipcMain.handle('set-settings', async (event, settings) => {
   try {
-    await setSettings(settings);
-    if (settings.dbPath) {
-      const config = getConfig();
-      config.dbPath = settings.dbPath;
-      saveConfig(config);
-    }
+    const { dbPath, ...dbSettings } = settings;
+    await setSettings(dbSettings);
+    const config = getConfig();
+    config.dbPath = dbPath;
+    saveConfig(config);
   } catch (error) {
     console.error('Failed to set settings:', error);
     throw error;
