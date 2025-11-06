@@ -70,7 +70,6 @@
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.4.394",
-    "svelte-dnd-action": "^0.9.67",
     "tesseract.js": "^6.0.1",
     "uuid": "^13.0.0"
   }

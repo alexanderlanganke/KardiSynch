@@ -15,7 +15,7 @@ Core Framework: Electron. It is the only mature technology that perfectly satisf
 
 Language: TypeScript. For a project with data parsing and a database, you want type safety. It will save you from countless bugs.
 
-UI Library: Svelte. Its lightweight, extremely fast, and compiles to tiny vanilla JavaScript. Its philosophy of "write less, do more" feels aligned with the subtle, efficient aesthetic (~<*>~) you appreciate.
+UI Library: React. A robust and widely-used library for building user interfaces. Its component-based architecture and strong community support make it a solid choice for a modern UI.
 
 Database: SQLite. This is a single, file-based database (database.db) that is fast, robust, and perfect for an embedded app. It will store the patient list, metadata, and all parsed report data.
 
@@ -117,7 +117,7 @@ Move all associated PDFs (report_1.pdf, etc.) into this folder.
 Delete the original files from _IMPORT/.
 
 Phase 3: The "UI" (The User Application)
-This is the Svelte app the user sees. It uses a simple Svelte store for state management.
+This is the React app the user sees. It uses React's Context API for state management.
 
 Component 1: Patient Dashboard (Main View)
 

@@ -17,10 +17,10 @@ test('App launches, displays a window, and renders UI without errors', async () 
     consoleMessages.push(msg.text());
   });
 
-  // Wait for the main Svelte component to be in the DOM
-  await window.waitForSelector('main');
+  // Wait for the main React component to be in the DOM and render the dashboard
+  await window.waitForSelector('h1:has-text("Patient Dashboard")');
 
-  // Check if the Svelte app has rendered content inside the target div
+  // Check if the React app has rendered content inside the target div
   const appContent = await window.locator('#app').innerHTML();
   expect(appContent).not.toBe('');
 
