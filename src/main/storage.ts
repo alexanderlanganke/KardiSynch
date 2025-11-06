@@ -1,9 +1,15 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { findPatient, createPatient, createReport } from './database';
+import { findPatient, createPatient, createReport, getSettings } from './database';
+import { app } from 'electron';
 
-const dataDir = path.join(__dirname, '..', '..', '_DATA');
+let dataDir: string;
+
+export const initializeStorage = async () => {
+  const settings = await getSettings();
+  dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+};
 
 export const storeVisit = async (visitData: {
   patientName: string;
