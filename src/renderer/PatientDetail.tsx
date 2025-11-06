@@ -4,6 +4,8 @@ import { SortableContext, useSortable, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAppContext, ViewerSlot } from './AppContext';
 import ViewerArea from './ViewerArea';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const PatientDetail: React.FC = () => {
   const { currentPatientId, viewerSlots, setViewerSlots } = useAppContext();
@@ -33,7 +35,7 @@ const PatientDetail: React.FC = () => {
 
       if (overIsViewerSlot && activeIsTimelineItem) {
         const slotIndex = parseInt(over.id.toString().replace('slot-', ''), 10);
-        const report = reports.find(r => r.id === active.id);
+        const report = reports.find((r) => r.id === active.id);
         if (report) {
           const newSlots = [...viewerSlots];
           newSlots[slotIndex] = { report, viewMode: 'pdf' };
@@ -49,7 +51,10 @@ const PatientDetail: React.FC = () => {
     setViewerSlots(newSlots);
   };
 
-  const handleViewModeChange = (slotIndex: number, viewMode: 'pdf' | 'data') => {
+  const handleViewModeChange = (
+    slotIndex: number,
+    viewMode: 'pdf' | 'data'
+  ) => {
     const newSlots = [...viewerSlots];
     if (newSlots[slotIndex]) {
       (newSlots[slotIndex] as ViewerSlot).viewMode = viewMode;
@@ -59,37 +64,57 @@ const PatientDetail: React.FC = () => {
 
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <main>
-        <div className="viewer-container">
+      <div className="flex h-full space-x-4">
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
           {viewerSlots.map((slot, i) => (
             <Droppable key={`slot-${i}`} id={`slot-${i}`}>
-              {slot ? (
-                <ViewerArea slot={slot} onClose={() => handleClose(i)} onViewModeChange={(vm) => handleViewModeChange(i, vm)} />
-              ) : (
-                <div className="placeholder">Drop a report here</div>
-              )}
+              <Card className="h-full">
+                <CardContent className="h-full p-2">
+                  {slot ? (
+                    <ViewerArea
+                      slot={slot}
+                      onClose={() => handleClose(i)}
+                      onViewModeChange={(vm) => handleViewModeChange(i, vm)}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                      <p>Drop a report here</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </Droppable>
           ))}
         </div>
-
-        <div className="timeline-container">
-          <SortableContext items={reports.map(r => r.id)}>
-            {reports.map(report => (
-              <Draggable key={report.id} id={report.id}>
-                <div className="timeline-item">
-                  <p>{report.visit_date}</p>
-                </div>
-              </Draggable>
-            ))}
-          </SortableContext>
-        </div>
-      </main>
+        <Card className="w-64">
+          <CardHeader>
+            <CardTitle>Timeline</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ScrollArea className="h-[calc(100vh-12rem)]">
+              <SortableContext items={reports.map((r) => r.id)}>
+                {reports.map((report) => (
+                  <Draggable key={report.id} id={report.id}>
+                    <Card className="mb-2 p-2 cursor-grab">
+                      <p className="font-semibold">{report.visit_date}</p>
+                    </Card>
+                  </Draggable>
+                ))}
+              </SortableContext>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+      </div>
     </DndContext>
   );
 };
 
-const Draggable: React.FC<{ id: any, children: React.ReactNode }> = ({ id, children }) => {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id });
+const Draggable: React.FC<{ id: any; children: React.ReactNode }> = ({
+  id,
+  children,
+}) => {
+  const { attributes, listeners, setNodeRef, transform, transition } =
+    useSortable({ id });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -101,14 +126,16 @@ const Draggable: React.FC<{ id: any, children: React.ReactNode }> = ({ id, child
   );
 };
 
-const Droppable: React.FC<{ id: any, children: React.ReactNode }> = ({ id, children }) => {
+const Droppable: React.FC<{ id: any; children: React.ReactNode }> = ({
+  id,
+  children,
+}) => {
   const { setNodeRef } = useSortable({ id });
   return (
-    <div ref={setNodeRef} className="viewer-slot">
+    <div ref={setNodeRef} className="h-full">
       {children}
     </div>
   );
 };
-
 
 export default PatientDetail;
