@@ -1,9 +1,11 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientReports, getSettings, setSettings } from './database';
 import { initializeWatcher } from './watcher';
 import { seedDatabase } from './seed';
+import { getConfig, saveConfig } from './config';
+import { initializeStorage } from './storage';
 
 let mainWindow: BrowserWindow | null;
 
@@ -32,8 +34,18 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  initializeDatabase();
+app.whenReady().then(async () => {
+  const userDataPath = app.getPath('userData');
+  const config = getConfig();
+
+  const dbPath = config.dbPath || path.join(userDataPath, '_DATA', 'database.db');
+  initializeDatabase(dbPath);
+
+  const settings = await getSettings();
+  const importDir = settings.importDir || path.join(userDataPath, '_IMPORT');
+  const unmatchedDir = settings.unmatchedDir || path.join(userDataPath, '_UNMATCHED');
+
+  await initializeStorage();
 
   const db = getDb();
   db.get('SELECT COUNT(*) as count FROM Patients', (err, row: { count: number }) => {
@@ -49,10 +61,6 @@ app.whenReady().then(() => {
       console.log('Database already contains data, skipping seed.');
     }
   });
-
-  const userDataPath = app.getPath('userData');
-  const importDir = path.join(userDataPath, '_IMPORT');
-  const unmatchedDir = path.join(userDataPath, '_UNMATCHED');
 
   initializeWatcher(importDir, unmatchedDir);
   createWindow();
@@ -73,6 +81,16 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
     console.error('Failed to get all patients:', error);
     throw error;
   }
+});
+
+ipcMain.handle('select-directory', async () => {
+  if (!mainWindow) {
+    return;
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  return result.filePaths[0];
 });
 
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
@@ -98,6 +116,11 @@ ipcMain.handle('get-settings', async () => {
 ipcMain.handle('set-settings', async (event, settings) => {
   try {
     await setSettings(settings);
+    if (settings.dbPath) {
+      const config = getConfig();
+      config.dbPath = settings.dbPath;
+      saveConfig(config);
+    }
   } catch (error) {
     console.error('Failed to set settings:', error);
     throw error;
