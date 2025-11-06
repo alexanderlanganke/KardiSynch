@@ -50,7 +50,7 @@
   "devDependencies": {
     "@electron/rebuild": "^3.6.0",
     "@playwright/test": "^1.56.1",
-    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@vitejs/plugin-react": "^4.2.1",
     "@types/sqlite3": "^3.1.11",
     "@types/uuid": "^10.0.0",
     "cross-env": "^10.1.0",
@@ -58,13 +58,16 @@
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12",
     "sqlite3": "^5.1.7",
-    "svelte": "^5.43.2",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.12",
     "vitest": "^4.0.7"
   },
   "dependencies": {
+    "@dnd-kit/sortable": "^8.0.0",
+    "@dnd-kit/core": "^6.1.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "@types/pdf-parse": "^1.1.5",
     "fast-xml-parser": "^5.3.1",
     "pdf-lib": "^1.17.1",
