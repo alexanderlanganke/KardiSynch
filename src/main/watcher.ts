@@ -7,8 +7,8 @@ import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
 import { extractTextFromPdf, verifyPdfMatch } from './pdf-merger';
 
-const importDir = path.join(__dirname, '..', '..', '_IMPORT');
-const unmatchedDir = path.join(__dirname, '..', '..', '_UNMATCHED');
+let importDir: string;
+let unmatchedDir: string;
 
 /**
  * Processes files in the _IMPORT directory, grouping them by patient,
@@ -115,7 +115,9 @@ const processFiles = async () => {
 /**
  * Initializes the file watcher, which monitors the _IMPORT directory for new files.
  */
-export const initializeWatcher = () => {
+export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string) => {
+  importDir = appImportDir;
+  unmatchedDir = appUnmatchedDir;
   [importDir, unmatchedDir].forEach(dir => {
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });

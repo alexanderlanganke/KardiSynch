@@ -50,7 +50,11 @@ app.whenReady().then(() => {
     }
   });
 
-  initializeWatcher();
+  const userDataPath = app.getPath('userData');
+  const importDir = path.join(userDataPath, '_IMPORT');
+  const unmatchedDir = path.join(userDataPath, '_UNMATCHED');
+
+  initializeWatcher(importDir, unmatchedDir);
   createWindow();
   console.log('Electron app is ready.');
 
