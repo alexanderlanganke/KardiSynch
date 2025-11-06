@@ -5,8 +5,7 @@ import fs from 'fs';
 
 let dbInstance: sqlite3.Database;
 
-const createDbConnection = () => {
-  const dbPath = path.join(app.getPath('userData'), '_DATA', 'database.db');
+const createDbConnection = (dbPath: string) => {
   const dir = path.dirname(dbPath);
 
   if (!fs.existsSync(dir)) {
@@ -58,9 +57,10 @@ const createTables = (db: sqlite3.Database) => {
   });
 };
 
-export const initializeDatabase = () => {
+export const initializeDatabase = (customDbPath?: string) => {
   if (!dbInstance) {
-    dbInstance = createDbConnection();
+    const dbPath = customDbPath || path.join(app.getPath('userData'), '_DATA', 'database.db');
+    dbInstance = createDbConnection(dbPath);
     createTables(dbInstance);
   }
   return dbInstance;
