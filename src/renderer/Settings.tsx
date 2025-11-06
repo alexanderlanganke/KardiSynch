@@ -7,8 +7,10 @@ import { ModeToggle } from '@/components/ui/ModeToggle';
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState({
-    someSetting: '',
-    anotherSetting: '',
+    importDir: '',
+    unmatchedDir: '',
+    dataPath: '',
+    dbPath: '',
   });
 
   useEffect(() => {
@@ -40,6 +42,17 @@ const Settings: React.FC = () => {
     setSettings({ ...settings, [e.target.name]: e.target.value });
   };
 
+  const handleDirectorySelection = async (fieldName: keyof typeof settings) => {
+    try {
+      const directoryPath = await window.electronAPI.selectDirectory();
+      if (directoryPath) {
+        setSettings({ ...settings, [fieldName]: directoryPath });
+      }
+    } catch (error) {
+      console.error('Error selecting directory:', error);
+    }
+  };
+
   return (
     <div className="container mx-auto p-4">
       <h1 className="text-3xl font-bold mb-6">Settings</h1>
@@ -55,24 +68,56 @@ const Settings: React.FC = () => {
         <form onSubmit={saveSettings}>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="some-setting">Some Setting:</Label>
-              <Input
-                id="some-setting"
-                type="text"
-                name="someSetting"
-                value={settings.someSetting}
-                onChange={handleInputChange}
-              />
+              <Label htmlFor="import-dir">Import Directory:</Label>
+              <div className="flex items-center">
+                <Input
+                  id="import-dir"
+                  type="text"
+                  name="importDir"
+                  value={settings.importDir}
+                  onChange={handleInputChange}
+                />
+                <Button onClick={() => handleDirectorySelection('importDir')} type="button" className="ml-2">Browse</Button>
+              </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="another-setting">Another Setting:</Label>
-              <Input
-                id="another-setting"
-                type="text"
-                name="anotherSetting"
-                value={settings.anotherSetting}
-                onChange={handleInputChange}
-              />
+              <Label htmlFor="unmatched-dir">Unmatched Directory:</Label>
+              <div className="flex items-center">
+                <Input
+                  id="unmatched-dir"
+                  type="text"
+                  name="unmatchedDir"
+                  value={settings.unmatchedDir}
+                  onChange={handleInputChange}
+                />
+                <Button onClick={() => handleDirectorySelection('unmatchedDir')} type="button" className="ml-2">Browse</Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="data-path">Data Path:</Label>
+              <div className="flex items-center">
+                <Input
+                  id="data-path"
+                  type="text"
+                  name="dataPath"
+                  value={settings.dataPath}
+                  onChange={handleInputChange}
+                />
+                <Button onClick={() => handleDirectorySelection('dataPath')} type="button" className="ml-2">Browse</Button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="db-path">Database Path:</Label>
+              <div className="flex items-center">
+                <Input
+                  id="db-path"
+                  type="text"
+                  name="dbPath"
+                  value={settings.dbPath}
+                  onChange={handleInputChange}
+                />
+                <Button onClick={() => handleDirectorySelection('dbPath')} type="button" className="ml-2">Browse</Button>
+              </div>
             </div>
           </CardContent>
           <CardFooter>
