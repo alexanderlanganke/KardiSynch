@@ -1,11 +1,14 @@
+import { app } from 'electron';
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const dbPath = path.join(__dirname, '..', '..', '_DATA', 'database.db');
+let dbInstance: sqlite3.Database;
 
 const createDbConnection = () => {
+  const dbPath = path.join(app.getPath('userData'), '_DATA', 'database.db');
   const dir = path.dirname(dbPath);
+
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -54,8 +57,6 @@ const createTables = (db: sqlite3.Database) => {
     `);
   });
 };
-
-let dbInstance: sqlite3.Database;
 
 export const initializeDatabase = () => {
   if (!dbInstance) {
