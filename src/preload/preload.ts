@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
 contextBridge.exposeInMainWorld('electronAPI', {
   getAllPatients: (filters: any) => ipcRenderer.invoke('get-all-patients', filters),
@@ -10,7 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('unmatched-files', (event, files) => callback(files));
   },
   onNotify: (callback: (type: 'info' | 'warning' | 'error', message: string) => void) => {
-    const handler = (event, { type, message }) => callback(type, message);
+    const handler = (
+      event: IpcRendererEvent,
+      { type, message }: { type: 'info' | 'warning' | 'error'; message: string }
+    ) => callback(type, message);
     ipcRenderer.on('notify', handler);
     return () => {
       ipcRenderer.removeListener('notify', handler);
