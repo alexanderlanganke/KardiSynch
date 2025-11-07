@@ -16,10 +16,10 @@ const NotificationArea: React.FC = () => {
       setNotifications(prev => [...prev, { id: Date.now(), type, message }]);
     };
 
-    window.electronAPI.onNotify(handleNotify);
+    const cleanup = window.electronAPI.onNotify(handleNotify);
 
     return () => {
-      // Cleanup if necessary, though ipcRenderer.on doesn't return a cleanup function
+      cleanup();
     };
   }, []);
 
