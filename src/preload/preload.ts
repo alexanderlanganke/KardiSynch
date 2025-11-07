@@ -10,6 +10,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('unmatched-files', (event, files) => callback(files));
   },
   onNotify: (callback: (type: 'info' | 'warning' | 'error', message: string) => void) => {
-    ipcRenderer.on('notify', (event, { type, message }) => callback(type, message));
+    const handler = (event, { type, message }) => callback(type, message);
+    ipcRenderer.on('notify', handler);
+    return () => {
+      ipcRenderer.removeListener('notify', handler);
+    };
   }
 });
