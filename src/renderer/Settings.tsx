@@ -3,7 +3,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/componen
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { ModeToggle } from '@/components/ui/ModeToggle';
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState({
@@ -54,77 +53,105 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-3xl font-bold mb-6">Settings</h1>
-      <div className='flex items-center justify-between'>
-        <p className="text-xl font-bold mb-6">Theme</p>
-        <ModeToggle />
+    <div>
+      <div className="flex items-center justify-between space-y-2">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
+          <p className="text-muted-foreground">
+            Manage your application settings.
+          </p>
+        </div>
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Application Settings</CardTitle>
-        </CardHeader>
-        <form onSubmit={saveSettings}>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="import-dir">Import Directory:</Label>
-              <div className="flex items-center">
-                <Input
-                  id="import-dir"
-                  type="text"
-                  name="importDir"
-                  value={settings.importDir}
-                  onChange={handleInputChange}
-                />
-                <Button onClick={() => handleDirectorySelection('importDir')} type="button" className="ml-2">Browse</Button>
+      <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Application Paths</CardTitle>
+          </CardHeader>
+          <form onSubmit={saveSettings}>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="import-dir">Import Directory:</Label>
+                <div className="flex items-center">
+                  <Input
+                    id="import-dir"
+                    type="text"
+                    name="importDir"
+                    value={settings.importDir}
+                    onChange={handleInputChange}
+                  />
+                  <Button
+                    onClick={() => handleDirectorySelection('importDir')}
+                    type="button"
+                    className="ml-2"
+                  >
+                    Browse
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="unmatched-dir">Unmatched Directory:</Label>
-              <div className="flex items-center">
-                <Input
-                  id="unmatched-dir"
-                  type="text"
-                  name="unmatchedDir"
-                  value={settings.unmatchedDir}
-                  onChange={handleInputChange}
-                />
-                <Button onClick={() => handleDirectorySelection('unmatchedDir')} type="button" className="ml-2">Browse</Button>
+              <div className="space-y-2">
+                <Label htmlFor="unmatched-dir">Unmatched Directory:</Label>
+                <div className="flex items-center">
+                  <Input
+                    id="unmatched-dir"
+                    type="text"
+                    name="unmatchedDir"
+                    value={settings.unmatchedDir}
+                    onChange={handleInputChange}
+                  />
+                  <Button
+                    onClick={() => handleDirectorySelection('unmatchedDir')}
+                    type="button"
+                    className="ml-2"
+                  >
+                    Browse
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="data-path">Data Path:</Label>
-              <div className="flex items-center">
-                <Input
-                  id="data-path"
-                  type="text"
-                  name="dataPath"
-                  value={settings.dataPath}
-                  onChange={handleInputChange}
-                />
-                <Button onClick={() => handleDirectorySelection('dataPath')} type="button" className="ml-2">Browse</Button>
+              <div className="space-y-2">
+                <Label htmlFor="data-path">Data Path:</Label>
+                <div className="flex items-center">
+                  <Input
+                    id="data-path"
+                    type="text"
+                    name="dataPath"
+                    value={settings.dataPath}
+                    onChange={handleInputChange}
+                  />
+                  <Button
+                    onClick={() => handleDirectorySelection('dataPath')}
+                    type="button"
+                    className="ml-2"
+                  >
+                    Browse
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="db-path">Database Path:</Label>
-              <div className="flex items-center">
-                <Input
-                  id="db-path"
-                  type="text"
-                  name="dbPath"
-                  value={settings.dbPath}
-                  onChange={handleInputChange}
-                />
-                <Button onClick={() => handleDirectorySelection('dbPath')} type="button" className="ml-2">Browse</Button>
+              <div className="space-y-2">
+                <Label htmlFor="db-path">Database Path:</Label>
+                <div className="flex items-center">
+                  <Input
+                    id="db-path"
+                    type="text"
+                    name="dbPath"
+                    value={settings.dbPath}
+                    onChange={handleInputChange}
+                  />
+                  <Button
+                    onClick={() => handleDirectorySelection('dbPath')}
+                    type="button"
+                    className="ml-2"
+                  >
+                    Browse
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardContent>
-          <CardFooter>
-            <Button type="submit">Save</Button>
-          </CardFooter>
-        </form>
-      </Card>
+            </CardContent>
+            <CardFooter>
+              <Button type="submit">Save</Button>
+            </CardFooter>
+          </form>
+        </Card>
+      </div>
     </div>
   );
 };
