@@ -50,6 +50,7 @@ app.whenReady().then(async () => {
   const settings = await getSettings();
   const importDir = settings.importDir || path.join(userDataPath, '_IMPORT');
   const unmatchedDir = settings.unmatchedDir || path.join(userDataPath, '_UNMATCHED');
+  const dataDir = settings.dataPath || path.join(userDataPath, '_DATA');
 
   await initializeStorage();
 
@@ -68,7 +69,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  initializeWatcher(importDir, unmatchedDir);
+  initializeWatcher(importDir, unmatchedDir, dataDir);
   createWindow();
   console.log('Electron app is ready.');
 

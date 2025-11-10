@@ -31,39 +31,56 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
 };
 
 /**
- * Extracts structured data from the raw text extracted from a PDF.
- * This function serves as a placeholder for manufacturer-specific parsing logic.
+ * Extracts structured data from the raw text extracted from a PDF using regex.
+ * This is a best-effort parser to identify key information for grouping and storage.
  *
  * @param text The raw text from the PDF.
  * @returns A structured data object conforming to the UnifiedReport interface.
  */
 export const extractStructuredData = (text: string): UnifiedReport => {
-  console.log('Extracting structured data from text...');
-
-  // This is a placeholder implementation. In a real-world scenario, this function
-  // would contain complex logic to parse the text and populate the fields of a
-  // UnifiedReport object.
-  const placeholderReport: UnifiedReport = {
+  const report: UnifiedReport = {
     manufacturer: 'Unknown',
-    interrogation_date: new Date().toISOString().split('T')[0], // Today's date as a placeholder
+    interrogation_date: '',
     patient: {
       first_name: 'Unknown',
       last_name: 'Unknown',
-      dob: '1900-01-01', // Placeholder DOB
+      dob: '',
     },
     device: {
       type: 'Unknown',
       model: 'Unknown',
       serial_number: 'Unknown',
     },
-    battery: {
-      // Empty placeholder
-    },
-    leads: [], // Default to an empty array
-    raw_text: text, // Store the full raw text
+    battery: {},
+    leads: [],
+    raw_text: text,
   };
 
-  return placeholderReport;
+  // Helper to format date strings to YYYY-MM-DD
+  const formatDate = (month: string, day: string, year: string): string => {
+    return `${year.padStart(4, '20')}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+  };
+
+  // Regex for Patient Name (e.g., "Patient: DOE, JOHN")
+  const nameMatch = text.match(/Patient(?: Name)?:?\s*(?<lastName>[A-Za-z'-]+),\s*(?<firstName>[A-Za-z'-]+)/i);
+  if (nameMatch?.groups) {
+    report.patient.first_name = nameMatch.groups.firstName;
+    report.patient.last_name = nameMatch.groups.lastName;
+  }
+
+  // Regex for Date of Birth (e.g., "DOB: 01/23/1945")
+  const dobMatch = text.match(/(?:DOB|Date of Birth):?\s*(?<month>\d{1,2})[/-](?<day>\d{1,2})[/-](?<year>\d{2,4})/i);
+  if (dobMatch?.groups) {
+    report.patient.dob = formatDate(dobMatch.groups.month, dobMatch.groups.day, dobMatch.groups.year);
+  }
+
+  // Regex for Interrogation Date (e.g., "Interrogation Date: 10/27/2023")
+  const interrogationDateMatch = text.match(/(?:Interrogation Date|Session Date):?\s*(?<month>\d{1,2})[/-](?<day>\d{1,2})[/-](?<year>\d{2,4})/i);
+  if (interrogationDateMatch?.groups) {
+    report.interrogation_date = formatDate(interrogationDateMatch.groups.month, interrogationDateMatch.groups.day, interrogationDateMatch.groups.year);
+  }
+
+  return report;
 };
 
 /**
