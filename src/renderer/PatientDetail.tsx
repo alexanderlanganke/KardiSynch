@@ -64,7 +64,7 @@ const PatientDetail: React.FC = () => {
 
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <div className="flex h-full space-x-4">
+      <div className="flex flex-col h-full p-4">
         <div className="flex-1 flex gap-4">
           {viewerSlots.map((slot, i) => (
             <Droppable key={`slot-${i}`} id={`slot-${i}`}>
@@ -86,20 +86,27 @@ const PatientDetail: React.FC = () => {
             </Droppable>
           ))}
         </div>
-        <Card className="w-64">
+        <Card className="h-48 p-4">
           <CardHeader>
             <CardTitle>Timeline</CardTitle>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-[calc(100vh-12rem)]">
+            <ScrollArea className="h-24 whitespace-nowrap">
               <SortableContext items={reports.map((r) => r.id)}>
-                {reports.map((report) => (
-                  <Draggable key={report.id} id={report.id}>
-                    <Card className="mb-2 p-2 cursor-grab">
-                      <p className="font-semibold">{report.visit_date}</p>
-                    </Card>
-                  </Draggable>
-                ))}
+                <div className="flex space-x-4">
+                  {reports.map((report) => (
+                    <Draggable key={report.id} id={report.id}>
+                      <Card className="p-2 cursor-grab w-20 h-20 flex items-center justify-center">
+                        <p
+                          className="font-semibold transform -rotate-90"
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          {report.visit_date}
+                        </p>
+                      </Card>
+                    </Draggable>
+                  ))}
+                </div>
               </SortableContext>
             </ScrollArea>
           </CardContent>
