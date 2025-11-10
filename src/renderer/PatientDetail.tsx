@@ -94,19 +94,19 @@ const PatientDetail: React.FC = () => {
             </Droppable>
           ))}
         </div>
-        <Card className="h-32 p-2">
+        <Card className="h-40 p-2">
           <CardHeader className="p-2">
             <CardTitle className="text-sm">Timeline</CardTitle>
           </CardHeader>
           <CardContent className="p-2">
-            <ScrollArea className="h-20 whitespace-nowrap">
+            <ScrollArea className="h-24 whitespace-nowrap">
               <SortableContext items={reports.map((r) => r.id)}>
                 <div className="flex space-x-2">
                   {reports.map((report) => (
                     <Draggable key={report.id} id={report.id}>
-                      <Card className="p-1 cursor-grab w-16 h-16 flex items-center justify-center">
+                      <Card className="p-2 cursor-grab w-24 h-24 flex items-center justify-center">
                         <p
-                          className="text-xs font-semibold transform -rotate-90"
+                          className="text-sm font-semibold transform -rotate-90"
                           style={{ whiteSpace: 'nowrap' }}
                         >
                           {report.visit_date}
