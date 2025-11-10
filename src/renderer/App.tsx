@@ -66,7 +66,7 @@ const App: React.FC = () => {
             <ThemeToggle />
           </div>
         </aside>
-        <main className="flex-1 p-6 overflow-auto">{renderView()}</main>
+        <main className="flex-1 overflow-auto">{renderView()}</main>
         <NotificationArea />
       </div>
     </ThemeProvider>
