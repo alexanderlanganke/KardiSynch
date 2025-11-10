@@ -65,7 +65,7 @@ const PatientDetail: React.FC = () => {
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
       <div className="flex h-full space-x-4">
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="flex-1 flex gap-4">
           {viewerSlots.map((slot, i) => (
             <Droppable key={`slot-${i}`} id={`slot-${i}`}>
               <Card className="h-full">
