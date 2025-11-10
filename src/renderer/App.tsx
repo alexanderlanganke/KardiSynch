@@ -6,7 +6,7 @@ import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
 import NotificationArea from './NotificationArea';
-import { Moon, Sun } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun } from 'lucide-react';
 
 const ThemeToggle: React.FC = () => {
   const { theme, setTheme } = useTheme();
@@ -46,27 +46,29 @@ const App: React.FC = () => {
         className="flex h-screen bg-background text-foreground"
         data-testid="app-container"
       >
-        <aside className="w-64 bg-card p-4 border-r flex flex-col">
-          <h1 className="text-2xl font-bold mb-8">KardiSynch</h1>
+        <aside className="w-16 bg-card p-4 border-r flex flex-col items-center">
+          <h1 className="text-2xl font-bold mb-8">KS</h1>
           <nav className="flex flex-col space-y-2">
             <Button
               variant={currentView === 'dashboard' ? 'secondary' : 'ghost'}
+              size="icon"
               onClick={() => setCurrentView('dashboard')}
             >
-              Dashboard
+              <LayoutDashboard />
             </Button>
             <Button
               variant={currentView === 'settings' ? 'secondary' : 'ghost'}
+              size="icon"
               onClick={() => setCurrentView('settings')}
             >
-              Settings
+              <SettingsIcon />
             </Button>
           </nav>
           <div className="mt-auto">
             <ThemeToggle />
           </div>
         </aside>
-        <main className="flex-1 p-6 overflow-auto">{renderView()}</main>
+        <main className="flex-1 overflow-auto">{renderView()}</main>
         <NotificationArea />
       </div>
     </ThemeProvider>

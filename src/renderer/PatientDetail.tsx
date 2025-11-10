@@ -6,10 +6,14 @@ import { useAppContext, ViewerSlot } from './AppContext';
 import ViewerArea from './ViewerArea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import PatientHeader from './PatientHeader';
+
+import { UnifiedReport } from '../main/reports';
 
 const PatientDetail: React.FC = () => {
   const { currentPatientId, viewerSlots, setViewerSlots } = useAppContext();
-  const [reports, setReports] = useState<any[]>([]);
+  const [reports, setReports] = useState<UnifiedReport[]>([]);
+  const [patientHeaderData, setPatientHeaderData] = useState<UnifiedReport | null>(null);
 
   useEffect(() => {
     if (currentPatientId) {
@@ -21,6 +25,9 @@ const PatientDetail: React.FC = () => {
     try {
       const fetchedReports = await window.electronAPI.getPatientReports(id);
       setReports(fetchedReports);
+      if (fetchedReports.length > 0) {
+        setPatientHeaderData(fetchedReports[0]);
+      }
     } catch (error) {
       console.error('Error fetching patient reports:', error);
     }
@@ -64,7 +71,8 @@ const PatientDetail: React.FC = () => {
 
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <div className="flex h-full space-x-4">
+      <div className="flex flex-col h-full p-4">
+        {patientHeaderData && <PatientHeader report={patientHeaderData} />}
         <div className="flex-1 flex gap-4">
           {viewerSlots.map((slot, i) => (
             <Droppable key={`slot-${i}`} id={`slot-${i}`}>
@@ -86,20 +94,27 @@ const PatientDetail: React.FC = () => {
             </Droppable>
           ))}
         </div>
-        <Card className="w-64">
-          <CardHeader>
-            <CardTitle>Timeline</CardTitle>
+        <Card className="h-40 p-2">
+          <CardHeader className="p-2">
+            <CardTitle className="text-sm">Timeline</CardTitle>
           </CardHeader>
-          <CardContent>
-            <ScrollArea className="h-[calc(100vh-12rem)]">
+          <CardContent className="p-2">
+            <ScrollArea className="h-24 whitespace-nowrap">
               <SortableContext items={reports.map((r) => r.id)}>
-                {reports.map((report) => (
-                  <Draggable key={report.id} id={report.id}>
-                    <Card className="mb-2 p-2 cursor-grab">
-                      <p className="font-semibold">{report.visit_date}</p>
-                    </Card>
-                  </Draggable>
-                ))}
+                <div className="flex space-x-2">
+                  {reports.map((report) => (
+                    <Draggable key={report.id} id={report.id}>
+                      <Card className="p-2 cursor-grab w-24 h-24 flex items-center justify-center">
+                        <p
+                          className="text-sm font-semibold transform -rotate-90"
+                          style={{ whiteSpace: 'nowrap' }}
+                        >
+                          {report.visit_date}
+                        </p>
+                      </Card>
+                    </Draggable>
+                  ))}
+                </div>
               </SortableContext>
             </ScrollArea>
           </CardContent>

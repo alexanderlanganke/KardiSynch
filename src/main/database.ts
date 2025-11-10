@@ -106,11 +106,50 @@ export const createPatient = (patient: { id: string; name: string; dob: string; 
 export const getPatientReports = (patientId: string): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    db.all('SELECT * FROM Reports WHERE patient_id = ? ORDER BY visit_date DESC', [patientId], (err, rows) => {
+    const query = `
+      SELECT
+        r.id,
+        r.visit_date,
+        r.hospitalVisitId,
+        r.device_manufacturer,
+        r.pdf_paths,
+        r.data_path,
+        p.name,
+        p.dob,
+        p.hospitalPatientId
+      FROM Reports r
+      JOIN Patients p ON r.patient_id = p.id
+      WHERE r.patient_id = ?
+      ORDER BY r.visit_date DESC
+    `;
+    db.all(query, [patientId], (err, rows) => {
       if (err) {
         reject(err);
       } else {
-        resolve(rows);
+        const reports = rows.map((row: any) => {
+          const nameParts = row.name.split(', ');
+          return {
+            id: row.id,
+            manufacturer: row.device_manufacturer,
+            interrogation_date: row.visit_date,
+            hospital_visit_id: row.hospitalVisitId,
+            patient: {
+              first_name: nameParts.length > 1 ? nameParts[1] : '',
+              last_name: nameParts[0],
+              dob: row.dob,
+              hospital_patient_id: row.hospitalPatientId,
+            },
+            device: {
+              type: 'Unknown', // Placeholder
+              model: 'Unknown', // Placeholder
+              serial_number: 'Unknown', // Placeholder
+            },
+            pdf_paths: JSON.parse(row.pdf_paths),
+            data_path: row.data_path,
+            raw_text: '', // Placeholder
+          };
+        });
+        resolve(reports);
       }
     });
   });
