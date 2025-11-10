@@ -42,38 +42,31 @@ const App: React.FC = () => {
 
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-      <div className="min-h-screen bg-background text-foreground">
-        <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-          <div className="container flex h-14 items-center">
-            <div className="mr-4 hidden md:flex">
-              <a className="mr-6 flex items-center space-x-2" href="/">
-                <span className="hidden font-bold sm:inline-block">
-                  KardiSynch
-                </span>
-              </a>
-              <nav className="flex items-center space-x-6 text-sm font-medium">
-                <Button
-                  variant="ghost"
-                  onClick={() => setCurrentView('dashboard')}
-                  disabled={currentView === 'dashboard'}
-                >
-                  Dashboard
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setCurrentView('settings')}
-                  disabled={currentView === 'settings'}
-                >
-                  Settings
-                </Button>
-              </nav>
-            </div>
-            <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-              <ThemeToggle />
-            </div>
+      <div
+        className="flex h-screen bg-background text-foreground"
+        data-testid="app-container"
+      >
+        <aside className="w-64 bg-card p-4 border-r flex flex-col">
+          <h1 className="text-2xl font-bold mb-8">KardiSynch</h1>
+          <nav className="flex flex-col space-y-2">
+            <Button
+              variant={currentView === 'dashboard' ? 'secondary' : 'ghost'}
+              onClick={() => setCurrentView('dashboard')}
+            >
+              Dashboard
+            </Button>
+            <Button
+              variant={currentView === 'settings' ? 'secondary' : 'ghost'}
+              onClick={() => setCurrentView('settings')}
+            >
+              Settings
+            </Button>
+          </nav>
+          <div className="mt-auto">
+            <ThemeToggle />
           </div>
-        </header>
-        <main className="container flex-1 py-8">{renderView()}</main>
+        </aside>
+        <main className="flex-1 p-6 overflow-auto">{renderView()}</main>
         <NotificationArea />
       </div>
     </ThemeProvider>
