@@ -11,20 +11,21 @@ interface PatientHeaderProps {
 const PatientHeader: React.FC<PatientHeaderProps> = ({ report }) => {
   const { patient, device } = report;
   return (
-    <Card className="mb-4">
-      <CardHeader>
-        <CardTitle>Patient Information</CardTitle>
-      </CardHeader>
-      <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <h3 className="font-semibold">Patient</h3>
-          <p>Name: {`${patient.first_name} ${patient.last_name}`}</p>
-          <p>DOB: {patient.dob}</p>
-        </div>
-        <div>
-          <h3 className="font-semibold">Device</h3>
-          <p>Model: {device.model}</p>
-          <p>Serial: {device.serial_number}</p>
+    <Card className="mb-2 p-2">
+      <CardContent className="flex items-center justify-between p-0">
+        <div className="flex space-x-4">
+          <div>
+            <h3 className="font-semibold text-sm">Patient</h3>
+            <p className="text-xs">
+              {`${patient.first_name} ${patient.last_name}`} ({patient.dob})
+            </p>
+          </div>
+          <div>
+            <h3 className="font-semibold text-sm">Device</h3>
+            <p className="text-xs">
+              {device.model} (SN: {device.serial_number})
+            </p>
+          </div>
         </div>
       </CardContent>
     </Card>
