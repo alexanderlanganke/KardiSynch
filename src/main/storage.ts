@@ -2,69 +2,72 @@ import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { findPatient, createPatient, createReport, getSettings } from './database';
+import { UnifiedReport } from './reports';
 import { app } from 'electron';
+import { sendNotification } from './main';
 
 let dataDir: string;
 
+/**
+ * Initializes the storage module by setting the data directory path.
+ */
 export const initializeStorage = async () => {
   const settings = await getSettings();
   dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
 };
 
-export const storeVisit = async (visitData: {
-  patientName: string;
-  patientDob: string;
-  visitDate: string;
-  pdfFilePaths: string[];
-  structuredReportFilePaths: string[];
-  parsedData: any;
-}) => {
-  try {
-    let patient = await findPatient(visitData.patientName, visitData.patientDob);
-    if (!patient) {
-      const newPatientId = uuidv4();
-      patient = {
-        id: newPatientId,
-        name: visitData.patientName,
-        dob: visitData.patientDob,
-      };
-      await createPatient(patient);
-    }
+/**
+ * Stores a unified report in the database, creating a new patient if necessary.
+ * @param report The UnifiedReport object to store.
+ * @returns The ID of the newly created report.
+ */
+export const storeReport = async (report: UnifiedReport): Promise<string> => {
+  const { patient: patientData } = report;
 
-    const visitId = uuidv4();
-    const patientDir = path.join(dataDir, 'Patients', patient.id);
-    const visitDir = path.join(patientDir, visitId);
-    fs.mkdirSync(visitDir, { recursive: true });
-
-    // Store parsed data
-    const dataPath = path.join(visitDir, 'data.json');
-    fs.writeFileSync(dataPath, JSON.stringify(visitData.parsedData, null, 2));
-
-    // Move PDF files
-    const newPdfPaths: string[] = [];
-    visitData.pdfFilePaths.forEach((pdfPath, index) => {
-      const newPdfPath = path.join(visitDir, `report_${index + 1}.pdf`);
-      fs.renameSync(pdfPath, newPdfPath);
-      newPdfPaths.push(newPdfPath);
-    });
-
-    // Move structured report files
-    visitData.structuredReportFilePaths.forEach((reportPath) => {
-      const newReportPath = path.join(visitDir, path.basename(reportPath));
-      fs.renameSync(reportPath, newReportPath);
-    });
-
-    // Create report in DB
-    await createReport({
-      id: visitId,
-      patient_id: patient.id,
-      visit_date: visitData.visitDate,
-      pdf_paths: JSON.stringify(newPdfPaths),
-      data_path: dataPath,
-    });
-
-    console.log('Visit stored successfully for patient:', patient.name);
-  } catch (error) {
-    console.error('Error storing visit:', error);
+  if (!patientData || !patientData.last_name || !patientData.dob) {
+    throw new Error('Cannot store report without patient last name and DOB.');
   }
+
+  // Find or create the patient.
+  let patient = await findPatient(patientData.last_name, patientData.dob);
+  if (!patient) {
+    const newPatientId = uuidv4();
+    patient = {
+      id: newPatientId,
+      first_name: patientData.first_name || '',
+      last_name: patientData.last_name,
+      dob: patientData.dob,
+      hospitalPatientId: patientData.hospitalPatientId || null
+    };
+    await createPatient(patient);
+    sendNotification(`New patient created: ${patient.first_name} ${patient.last_name}`);
+  }
+
+  // Create the report record in the database.
+  const reportId = uuidv4();
+  await createReport({
+    id: reportId,
+    patient_id: patient.id,
+    ...report
+  });
+
+  return reportId;
+};
+
+/**
+ * Moves a file from its source path to the permanent data storage directory.
+ * @param sourcePath The original path of the file.
+ * @param reportId The ID of the report this file is associated with.
+ */
+export const storeFile = async (sourcePath: string, reportId: string): Promise<void> => {
+  const reportDir = path.join(dataDir, 'Reports', reportId);
+  if (!fs.existsSync(reportDir)) {
+    fs.mkdirSync(reportDir, { recursive: true });
+  }
+
+  const destPath = path.join(reportDir, path.basename(sourcePath));
+  fs.renameSync(sourcePath, destPath);
 };
