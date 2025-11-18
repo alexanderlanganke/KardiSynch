@@ -2,6 +2,7 @@ import { app } from 'electron';
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { UnifiedReport } from './reports';
 
 let dbInstance: sqlite3.Database;
 
@@ -24,26 +25,32 @@ const createDbConnection = (dbPath: string) => {
 
 const createTables = (db: sqlite3.Database) => {
   db.serialize(() => {
+    // NOTE: Dropping tables is for development convenience.
+    // A production app would require a robust migration strategy.
+    db.run(`DROP TABLE IF EXISTS Reports;`);
+    db.run(`DROP TABLE IF EXISTS Patients;`);
+
     db.run(`
       CREATE TABLE IF NOT EXISTS Patients (
         id TEXT PRIMARY KEY,
-        name TEXT,
-        dob TEXT,
-        hospitalPatientId TEXT,
-        last_device_model TEXT,
-        last_seen_date TEXT
+        first_name TEXT,
+        last_name TEXT NOT NULL,
+        dob TEXT NOT NULL,
+        hospitalPatientId TEXT
       );
     `);
 
     db.run(`
       CREATE TABLE IF NOT EXISTS Reports (
         id TEXT PRIMARY KEY,
-        patient_id TEXT,
-        visit_date TEXT,
+        patient_id TEXT NOT NULL,
+        manufacturer TEXT,
+        interrogation_date TEXT NOT NULL,
         hospitalVisitId TEXT,
-        device_manufacturer TEXT,
-        pdf_paths TEXT,
-        data_path TEXT,
+        device_type TEXT,
+        device_model TEXT,
+        device_serial_number TEXT,
+        raw_text TEXT,
         FOREIGN KEY (patient_id) REFERENCES Patients (id)
       );
     `);
@@ -73,10 +80,10 @@ export const getDb = () => {
   return dbInstance;
 };
 
-export const findPatient = (name: string, dob: string): Promise<any> => {
+export const findPatient = (lastName: string, dob: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    db.get('SELECT * FROM Patients WHERE name = ? AND dob = ?', [name, dob], (err, row) => {
+    db.get('SELECT * FROM Patients WHERE last_name = ? AND dob = ?', [lastName, dob], (err, row) => {
       if (err) {
         reject(err);
       } else {
@@ -86,12 +93,18 @@ export const findPatient = (name: string, dob: string): Promise<any> => {
   });
 };
 
-export const createPatient = (patient: { id: string; name: string; dob: string; }): Promise<void> => {
+export const createPatient = (patient: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    dob: string;
+    hospitalPatientId: string | null;
+  }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
-      'INSERT INTO Patients (id, name, dob) VALUES (?, ?, ?)',
-      [patient.id, patient.name, patient.dob],
+      'INSERT INTO Patients (id, first_name, last_name, dob, hospitalPatientId) VALUES (?, ?, ?, ?, ?)',
+      [patient.id, patient.first_name, patient.last_name, patient.dob, patient.hospitalPatientId],
       (err) => {
         if (err) {
           reject(err);
@@ -109,46 +122,44 @@ export const getPatientReports = (patientId: string): Promise<any[]> => {
     const query = `
       SELECT
         r.id,
-        r.visit_date,
+        r.interrogation_date,
         r.hospitalVisitId,
-        r.device_manufacturer,
-        r.pdf_paths,
-        r.data_path,
-        p.name,
+        r.manufacturer,
+        r.device_type,
+        r.device_model,
+        r.device_serial_number,
+        p.first_name,
+        p.last_name,
         p.dob,
         p.hospitalPatientId
       FROM Reports r
       JOIN Patients p ON r.patient_id = p.id
       WHERE r.patient_id = ?
-      ORDER BY r.visit_date DESC
+      ORDER BY r.interrogation_date DESC
     `;
     db.all(query, [patientId], (err, rows) => {
       if (err) {
         reject(err);
       } else {
-        const reports = rows.map((row: any) => {
-          const nameParts = row.name.split(', ');
-          return {
-            id: row.id,
-            manufacturer: row.device_manufacturer,
-            interrogation_date: row.visit_date,
-            hospital_visit_id: row.hospitalVisitId,
-            patient: {
-              first_name: nameParts.length > 1 ? nameParts[1] : '',
-              last_name: nameParts[0],
-              dob: row.dob,
-              hospital_patient_id: row.hospitalPatientId,
-            },
-            device: {
-              type: 'Unknown', // Placeholder
-              model: 'Unknown', // Placeholder
-              serial_number: 'Unknown', // Placeholder
-            },
-            pdf_paths: JSON.parse(row.pdf_paths),
-            data_path: row.data_path,
-            raw_text: '', // Placeholder
-          };
-        });
+        const reports = rows.map((row: any) => ({
+          id: row.id,
+          manufacturer: row.manufacturer,
+          interrogation_date: row.interrogation_date,
+          hospital_visit_id: row.hospitalVisitId,
+          patient: {
+            first_name: row.first_name,
+            last_name: row.last_name,
+            dob: row.dob,
+            hospital_patient_id: row.hospitalPatientId,
+          },
+          device: {
+            type: row.device_type,
+            model: row.device_model,
+            serial_number: row.device_serial_number,
+          },
+          battery: {},
+          leads: [],
+        }));
         resolve(reports);
       }
     });
@@ -198,8 +209,8 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
     const params: any[] = [];
 
     if (filters.name) {
-      query += ' AND p.name LIKE ?';
-      params.push(`%${filters.name}%`);
+      query += ' AND (p.first_name LIKE ? OR p.last_name LIKE ?)';
+      params.push(`%${filters.name}%`, `%${filters.name}%`);
     }
     if (filters.dob) {
       query += ' AND p.dob = ?';
@@ -218,16 +229,8 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
       params.push(`%${filters.hospitalVisitId}%`);
     }
     if (filters.deviceManufacturer) {
-      query += ' AND r.device_manufacturer = ?';
+      query += ' AND r.manufacturer = ?';
       params.push(filters.deviceManufacturer);
-    }
-    if (filters.lastSeenStartDate) {
-      query += ' AND p.last_seen_date >= ?';
-      params.push(filters.lastSeenStartDate);
-    }
-    if (filters.lastSeenEndDate) {
-      query += ' AND p.last_seen_date <= ?';
-      params.push(filters.lastSeenEndDate);
     }
 
     db.all(query, params, (err, rows) => {
@@ -240,12 +243,25 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
   });
 };
 
-export const createReport = (report: { id: string; patient_id: string; visit_date: string; pdf_paths: string; data_path: string; }): Promise<void> => {
+export const createReport = (report: UnifiedReport & { patient_id: string; id: string }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
-      'INSERT INTO Reports (id, patient_id, visit_date, pdf_paths, data_path) VALUES (?, ?, ?, ?, ?)',
-      [report.id, report.patient_id, report.visit_date, report.pdf_paths, report.data_path],
+      `INSERT INTO Reports (
+          id, patient_id, manufacturer, interrogation_date, hospitalVisitId,
+          device_type, device_model, device_serial_number, raw_text
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        report.id,
+        report.patient_id,
+        report.manufacturer,
+        report.interrogation_date,
+        report.hospitalVisitId || null,
+        report.device?.type || null,
+        report.device?.model || null,
+        report.device?.serial_number || null,
+        report.raw_text || null,
+      ],
       (err) => {
         if (err) {
           reject(err);
