@@ -1,15 +1,23 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientReports, getSettings, setSettings } from './database';
 import { initializeWatcher } from './watcher';
 import { seedDatabase } from './seed';
+import { getConfig, saveConfig } from './config';
+import { initializeStorage } from './storage';
 
 let mainWindow: BrowserWindow | null;
 
 export function sendUnmatchedFiles(files: string[]) {
   if (mainWindow) {
     mainWindow.webContents.send('unmatched-files', files);
+  }
+}
+
+export function sendNotification(message: string, type: 'info' | 'warning' | 'error' = 'info') {
+  if (mainWindow) {
+    mainWindow.webContents.send('notify', { type, message });
   }
 }
 
@@ -32,8 +40,18 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
-  initializeDatabase();
+app.whenReady().then(async () => {
+  const userDataPath = app.getPath('userData');
+  const config = getConfig();
+
+  const dbPath = config.dbPath || path.join(userDataPath, '_DATA', 'database.db');
+  initializeDatabase(dbPath);
+
+  const settings = await getSettings();
+  const importDir = settings.importDir || path.join(userDataPath, '_IMPORT');
+  const unmatchedDir = settings.unmatchedDir || path.join(userDataPath, '_UNMATCHED');
+
+  await initializeStorage();
 
   const db = getDb();
   db.get('SELECT COUNT(*) as count FROM Patients', (err, row: { count: number }) => {
@@ -50,7 +68,7 @@ app.whenReady().then(() => {
     }
   });
 
-  initializeWatcher();
+  initializeWatcher(importDir, unmatchedDir);
   createWindow();
   console.log('Electron app is ready.');
 
@@ -71,6 +89,16 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
   }
 });
 
+ipcMain.handle('select-directory', async () => {
+  if (!mainWindow) {
+    return;
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  return result.filePaths[0];
+});
+
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
   try {
     const reports = await getPatientReports(patientId);
@@ -83,8 +111,9 @@ ipcMain.handle('get-patient-reports', async (event, patientId) => {
 
 ipcMain.handle('get-settings', async () => {
   try {
-    const settings = await getSettings();
-    return settings;
+    const dbSettings = await getSettings();
+    const config = getConfig();
+    return { ...dbSettings, dbPath: config.dbPath };
   } catch (error) {
     console.error('Failed to get settings:', error);
     throw error;
@@ -93,7 +122,11 @@ ipcMain.handle('get-settings', async () => {
 
 ipcMain.handle('set-settings', async (event, settings) => {
   try {
-    await setSettings(settings);
+    const { dbPath, ...dbSettings } = settings;
+    await setSettings(dbSettings);
+    const config = getConfig();
+    config.dbPath = dbPath;
+    saveConfig(config);
   } catch (error) {
     console.error('Failed to set settings:', error);
     throw error;
