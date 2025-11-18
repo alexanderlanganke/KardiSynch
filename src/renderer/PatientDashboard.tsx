@@ -1,5 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useAppContext } from './AppContext';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
+} from '@/components/ui/table';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 
 const PatientDashboard: React.FC = () => {
   const { setCurrentView, setCurrentPatientId } = useAppContext();
@@ -28,8 +46,14 @@ const PatientDashboard: React.FC = () => {
     }
   };
 
-  const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleFilterChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
     setFilters({ ...filters, [e.target.name]: e.target.value });
+  };
+
+  const handleSelectChange = (name: string, value: string) => {
+    setFilters({ ...filters, [name]: value === 'all' ? '' : value });
   };
 
   const selectPatient = (patientId: string) => {
@@ -38,55 +62,128 @@ const PatientDashboard: React.FC = () => {
   };
 
   return (
-    <main>
-      <h1>Patient Dashboard</h1>
+    <div className="container mx-auto p-4">
+      <h1 className="text-3xl font-bold mb-6">Patient Dashboard</h1>
 
-      <div className="filters">
-        <input type="text" placeholder="Name" name="name" value={filters.name} onChange={handleFilterChange} />
-        <input type="date" name="dob" value={filters.dob} onChange={handleFilterChange} />
-        <input type="text" placeholder="Patient ID" name="patientId" value={filters.patientId} onChange={handleFilterChange} />
-        <input type="text" placeholder="Hospital Patient ID" name="hospitalPatientId" value={filters.hospitalPatientId} onChange={handleFilterChange} />
-        <input type="text" placeholder="Hospital Visit ID" name="hospitalVisitId" value={filters.hospitalVisitId} onChange={handleFilterChange} />
-        <select name="deviceManufacturer" value={filters.deviceManufacturer} onChange={handleFilterChange}>
-          <option value="">All Manufacturers</option>
-          <option value="Medtronic">Medtronic</option>
-          <option value="Abbott">Abbott</option>
-          <option value="Boston Scientific">Boston Scientific</option>
-          <option value="Biotronik">Biotronik</option>
-        </select>
-        <label>
-          Last Seen Start Date:
-          <input type="date" name="lastSeenStartDate" value={filters.lastSeenStartDate} onChange={handleFilterChange} />
-        </label>
-        <label>
-          Last Seen End Date:
-          <input type="date" name="lastSeenEndDate" value={filters.lastSeenEndDate} onChange={handleFilterChange} />
-        </label>
-      </div>
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Filters</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Input
+              type="text"
+              placeholder="Name"
+              name="name"
+              value={filters.name}
+              onChange={handleFilterChange}
+            />
+            <Input
+              type="date"
+              name="dob"
+              value={filters.dob}
+              onChange={handleFilterChange}
+            />
+            <Input
+              type="text"
+              placeholder="Patient ID"
+              name="patientId"
+              value={filters.patientId}
+              onChange={handleFilterChange}
+            />
+            <Input
+              type="text"
+              placeholder="Hospital Patient ID"
+              name="hospitalPatientId"
+              value={filters.hospitalPatientId}
+              onChange={handleFilterChange}
+            />
+            <Input
+              type="text"
+              placeholder="Hospital Visit ID"
+              name="hospitalVisitId"
+              value={filters.hospitalVisitId}
+              onChange={handleFilterChange}
+            />
+            <Select
+              name="deviceManufacturer"
+              value={filters.deviceManufacturer || 'all'}
+              onValueChange={(value) =>
+                handleSelectChange('deviceManufacturer', value)
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="All Manufacturers" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Manufacturers</SelectItem>
+                <SelectItem value="Medtronic">Medtronic</SelectItem>
+                <SelectItem value="Abbott">Abbott</SelectItem>
+                <SelectItem value="Boston Scientific">
+                  Boston Scientific
+                </SelectItem>
+                <SelectItem value="Biotronik">Biotronik</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="flex flex-col">
+              <Label htmlFor="lastSeenStartDate" className="mb-2">
+                Last Seen Start Date:
+              </Label>
+              <Input
+                id="lastSeenStartDate"
+                type="date"
+                name="lastSeenStartDate"
+                value={filters.lastSeenStartDate}
+                onChange={handleFilterChange}
+              />
+            </div>
+            <div className="flex flex-col">
+              <Label htmlFor="lastSeenEndDate" className="mb-2">
+                Last Seen End Date:
+              </Label>
+              <Input
+                id="lastSeenEndDate"
+                type="date"
+                name="lastSeenEndDate"
+                value={filters.lastSeenEndDate}
+                onChange={handleFilterChange}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Date of Birth</th>
-            <th>Hospital Patient ID</th>
-            <th>Last Device Model</th>
-            <th>Last Seen Date</th>
-          </tr>
-        </thead>
-        <tbody>
-          {patients.map((patient) => (
-            <tr key={patient.id} onClick={() => selectPatient(patient.id)}>
-              <td>{patient.name}</td>
-              <td>{patient.dob}</td>
-              <td>{patient.hospitalPatientId}</td>
-              <td>{patient.last_device_model}</td>
-              <td>{patient.last_seen_date}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </main>
+      <Card>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Date of Birth</TableHead>
+                <TableHead>Hospital Patient ID</TableHead>
+                <TableHead>Last Device Model</TableHead>
+                <TableHead>Last Seen Date</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {patients.map((patient) => (
+                <TableRow
+                  key={patient.id}
+                  onClick={() => selectPatient(patient.id)}
+                  className="cursor-pointer"
+                >
+                  <TableCell>{patient.name}</TableCell>
+                  <TableCell>{patient.dob}</TableCell>
+                  <TableCell>{patient.hospitalPatientId}</TableCell>
+                  <TableCell>{patient.last_device_model}</TableCell>
+                  <TableCell>{patient.last_seen_date}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
