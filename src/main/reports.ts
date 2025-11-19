@@ -36,14 +36,14 @@ export interface UnifiedReport {
   // --- Metadata (from the report and the hospital system) ---
   manufacturer: 'Medtronic' | 'Biotronik' | 'Abbott' | 'Boston Scientific' | 'Impulse Dynamics' | 'Microport' | 'Unknown' | string;
   interrogation_date: string; // ISO 8601 format
-  hospital_visit_id?: string; // ADDED: The hospital's identifier for this specific visit/encounter.
+  hospitalVisitId?: string; // ADDED: The hospital's identifier for this specific visit/encounter.
 
   // --- Patient Identification ---
   patient: {
     first_name: string; // ADDED: More granular name fields
     last_name: string;  // ADDED
     dob: string;        // RENAMED for clarity (Date of Birth in ISO 8601 format)
-    hospital_patient_id?: string; // ADDED: The patient's permanent ID in the hospital system (e.g., MRN)
+    hospitalPatientId?: string; // ADDED: The patient's permanent ID in the hospital system (e.g., MRN)
   };
 
   // --- Device & System Identification ---
