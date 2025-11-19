@@ -3,6 +3,15 @@ import { test, expect, _electron } from '@playwright/test';
 
 test('App launches, displays a window, and renders UI without errors', async () => {
   const electronApp = await _electron.launch({ args: ['.'] });
+
+  // Capture main process console output
+  electronApp.on('stdout', (data) => {
+    console.log(`Main Process stdout: ${data}`);
+  });
+  electronApp.on('stderr', (data) => {
+    console.error(`Main Process stderr: ${data}`);
+  });
+
   const window = await electronApp.firstWindow();
 
   const pageErrors: Error[] = [];
