@@ -46,11 +46,28 @@ export function ThemeProvider({
     root.classList.add(theme)
   }, [theme])
 
+  useEffect(() => {
+    const syncTheme = async () => {
+      try {
+        const settings = await window.electronAPI.getSettings();
+        if (settings && settings.theme && settings.theme !== theme) {
+          setTheme(settings.theme);
+        }
+      } catch (error) {
+        console.error("Failed to sync theme from backend:", error);
+      }
+    };
+    syncTheme();
+  }, []);
+
   const value = {
     theme,
-    setTheme: (theme: "system" | "light" | "dark") => {
-      localStorage.setItem(storageKey, theme)
-      setTheme(theme)
+    setTheme: (newTheme: "system" | "light" | "dark") => {
+      localStorage.setItem(storageKey, newTheme);
+      setTheme(newTheme);
+      window.electronAPI.setSettings({ theme: newTheme }).catch(err =>
+        console.error("Failed to save theme to backend:", err)
+      );
     },
   }
 
