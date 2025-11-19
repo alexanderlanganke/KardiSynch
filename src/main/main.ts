@@ -6,23 +6,10 @@ import { initializeWatcher } from './watcher';
 import { seedDatabase } from './seed';
 import { getConfig, saveConfig } from './config';
 import { initializeStorage } from './storage';
-
-let mainWindow: BrowserWindow | null;
-
-export function sendUnmatchedFiles(files: string[]) {
-  if (mainWindow) {
-    mainWindow.webContents.send('unmatched-files', files);
-  }
-}
-
-export function sendNotification(message: string, type: 'info' | 'warning' | 'error' = 'info') {
-  if (mainWindow) {
-    mainWindow.webContents.send('notify', { type, message });
-  }
-}
+import { setMainWindow, getMainWindow } from './windowManager';
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
     webPreferences: {
@@ -38,6 +25,8 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  setMainWindow(mainWindow);
 }
 
 app.whenReady().then(async () => {
@@ -91,6 +80,7 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
 });
 
 ipcMain.handle('select-directory', async () => {
+  const mainWindow = getMainWindow();
   if (!mainWindow) {
     return;
   }

@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { findPatient, createPatient, createReport, getSettings } from './database';
 import { UnifiedReport } from './reports';
 import { app } from 'electron';
-import { sendNotification } from './main';
+import { sendNotification } from './windowManager';
 
 let dataDir: string;
 
