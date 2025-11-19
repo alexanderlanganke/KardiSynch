@@ -42,7 +42,8 @@
       "output": "release"
     },
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "resources/**/*"
     ],
     "publish": {
       "provider": "github"
