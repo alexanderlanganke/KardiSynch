@@ -145,12 +145,12 @@ export const getPatientReports = (patientId: string): Promise<any[]> => {
           id: row.id,
           manufacturer: row.manufacturer,
           interrogation_date: row.interrogation_date,
-          hospital_visit_id: row.hospitalVisitId,
+          hospitalVisitId: row.hospitalVisitId,
           patient: {
             first_name: row.first_name,
             last_name: row.last_name,
             dob: row.dob,
-            hospital_patient_id: row.hospitalPatientId,
+            hospitalPatientId: row.hospitalPatientId,
           },
           device: {
             type: row.device_type,
