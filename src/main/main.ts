@@ -1,12 +1,13 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
-import { initializeDatabase, getDb, getAllPatients, getPatientReports, getSettings, setSettings } from './database';
-import { initializeWatcher } from './watcher';
+import { initializeDatabase, getDb, getAllPatients, getPatientReports } from './database';
+import { initializeWatcher, stopWatcher } from './watcher';
 import { seedDatabase } from './seed';
-import { getConfig, saveConfig } from './config';
 import { initializeStorage } from './storage';
 import { setMainWindow, getMainWindow } from './windowManager';
+import { getAllSettings, saveSettings } from './settingsService';
+import { getConfig } from './config';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -30,16 +31,14 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  const userDataPath = app.getPath('userData');
+  // Initialize Database FIRST
+  // We need to get the DB path from config directly to initialize it before the full settings service
   const config = getConfig();
-
-  const dbPath = config.dbPath || path.join(userDataPath, '_DATA', 'database.db');
+  const dbPath = config.dbPath; // This might be undefined if it's the first run, initializeDatabase handles defaults
   initializeDatabase(dbPath);
 
-  const settings = await getSettings();
-  const importDir = settings.importDir || path.join(userDataPath, '_IMPORT');
-  const unmatchedDir = settings.unmatchedDir || path.join(userDataPath, '_UNMATCHED');
-  const dataDir = settings.dataPath || path.join(userDataPath, '_DATA');
+  // Now it's safe to get all settings (which might query the DB)
+  const settings = await getAllSettings();
 
   await initializeStorage();
 
@@ -58,7 +57,7 @@ app.whenReady().then(async () => {
     }
   });
 
-  initializeWatcher(importDir, unmatchedDir, dataDir);
+  initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
   createWindow();
   console.log('Electron app is ready.');
 
@@ -102,9 +101,7 @@ ipcMain.handle('get-patient-reports', async (event, patientId) => {
 
 ipcMain.handle('get-settings', async () => {
   try {
-    const dbSettings = await getSettings();
-    const config = getConfig();
-    return { ...dbSettings, dbPath: config.dbPath };
+    return await getAllSettings();
   } catch (error) {
     console.error('Failed to get settings:', error);
     throw error;
@@ -113,13 +110,39 @@ ipcMain.handle('get-settings', async () => {
 
 ipcMain.handle('set-settings', async (event, settings) => {
   try {
-    const { dbPath, ...dbSettings } = settings;
-    await setSettings(dbSettings);
-    const config = getConfig();
-    config.dbPath = dbPath;
-    saveConfig(config);
+    const oldSettings = await getAllSettings();
+    await saveSettings(settings);
+    const newSettings = await getAllSettings();
+
+    // Restart watcher if relevant paths changed
+    if (
+      oldSettings.importDir !== newSettings.importDir ||
+      oldSettings.unmatchedDir !== newSettings.unmatchedDir ||
+      oldSettings.dataPath !== newSettings.dataPath
+    ) {
+      console.log('Paths changed, restarting watcher...');
+      stopWatcher();
+      initializeWatcher(newSettings.importDir, newSettings.unmatchedDir, newSettings.dataPath);
+    }
+
   } catch (error) {
     console.error('Failed to set settings:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('reset-settings', async () => {
+  try {
+    const newSettings = await import('./settingsService').then(m => m.resetSettings());
+
+    // Restart watcher with default paths
+    console.log('Settings reset, restarting watcher...');
+    stopWatcher();
+    initializeWatcher(newSettings.importDir, newSettings.unmatchedDir, newSettings.dataPath);
+
+    return newSettings;
+  } catch (error) {
+    console.error('Failed to reset settings:', error);
     throw error;
   }
 });

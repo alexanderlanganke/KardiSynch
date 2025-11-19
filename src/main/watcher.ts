@@ -12,6 +12,7 @@ let importDir: string;
 let unmatchedDir: string;
 let dataDir: string;
 let watcherTimeout: NodeJS.Timeout | null = null;
+let currentWatcher: fs.FSWatcher | null = null;
 
 /**
  * Creates a temporary directory for processing a batch of files.
@@ -51,11 +52,11 @@ const stageFilesToTempDir = (tempDir: string) => {
  * @returns A string with key identifiers or null if insufficient data.
  */
 const getReportKey = (report: UnifiedReport): string | null => {
-    const { patient, interrogation_date } = report;
-    if (patient && patient.last_name && patient.dob && interrogation_date) {
-        return `${patient.last_name}_${patient.dob}_${interrogation_date.split('T')[0]}`;
-    }
-    return null;
+  const { patient, interrogation_date } = report;
+  if (patient && patient.last_name && patient.dob && interrogation_date) {
+    return `${patient.last_name}_${patient.dob}_${interrogation_date.split('T')[0]}`;
+  }
+  return null;
 }
 
 /**
@@ -74,28 +75,28 @@ const processTempDirectory = async (tempDir: string) => {
     console.log(`Processing trigger file: ${path.basename(triggerFile)}`);
     const triggerReport = await parseFile(triggerFile);
     if (!triggerReport) {
-        console.warn(`Could not parse trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
-        unmatchedFiles.push(triggerFile);
-        continue;
+      console.warn(`Could not parse trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
+      unmatchedFiles.push(triggerFile);
+      continue;
     }
 
     const triggerKey = getReportKey(triggerReport);
     if (!triggerKey) {
-        console.warn(`Could not generate a key for trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
-        unmatchedFiles.push(triggerFile);
-        continue;
+      console.warn(`Could not generate a key for trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
+      unmatchedFiles.push(triggerFile);
+      continue;
     }
 
     const visitPackage = [triggerFile];
     const remainingFiles = [];
 
     for (const file of filesToProcess) {
-        const report = await parseFile(file);
-        if (report && getReportKey(report) === triggerKey) {
-            visitPackage.push(file);
-        } else {
-            remainingFiles.push(file);
-        }
+      const report = await parseFile(file);
+      if (report && getReportKey(report) === triggerKey) {
+        visitPackage.push(file);
+      } else {
+        remainingFiles.push(file);
+      }
     }
 
     filesToProcess = remainingFiles;
@@ -103,40 +104,40 @@ const processTempDirectory = async (tempDir: string) => {
 
     const combinedReport: Partial<UnifiedReport> = {};
     for (const file of visitPackage) {
-        const report = await parseFile(file);
-        if(report) {
-            // A real implementation would have a more sophisticated merge strategy.
-            Object.assign(combinedReport, report);
-        }
+      const report = await parseFile(file);
+      if (report) {
+        // A real implementation would have a more sophisticated merge strategy.
+        Object.assign(combinedReport, report);
+      }
     }
 
     if (Object.keys(combinedReport).length > 0) {
-        try {
-            const reportId = await storeReport(combinedReport as UnifiedReport);
-            for (const file of visitPackage) {
-                await storeFile(file, reportId);
-            }
-            console.log(`Successfully stored report and ${visitPackage.length} files.`);
-        } catch(e) {
-            console.error('Error storing report or files', e);
-            sendNotification(`Error storing report: ${(e as Error).message}`, 'error');
-            unmatchedFiles.push(...visitPackage);
+      try {
+        const reportId = await storeReport(combinedReport as UnifiedReport);
+        for (const file of visitPackage) {
+          await storeFile(file, reportId);
         }
-    } else {
+        console.log(`Successfully stored report and ${visitPackage.length} files.`);
+      } catch (e) {
+        console.error('Error storing report or files', e);
+        sendNotification(`Error storing report: ${(e as Error).message}`, 'error');
         unmatchedFiles.push(...visitPackage);
+      }
+    } else {
+      unmatchedFiles.push(...visitPackage);
     }
   }
 
   for (const file of unmatchedFiles) {
-      const newPath = path.join(unmatchedDir, path.basename(file));
-      try {
-          fs.renameSync(file, newPath);
-      } catch(e) {
-          console.error(`Error moving unmatched file ${file}:`, e);
-      }
+    const newPath = path.join(unmatchedDir, path.basename(file));
+    try {
+      fs.renameSync(file, newPath);
+    } catch (e) {
+      console.error(`Error moving unmatched file ${file}:`, e);
+    }
   }
   if (unmatchedFiles.length > 0) {
-      sendUnmatchedFiles(unmatchedFiles.map(f => path.basename(f)));
+    sendUnmatchedFiles(unmatchedFiles.map(f => path.basename(f)));
   }
 
   try {
@@ -167,20 +168,34 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
     }
   });
 
+
   console.log(`Watching for file changes on ${importDir}`);
 
-  fs.watch(importDir, { recursive: false }, (eventType, filename) => {
-    if (filename) {
-      if (watcherTimeout) {
-        clearTimeout(watcherTimeout);
+  try {
+    currentWatcher = fs.watch(importDir, { recursive: false }, (eventType, filename) => {
+      if (filename) {
+        if (watcherTimeout) {
+          clearTimeout(watcherTimeout);
+        }
+        watcherTimeout = setTimeout(() => {
+          console.log('File changes stabilized. Starting processing...');
+          const tempDir = createTempDirectory();
+          stageFilesToTempDir(tempDir);
+          processTempDirectory(tempDir);
+          watcherTimeout = null;
+        }, 2000);
       }
-      watcherTimeout = setTimeout(() => {
-        console.log('File changes stabilized. Starting processing...');
-        const tempDir = createTempDirectory();
-        stageFilesToTempDir(tempDir);
-        processTempDirectory(tempDir);
-        watcherTimeout = null;
-      }, 2000);
-    }
-  });
+    });
+  } catch (error) {
+    console.error(`Error starting watcher on ${importDir}:`, error);
+    sendNotification(`Error starting watcher: ${(error as Error).message}`, 'error');
+  }
+};
+
+export const stopWatcher = () => {
+  if (currentWatcher) {
+    currentWatcher.close();
+    currentWatcher = null;
+    console.log('File watcher stopped.');
+  }
 };
