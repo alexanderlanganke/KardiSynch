@@ -2,6 +2,7 @@ const pdf = require('pdf-parse');
 import { createWorker } from 'tesseract.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import { app } from 'electron';
 import { UnifiedReport } from './reports';
 import { parseBiotronikXML } from './parsers/biotronik-parser';
 import { parseBostonScientificBnk } from './parsers/boston-scientific-parser';
@@ -24,7 +25,10 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
   }
 
   // If no text layer is present, fall back to OCR with Tesseract.
-  const worker = await createWorker('eng');
+  const langPath = app.isPackaged ? path.join(process.resourcesPath, 'resources') : './resources';
+  const worker = await createWorker('eng+deu', 1, {
+    langPath,
+  });
   const ret = await worker.recognize(dataBuffer);
   await worker.terminate();
   return ret.data.text;
