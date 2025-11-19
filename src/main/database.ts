@@ -51,6 +51,7 @@ const createTables = (db: sqlite3.Database) => {
         device_model TEXT,
         device_serial_number TEXT,
         raw_text TEXT,
+        data TEXT,
         FOREIGN KEY (patient_id) REFERENCES Patients (id)
       );
     `);
@@ -121,13 +122,7 @@ export const getPatientReports = (patientId: string): Promise<any[]> => {
     const db = getDb();
     const query = `
       SELECT
-        r.id,
-        r.interrogation_date,
-        r.hospitalVisitId,
-        r.manufacturer,
-        r.device_type,
-        r.device_model,
-        r.device_serial_number,
+        r.data,
         p.first_name,
         p.last_name,
         p.dob,
@@ -141,25 +136,16 @@ export const getPatientReports = (patientId: string): Promise<any[]> => {
       if (err) {
         reject(err);
       } else {
-        const reports = rows.map((row: any) => ({
-          id: row.id,
-          manufacturer: row.manufacturer,
-          interrogation_date: row.interrogation_date,
-          hospitalVisitId: row.hospitalVisitId,
-          patient: {
+        const reports = rows.map((row: any) => {
+          const report = JSON.parse(row.data);
+          report.patient = {
             first_name: row.first_name,
             last_name: row.last_name,
             dob: row.dob,
             hospitalPatientId: row.hospitalPatientId,
-          },
-          device: {
-            type: row.device_type,
-            model: row.device_model,
-            serial_number: row.device_serial_number,
-          },
-          battery: {},
-          leads: [],
-        }));
+          };
+          return report;
+        });
         resolve(reports);
       }
     });
@@ -249,8 +235,8 @@ export const createReport = (report: UnifiedReport & { patient_id: string; id: s
     db.run(
       `INSERT INTO Reports (
           id, patient_id, manufacturer, interrogation_date, hospitalVisitId,
-          device_type, device_model, device_serial_number, raw_text
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          device_type, device_model, device_serial_number, raw_text, data
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         report.id,
         report.patient_id,
@@ -261,6 +247,7 @@ export const createReport = (report: UnifiedReport & { patient_id: string; id: s
         report.device?.model || null,
         report.device?.serial_number || null,
         report.raw_text || null,
+        JSON.stringify(report),
       ],
       (err) => {
         if (err) {
