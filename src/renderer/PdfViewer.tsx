@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 
 interface PdfViewerProps {
   pdfPath: string;
@@ -9,7 +10,7 @@ const PdfViewer: React.FC<PdfViewerProps> = ({ pdfPath }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
     const renderPdf = async () => {
       if (pdfPath && canvasRef.current) {
