@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sendUnmatchedFiles, sendNotification } from './main';
+import { sendUnmatchedFiles, sendNotification } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
 import { getDb } from './database';
