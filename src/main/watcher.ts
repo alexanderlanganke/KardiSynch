@@ -25,23 +25,54 @@ const createTempDirectory = (): string => {
 };
 
 /**
- * Moves all files from the import directory to a temporary directory for safe processing.
+ * Recursively finds all files in a directory, excluding temporary directories.
+ */
+const getFilesRecursively = (dir: string): string[] => {
+  let results: string[] = [];
+  try {
+    const list = fs.readdirSync(dir);
+    for (const file of list) {
+      // Skip temp directories and system files
+      if (file.startsWith('_TEMP_') || file.startsWith('.')) continue;
+
+      const filePath = path.join(dir, file);
+      try {
+        const stat = fs.statSync(filePath);
+        if (stat && stat.isDirectory()) {
+          results = results.concat(getFilesRecursively(filePath));
+        } else {
+          results.push(filePath);
+        }
+      } catch (e) {
+        // Ignore errors accessing specific files/dirs
+      }
+    }
+  } catch (e) {
+    console.error(`Error reading directory ${dir}:`, e);
+  }
+  return results;
+};
+
+/**
+ * Moves all files from the import directory (and subdirectories) to a temporary directory.
  * @param tempDir The destination temporary directory.
  */
 const stageFilesToTempDir = (tempDir: string) => {
-  const files = fs.readdirSync(importDir).filter(file => !file.startsWith('_TEMP_'));
-  for (const file of files) {
-    const oldPath = path.join(importDir, file);
-    const newPath = path.join(tempDir, file);
+  const allFiles = getFilesRecursively(importDir);
+
+  for (const filePath of allFiles) {
+    // Generate a unique filename to prevent collisions when flattening directories
+    const originalName = path.basename(filePath);
+    const uniqueName = `${uuidv4()}_${originalName}`;
+    const newPath = path.join(tempDir, uniqueName);
+
     try {
-      if (fs.statSync(oldPath).isFile()) {
-        fs.renameSync(oldPath, newPath);
-      }
+      // We use copy+unlink instead of rename to handle cross-device moves if necessary,
+      // and to ensure we don't leave broken empty directories immediately (though we aren't cleaning them up yet)
+      fs.renameSync(filePath, newPath);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EISDIR') {
-        console.error(`Error moving file ${oldPath} to temp directory:`, error);
-        sendNotification(`Error staging file ${file}: ${(error as Error).message}`, 'error');
-      }
+      console.error(`Error moving file ${filePath} to temp directory:`, error);
+      sendNotification(`Error staging file ${originalName}: ${(error as Error).message}`, 'error');
     }
   }
 };
@@ -68,6 +99,22 @@ const processTempDirectory = async (tempDir: string) => {
   let filesToProcess = fs.readdirSync(tempDir).map(f => path.join(tempDir, f));
   const unmatchedFiles = [];
 
+  // Sort files to prioritize potential trigger files (XML, PDF) over images
+  filesToProcess.sort((a, b) => {
+    const extA = path.extname(a).toLowerCase();
+    const extB = path.extname(b).toLowerCase();
+
+    // Prioritize XML over PDF, and both over everything else
+    if (extA === '.xml' && extB !== '.xml') return -1;
+    if (extB === '.xml' && extA !== '.xml') return 1;
+
+    const isTriggerA = extA === '.pdf';
+    const isTriggerB = extB === '.pdf';
+    if (isTriggerA && !isTriggerB) return -1;
+    if (!isTriggerA && isTriggerB) return 1;
+    return 0;
+  });
+
   while (filesToProcess.length > 0) {
     const triggerFile = filesToProcess.shift();
     if (!triggerFile) continue;
@@ -90,9 +137,16 @@ const processTempDirectory = async (tempDir: string) => {
     const visitPackage = [triggerFile];
     const remainingFiles = [];
 
+    const triggerBasename = path.basename(triggerFile);
+    const timestampMatch = triggerBasename.match(/BIOSTD_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/);
+    const timestamp = timestampMatch ? timestampMatch[1] : null;
+
     for (const file of filesToProcess) {
       const report = await parseFile(file);
       if (report && getReportKey(report) === triggerKey) {
+        visitPackage.push(file);
+      } else if (!report && timestamp && path.basename(file).includes(timestamp)) {
+        // If parsing failed (e.g. image) but it shares the timestamp, include it in the package
         visitPackage.push(file);
       } else {
         remainingFiles.push(file);
@@ -171,8 +225,24 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
   console.log(`Watching for file changes on ${importDir}`);
 
+  // Check for existing files on startup
   try {
-    currentWatcher = fs.watch(importDir, { recursive: false }, (eventType, filename) => {
+    const existingFiles = getFilesRecursively(importDir);
+    if (existingFiles.length > 0) {
+      console.log(`Found ${existingFiles.length} existing files in import directory. Processing...`);
+      // We use a timeout to allow the app to fully initialize before heavy processing
+      setTimeout(() => {
+        const tempDir = createTempDirectory();
+        stageFilesToTempDir(tempDir);
+        processTempDirectory(tempDir);
+      }, 3000);
+    }
+  } catch (error) {
+    console.error('Error checking for existing files:', error);
+  }
+
+  try {
+    currentWatcher = fs.watch(importDir, { recursive: true }, (eventType, filename) => {
       if (filename) {
         if (watcherTimeout) {
           clearTimeout(watcherTimeout);

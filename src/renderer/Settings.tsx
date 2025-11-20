@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { ModeToggle } from '@/components/ui/ModeToggle';
+import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Save, RotateCcw } from 'lucide-react';
 
@@ -81,10 +81,6 @@ const Settings: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
           <p className="text-muted-foreground">Manage application preferences and storage paths.</p>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm font-medium">Theme</span>
-          <ModeToggle />
         </div>
       </div>
 
@@ -246,7 +242,7 @@ const Settings: React.FC = () => {
           </div>
         </form>
       </Tabs>
-    </div>
+    </div >
   );
 };
 

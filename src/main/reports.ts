@@ -33,6 +33,7 @@ export interface BatteryData {
  * The top-level, standardized structure for a parsed interrogation report.
  */
 export interface UnifiedReport {
+  id?: string; // Added for DB compatibility
   // --- Metadata (from the report and the hospital system) ---
   manufacturer: 'Medtronic' | 'Biotronik' | 'Abbott' | 'Boston Scientific' | 'Impulse Dynamics' | 'Microport' | 'Unknown' | string;
   interrogation_date: string; // ISO 8601 format

@@ -31,6 +31,7 @@ export function ThemeProvider({
   useEffect(() => {
     const root = window.document.documentElement
 
+    console.log('Applying theme:', theme);
     root.classList.remove("light", "dark")
 
     if (theme === "system") {
@@ -39,19 +40,29 @@ export function ThemeProvider({
         ? "dark"
         : "light"
 
+      console.log('System theme detected:', systemTheme);
       root.classList.add(systemTheme)
       return
     }
 
+    console.log('Adding class:', theme);
     root.classList.add(theme)
   }, [theme])
 
   useEffect(() => {
     const syncTheme = async () => {
       try {
-        const settings = await window.electronAPI.getSettings();
-        if (settings && settings.theme && settings.theme !== theme) {
-          setTheme(settings.theme);
+        // Only sync from backend if there's no local preference
+        const localTheme = localStorage.getItem(storageKey);
+        console.log('Local theme preference:', localTheme);
+
+        if (!localTheme) {
+          const settings = await window.electronAPI.getSettings();
+          console.log('Backend settings:', settings);
+          if (settings && settings.theme) {
+            console.log('Syncing theme from backend:', settings.theme);
+            setTheme(settings.theme);
+          }
         }
       } catch (error) {
         console.error("Failed to sync theme from backend:", error);
@@ -63,6 +74,7 @@ export function ThemeProvider({
   const value = {
     theme,
     setTheme: (newTheme: "system" | "light" | "dark") => {
+      console.log('Setting theme to:', newTheme);
       localStorage.setItem(storageKey, newTheme);
       setTheme(newTheme);
       window.electronAPI.setSettings({ theme: newTheme }).catch(err =>

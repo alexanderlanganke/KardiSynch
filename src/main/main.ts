@@ -1,9 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
-import { initializeDatabase, getDb, getAllPatients, getPatientReports } from './database';
+import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports } from './database';
 import { initializeWatcher, stopWatcher } from './watcher';
-import { seedDatabase } from './seed';
 import { initializeStorage } from './storage';
 import { setMainWindow, getMainWindow } from './windowManager';
 import { getAllSettings, saveSettings } from './settingsService';
@@ -11,8 +10,10 @@ import { getConfig } from './config';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 800,
-    height: 600,
+    width: 1400,
+    height: 900,
+    minWidth: 1200,
+    minHeight: 700,
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
@@ -32,31 +33,16 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   // Initialize Database FIRST
-  // We need to get the DB path from config directly to initialize it before the full settings service
   const config = getConfig();
-  const dbPath = config.dbPath; // This might be undefined if it's the first run, initializeDatabase handles defaults
+  const dbPath = config.dbPath;
   initializeDatabase(dbPath);
 
-  // Now it's safe to get all settings (which might query the DB)
+  // Now get all settings
   const settings = await getAllSettings();
 
   await initializeStorage();
 
-  const db = getDb();
-  db.get('SELECT COUNT(*) as count FROM Patients', (err, row: { count: number }) => {
-    if (err) {
-      console.error('Error checking patient count:', err);
-      return;
-    }
-
-    if (row.count === 0) {
-      console.log('Database is empty, seeding with mock data...');
-      seedDatabase();
-    } else {
-      console.log('Database already contains data, skipping seed.');
-    }
-  });
-
+  // Initialize watcher (NO MOCK DATA SEEDING)
   initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
   createWindow();
   console.log('Electron app is ready.');
@@ -78,15 +64,14 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
   }
 });
 
-ipcMain.handle('select-directory', async () => {
-  const mainWindow = getMainWindow();
-  if (!mainWindow) {
-    return;
+ipcMain.handle('get-patient-by-id', async (event, patientId) => {
+  try {
+    const patient = await getPatientById(patientId);
+    return patient;
+  } catch (error) {
+    console.error('Failed to get patient by id:', error);
+    throw error;
   }
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
-  });
-  return result.filePaths[0];
 });
 
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
@@ -98,6 +83,19 @@ ipcMain.handle('get-patient-reports', async (event, patientId) => {
     throw error;
   }
 });
+
+ipcMain.handle('select-directory', async () => {
+  const mainWindow = getMainWindow();
+  if (!mainWindow) {
+    return;
+  }
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory']
+  });
+  return result.filePaths[0];
+});
+
+
 
 ipcMain.handle('get-settings', async () => {
   try {

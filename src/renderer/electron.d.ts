@@ -1,13 +1,11 @@
-export interface IElectronAPI {
-  getAllPatients: (filters: any) => Promise<any>;
-  getPatientReports: (patientId: string) => Promise<any>;
-  getPdfData: (filePath: string) => Promise<Uint8Array>;
+interface IElectronAPI {
+  getAllPatients: (filters: any) => Promise<any[]>;
+  getPatientById: (patientId: number) => Promise<any>;
+  getPatientReports: (patientId: number) => Promise<any[]>;
   getSettings: () => Promise<any>;
-  setSettings: (settings: any) => Promise<void>;
-  resetSettings: () => Promise<any>;
+  saveSettings: (settings: any) => Promise<void>;
+  resetSettings: () => Promise<void>;
   selectDirectory: () => Promise<string>;
-  onUnmatchedFiles: (callback: (files: string[]) => void) => void;
-  onNotify: (callback: (type: 'info' | 'warning' | 'error', message: string) => void) => () => void;
 }
 
 declare global {
@@ -15,3 +13,5 @@ declare global {
     electronAPI: IElectronAPI;
   }
 }
+
+export { };
