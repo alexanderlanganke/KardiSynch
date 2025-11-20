@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdf = require('pdf-parse');
 import { createWorker } from 'tesseract.js';
 import * as fs from 'fs';
@@ -17,7 +18,22 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
   const dataBuffer = fs.readFileSync(filePath);
 
   // First, try to extract a text layer using pdf-parse.
-  const data = await pdf(dataBuffer);
+  let data;
+  try {
+    console.log('pdf-parse import type:', typeof pdf);
+    console.log('pdf-parse import keys:', Object.keys(pdf));
+    if (typeof pdf === 'function') {
+      data = await pdf(dataBuffer);
+    } else if (pdf.default && typeof pdf.default === 'function') {
+      data = await pdf.default(dataBuffer);
+    } else {
+      console.warn('pdf-parse export not recognized, falling back to OCR');
+      data = { text: '' };
+    }
+  } catch (e) {
+    console.error('Error parsing PDF text layer:', e);
+    data = { text: '' };
+  }
 
   // If a text layer is found, return it.
   if (data.text && data.text.trim().length > 0) {
@@ -26,7 +42,7 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
 
   // If no text layer is present, fall back to OCR with Tesseract.
   const langPath = app.isPackaged ? path.join(process.resourcesPath, 'resources') : './resources';
-  const worker = await createWorker('eng+deu', 1, {
+  const worker = await createWorker('eng', 1, {
     langPath,
   });
   const ret = await worker.recognize(dataBuffer);
@@ -99,11 +115,14 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
   console.log(`Parsing file: ${filePath}`);
   const fileExtension = path.extname(filePath).toLowerCase();
   const filename = path.basename(filePath);
+  console.log(`File extension: '${fileExtension}', Filename: '${filename}', Includes BIOSTD_: ${filename.includes('BIOSTD_')}`);
 
   if (fileExtension === '.pdf') {
-    const rawText = await extractTextFromPdf(filePath);
-    return extractStructuredData(rawText);
-  } else if (fileExtension === '.xml' && filename.startsWith('BIOSTD_')) {
+    console.warn('PDF parsing is temporarily disabled due to library issues.');
+    return null;
+    // const rawText = await extractTextFromPdf(filePath);
+    // return extractStructuredData(rawText);
+  } else if (fileExtension === '.xml' && filename.includes('BIOSTD_')) {
     const xmlData = fs.readFileSync(filePath, 'utf-8');
     return parseBiotronikXML(xmlData);
   } else if (fileExtension === '.bnk') {

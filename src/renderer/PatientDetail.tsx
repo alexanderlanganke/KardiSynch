@@ -1,154 +1,217 @@
 import React, { useState, useEffect } from 'react';
-import { DndContext, closestCenter } from '@dnd-kit/core';
-import { SortableContext, useSortable, arrayMove } from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { useAppContext, ViewerSlot } from './AppContext';
-import ViewerArea from './ViewerArea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import PatientHeader from './PatientHeader';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { ArrowLeft, User, Calendar, Activity, Battery, Zap } from 'lucide-react';
+import ViewPane from '@/components/ViewPane';
+import VisitTimeline from '@/components/VisitTimeline';
 
-import { UnifiedReport } from '../main/reports';
+interface PatientDetailProps {
+  patientId: number;
+  onBack: () => void;
+}
 
-const PatientDetail: React.FC = () => {
-  const { currentPatientId, viewerSlots, setViewerSlots } = useAppContext();
-  const [reports, setReports] = useState<UnifiedReport[]>([]);
-  const [patientHeaderData, setPatientHeaderData] = useState<UnifiedReport | null>(null);
+const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
+  const [patient, setPatient] = useState<any>(null);
+  const [reports, setReports] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null, null]);
 
   useEffect(() => {
-    if (currentPatientId) {
-      fetchReports(currentPatientId);
-    }
-  }, [currentPatientId]);
+    loadPatientData();
+  }, [patientId]);
 
-  const fetchReports = async (id: string) => {
+  const loadPatientData = async () => {
     try {
-      const fetchedReports = await window.electronAPI.getPatientReports(id);
-      setReports(fetchedReports);
-      if (fetchedReports.length > 0) {
-        setPatientHeaderData(fetchedReports[0]);
+      setLoading(true);
+      const [patientData, reportsData] = await Promise.all([
+        window.electronAPI.getPatientById(patientId),
+        window.electronAPI.getPatientReports(patientId)
+      ]);
+
+      setPatient(patientData);
+      setReports(reportsData);
+
+      // Auto-select the first report in pane 0
+      if (reportsData.length > 0) {
+        setSelectedReports([reportsData[0], null, null]);
       }
     } catch (error) {
-      console.error('Error fetching patient reports:', error);
+      console.error('Failed to load patient data:', error);
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDragEnd = (event: any) => {
-    const { active, over } = event;
-
-    if (active.id !== over.id) {
-      const overIsViewerSlot = over.id.toString().startsWith('slot-');
-      const activeIsTimelineItem = !active.id.toString().startsWith('slot-');
-
-      if (overIsViewerSlot && activeIsTimelineItem) {
-        const slotIndex = parseInt(over.id.toString().replace('slot-', ''), 10);
-        const report = reports.find((r) => r.id === active.id);
-        if (report) {
-          const newSlots = [...viewerSlots];
-          newSlots[slotIndex] = { report, viewMode: 'pdf' };
-          setViewerSlots(newSlots);
-        }
-      }
-    }
+  const handleReportSelect = (paneId: number, report: any | null) => {
+    const newSelected = [...selectedReports];
+    newSelected[paneId] = report;
+    setSelectedReports(newSelected);
   };
 
-  const handleClose = (slotIndex: number) => {
-    const newSlots = [...viewerSlots];
-    newSlots[slotIndex] = null;
-    setViewerSlots(newSlots);
+  const handleVisitSelect = (visit: any) => {
+    // Find the first empty pane, or use pane 0
+    const emptyPaneIndex = selectedReports.findIndex(r => r === null);
+    const targetPane = emptyPaneIndex >= 0 ? emptyPaneIndex : 0;
+    handleReportSelect(targetPane, visit);
   };
 
-  const handleViewModeChange = (
-    slotIndex: number,
-    viewMode: 'pdf' | 'data'
-  ) => {
-    const newSlots = [...viewerSlots];
-    if (newSlots[slotIndex]) {
-      (newSlots[slotIndex] as ViewerSlot).viewMode = viewMode;
-      setViewerSlots(newSlots);
-    }
-  };
+  // Get latest report for header data
+  const latestReport = reports[0];
 
-  return (
-    <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <div className="flex flex-col h-full p-4">
-        {patientHeaderData && <PatientHeader report={patientHeaderData} />}
-        <div className="flex-1 flex gap-4">
-          {viewerSlots.map((slot, i) => (
-            <Droppable key={`slot-${i}`} id={`slot-${i}`}>
-              <Card className="h-full">
-                <CardContent className="h-full p-2">
-                  {slot ? (
-                    <ViewerArea
-                      slot={slot}
-                      onClose={() => handleClose(i)}
-                      onViewModeChange={(vm) => handleViewModeChange(i, vm)}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center h-full text-muted-foreground">
-                      <p>Drop a report here</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </Droppable>
-          ))}
-        </div>
-        <Card className="h-40 p-2">
-          <CardHeader className="p-2">
-            <CardTitle className="text-sm">Timeline</CardTitle>
-          </CardHeader>
-          <CardContent className="p-2">
-            <ScrollArea className="h-24 whitespace-nowrap">
-              <SortableContext items={reports.map((r) => r.id)}>
-                <div className="flex space-x-2">
-                  {reports.map((report) => (
-                    <Draggable key={report.id} id={report.id}>
-                      <Card className="p-2 cursor-grab w-24 h-24 flex items-center justify-center">
-                        <p
-                          className="text-sm font-semibold transform -rotate-90"
-                          style={{ whiteSpace: 'nowrap' }}
-                        >
-                          {report.visit_date}
-                        </p>
-                      </Card>
-                    </Draggable>
-                  ))}
-                </div>
-              </SortableContext>
-            </ScrollArea>
-          </CardContent>
-        </Card>
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-muted-foreground">Loading patient data...</div>
       </div>
-    </DndContext>
-  );
-};
+    );
+  }
 
-const Draggable: React.FC<{ id: any; children: React.ReactNode }> = ({
-  id,
-  children,
-}) => {
-  const { attributes, listeners, setNodeRef, transform, transition } =
-    useSortable({ id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      {children}
-    </div>
-  );
-};
+  if (!patient) {
+    return (
+      <div className="flex flex-col items-center justify-center h-screen gap-4">
+        <div className="text-muted-foreground">Patient not found</div>
+        <Button onClick={onBack}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
+          Back to Dashboard
+        </Button>
+      </div>
+    );
+  }
 
-const Droppable: React.FC<{ id: any; children: React.ReactNode }> = ({
-  id,
-  children,
-}) => {
-  const { setNodeRef } = useSortable({ id });
   return (
-    <div ref={setNodeRef} className="h-full">
-      {children}
+    <div className="flex flex-col h-screen bg-background">
+      {/* Header */}
+      <div className="border-b border-border bg-card/50 backdrop-blur-sm">
+        <div className="p-6 space-y-4">
+          {/* Navigation */}
+          <Button variant="ghost" onClick={onBack} className="mb-2">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to Patients
+          </Button>
+
+          {/* Patient Info */}
+          <div className="flex items-start justify-between">
+            <div className="space-y-1">
+              <h1 className="text-3xl font-bold">{patient.name}</h1>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex items-center gap-1">
+                  <User className="h-4 w-4" />
+                  {patient.patientId}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  DOB: {patient.dob}
+                </div>
+              </div>
+            </div>
+            <Badge variant="secondary" className="text-lg px-4 py-2">
+              {reports.length} Reports
+            </Badge>
+          </div>
+
+          {/* Device & Lead Summary */}
+          {latestReport && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              {/* Device Card */}
+              {latestReport.device && (
+                <Card className="glass-card border-primary/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Activity className="h-4 w-4" />
+                      Device
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    <div className="font-semibold">{latestReport.device.model || 'N/A'}</div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {latestReport.device.serial_number || 'N/A'}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Battery Card */}
+              {latestReport.battery && (
+                <Card className="glass-card border-primary/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Battery className="h-4 w-4" />
+                      Battery
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-1">
+                    <div className="font-semibold">
+                      {latestReport.battery.voltage?.value} {latestReport.battery.voltage?.unit}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {latestReport.battery.remaining_longevity?.value}
+                      {latestReport.battery.remaining_longevity?.unit} remaining
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Leads Card */}
+              {latestReport.leads && latestReport.leads.length > 0 && (
+                <Card className="glass-card border-primary/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-medium flex items-center gap-2">
+                      <Zap className="h-4 w-4" />
+                      Leads
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-xs space-y-1">
+                      {latestReport.leads.map((lead: any, idx: number) => (
+                        <div key={idx} className="flex justify-between">
+                          <span className="text-muted-foreground">{lead.name}:</span>
+                          <span className="font-medium">{lead.impedance?.value} Ω</span>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Main Content - 3 Pane Viewer */}
+      <div className="flex-1 overflow-hidden">
+        <div className="grid grid-cols-1 lg:grid-cols-3 h-full">
+          <ViewPane
+            paneId={0}
+            selectedReport={selectedReports[0]}
+            availableReports={reports}
+            onReportSelect={handleReportSelect}
+          />
+          <ViewPane
+            paneId={1}
+            selectedReport={selectedReports[1]}
+            availableReports={reports}
+            onReportSelect={handleReportSelect}
+          />
+          <ViewPane
+            paneId={2}
+            selectedReport={selectedReports[2]}
+            availableReports={reports}
+            onReportSelect={handleReportSelect}
+          />
+        </div>
+      </div>
+
+      {/* Timeline */}
+      <VisitTimeline
+        visits={reports.map(r => ({
+          id: r.id,
+          interrogation_date: r.interrogation_date,
+          manufacturer: r.manufacturer,
+          fileCount: r.files?.length || 0
+        }))}
+        onVisitSelect={handleVisitSelect}
+      />
     </div>
   );
 };

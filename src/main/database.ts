@@ -25,10 +25,7 @@ const createDbConnection = (dbPath: string) => {
 
 const createTables = (db: sqlite3.Database) => {
   db.serialize(() => {
-    // NOTE: Dropping tables is for development convenience.
-    // A production app would require a robust migration strategy.
-    db.run(`DROP TABLE IF EXISTS Reports;`);
-    db.run(`DROP TABLE IF EXISTS Patients;`);
+    // Create tables if they don't exist
 
     db.run(`
       CREATE TABLE IF NOT EXISTS Patients (
@@ -95,12 +92,12 @@ export const findPatient = (lastName: string, dob: string): Promise<any> => {
 };
 
 export const createPatient = (patient: {
-    id: string;
-    first_name: string;
-    last_name: string;
-    dob: string;
-    hospitalPatientId: string | null;
-  }): Promise<void> => {
+  id: string;
+  first_name: string;
+  last_name: string;
+  dob: string;
+  hospitalPatientId: string | null;
+}): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
@@ -117,38 +114,90 @@ export const createPatient = (patient: {
   });
 };
 
-export const getPatientReports = (patientId: string): Promise<any[]> => {
+export const getPatientById = (patientId: number): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    const query = `
-      SELECT
-        r.data,
-        p.first_name,
-        p.last_name,
-        p.dob,
-        p.hospitalPatientId
-      FROM Reports r
-      JOIN Patients p ON r.patient_id = p.id
-      WHERE r.patient_id = ?
-      ORDER BY r.interrogation_date DESC
-    `;
-    db.all(query, [patientId], (err, rows) => {
-      if (err) {
-        reject(err);
-      } else {
-        const reports = rows.map((row: any) => {
-          const report = JSON.parse(row.data);
-          report.patient = {
+    db.get(
+      `SELECT * FROM Patients WHERE id = ?`,
+      [patientId],
+      (err, row: any) => {
+        if (err) {
+          reject(err);
+        } else if (!row) {
+          reject(new Error('Patient not found'));
+        } else {
+          // Transform to include combined name
+          const patient = {
+            id: row.id,
+            patientId: `P-${row.id}`,
             first_name: row.first_name,
             last_name: row.last_name,
-            dob: row.dob,
-            hospitalPatientId: row.hospitalPatientId,
+            name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
+            dob: row.dob || ''
           };
-          return report;
-        });
-        resolve(reports);
+          resolve(patient);
+        }
       }
-    });
+    );
+  });
+};
+
+export const getPatientReports = (patientId: number): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all(
+      `SELECT r.*, p.first_name, p.last_name, p.dob 
+       FROM Reports r 
+       JOIN Patients p ON r.patient_id = p.id 
+       WHERE r.patient_id = ? 
+       ORDER BY r.interrogation_date DESC`,
+      [patientId],
+      (err, rows: any[]) => {
+        if (err) {
+          reject(err);
+        } else {
+          // Parse JSON fields and extract file info
+          const reports = rows.map(row => {
+            let device = null;
+            let battery = null;
+            let leads = null;
+            let arrhythmia_summary = null;
+            let files: string[] = [];
+
+            try {
+              // Parse the full data JSON
+              if (row.data) {
+                const fullData = JSON.parse(row.data);
+                device = fullData.device;
+                battery = fullData.battery;
+                leads = fullData.leads;
+                arrhythmia_summary = fullData.arrhythmia_summary;
+              }
+
+              // For now, we'll use a placeholder for files since we don't have report_path in schema
+              // In a future update, we should add report_path column to Reports table
+              files = [];
+            } catch (e) {
+              console.error('Error parsing report data:', e);
+            }
+
+            return {
+              id: row.id,
+              patient_id: row.patient_id,
+              manufacturer: row.manufacturer,
+              interrogation_date: row.interrogation_date,
+              device,
+              battery,
+              leads,
+              arrhythmia_summary,
+              files,
+              raw_text: row.raw_text
+            };
+          });
+          resolve(reports);
+        }
+      }
+    );
   });
 };
 
@@ -191,7 +240,18 @@ export const setSettings = (settings: any): Promise<void> => {
 export const getAllPatients = (filters: any): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    let query = 'SELECT DISTINCT p.* FROM Patients p LEFT JOIN Reports r ON p.id = r.patient_id WHERE 1=1';
+    let query = `
+      SELECT 
+        p.id,
+        p.first_name,
+        p.last_name,
+        p.dob,
+        COUNT(r.id) as reportCount,
+        MAX(r.interrogation_date) as lastReportDate
+      FROM Patients p 
+      LEFT JOIN Reports r ON p.id = r.patient_id 
+      WHERE 1=1
+    `;
     const params: any[] = [];
 
     if (filters.name) {
@@ -219,11 +279,22 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
       params.push(filters.deviceManufacturer);
     }
 
-    db.all(query, params, (err, rows) => {
+    query += ' GROUP BY p.id, p.first_name, p.last_name, p.dob';
+
+    db.all(query, params, (err, rows: any[]) => {
       if (err) {
         reject(err);
       } else {
-        resolve(rows);
+        // Transform the data to match frontend expectations
+        const patients = rows.map(row => ({
+          id: row.id,
+          patientId: `P-${row.id}`,
+          name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
+          dob: row.dob || '',
+          lastReportDate: row.lastReportDate || '',
+          reportCount: row.reportCount || 0
+        }));
+        resolve(patients);
       }
     });
   });

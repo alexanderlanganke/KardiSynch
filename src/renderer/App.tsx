@@ -54,18 +54,36 @@ const NavItem: React.FC<{
 );
 
 const App: React.FC = () => {
-  const { currentView, setCurrentView } = useAppContext();
+  const { currentView, setCurrentView, currentPatientId, setCurrentPatientId } = useAppContext();
+
+  const handlePatientSelect = (patientId: number) => {
+    setCurrentPatientId(patientId.toString());
+    setCurrentView('patientDetail');
+  };
+
+  const handleBackToDashboard = () => {
+    setCurrentPatientId(null);
+    setCurrentView('dashboard');
+  };
 
   const renderView = () => {
     switch (currentView) {
       case 'dashboard':
-        return <PatientDashboard />;
+        return <PatientDashboard onPatientSelect={handlePatientSelect} />;
       case 'settings':
         return <Settings />;
       case 'patientDetail':
-        return <PatientDetail />;
+        if (currentPatientId) {
+          return (
+            <PatientDetail
+              patientId={parseInt(currentPatientId)}
+              onBack={handleBackToDashboard}
+            />
+          );
+        }
+        return <PatientDashboard onPatientSelect={handlePatientSelect} />;
       default:
-        return <PatientDashboard />;
+        return <PatientDashboard onPatientSelect={handlePatientSelect} />;
     }
   };
 
@@ -102,10 +120,8 @@ const App: React.FC = () => {
         {/* Main Content Area */}
         <main className="flex-1 overflow-hidden relative flex flex-col">
           <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-transparent pointer-events-none" />
-          <div className="flex-1 overflow-auto p-6 scroll-smooth">
-            <div className="max-w-7xl mx-auto h-full">
-              {renderView()}
-            </div>
+          <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
+            {renderView()}
           </div>
         </main>
 
