@@ -6,6 +6,7 @@ interface IElectronAPI {
   setSettings: (settings: any) => Promise<void>;
   resetSettings: () => Promise<any>;
   selectDirectory: () => Promise<string>;
+  getPdfData: (filePath: string) => Promise<Uint8Array>;
 }
 
 declare global {

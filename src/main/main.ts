@@ -147,10 +147,12 @@ ipcMain.handle('reset-settings', async () => {
 
 ipcMain.handle('get-pdf-data', async (event, filePath) => {
   try {
+    console.log('[get-pdf-data] Requesting file:', filePath);
     const data = await fs.readFile(filePath);
+    console.log('[get-pdf-data] Read success. Size:', data.length);
     return data;
   } catch (error) {
-    console.error('Failed to read PDF file:', error);
+    console.error('[get-pdf-data] Failed to read PDF file:', error);
     throw error;
   }
 });
