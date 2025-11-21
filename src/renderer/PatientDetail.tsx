@@ -7,15 +7,16 @@ import ViewPane from '@/components/ViewPane';
 import VisitTimeline from '@/components/VisitTimeline';
 
 interface PatientDetailProps {
-  patientId: number;
+  patientId: string;
   onBack: () => void;
 }
 
 const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
+  console.log('[PatientDetail] Received patientId:', patientId, 'Type:', typeof patientId);
   const [patient, setPatient] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null, null]);
+  const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null]);
 
   useEffect(() => {
     loadPatientData();
@@ -34,7 +35,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
       // Auto-select the first report in pane 0
       if (reportsData.length > 0) {
-        setSelectedReports([reportsData[0], null, null]);
+        setSelectedReports([reportsData[0], null]);
       }
     } catch (error) {
       console.error('Failed to load patient data:', error);
@@ -80,7 +81,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-background">
+    <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="border-b border-border bg-card/50 backdrop-blur-sm">
         <div className="p-6 space-y-4">
@@ -178,9 +179,9 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         </div>
       </div>
 
-      {/* Main Content - 3 Pane Viewer */}
+      {/* Main Content - 2 Pane Viewer */}
       <div className="flex-1 overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-3 h-full">
+        <div className="grid grid-cols-2 h-full">
           <ViewPane
             paneId={0}
             selectedReport={selectedReports[0]}
@@ -190,12 +191,6 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           <ViewPane
             paneId={1}
             selectedReport={selectedReports[1]}
-            availableReports={reports}
-            onReportSelect={handleReportSelect}
-          />
-          <ViewPane
-            paneId={2}
-            selectedReport={selectedReports[2]}
             availableReports={reports}
             onReportSelect={handleReportSelect}
           />
