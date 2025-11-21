@@ -114,7 +114,8 @@ export const createPatient = (patient: {
   });
 };
 
-export const getPatientById = (patientId: number): Promise<any> => {
+export const getPatientById = (patientId: string): Promise<any> => {
+  console.log('[getPatientById] Looking for patient with ID:', patientId);
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.get(
@@ -122,10 +123,13 @@ export const getPatientById = (patientId: number): Promise<any> => {
       [patientId],
       (err, row: any) => {
         if (err) {
+          console.error('[getPatientById] Database error:', err);
           reject(err);
         } else if (!row) {
+          console.error('[getPatientById] Patient not found with ID:', patientId);
           reject(new Error('Patient not found'));
         } else {
+          console.log('[getPatientById] Found patient:', row);
           // Transform to include combined name
           const patient = {
             id: row.id,
@@ -142,7 +146,15 @@ export const getPatientById = (patientId: number): Promise<any> => {
   });
 };
 
-export const getPatientReports = (patientId: number): Promise<any[]> => {
+export const getPatientReports = async (patientId: string): Promise<any[]> => {
+  let dataDir: string;
+  try {
+    const settings = await getSettings();
+    dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  } catch (e) {
+    dataDir = path.join(app.getPath('userData'), '_DATA');
+  }
+
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.all(
@@ -174,11 +186,14 @@ export const getPatientReports = (patientId: number): Promise<any[]> => {
                 arrhythmia_summary = fullData.arrhythmia_summary;
               }
 
-              // For now, we'll use a placeholder for files since we don't have report_path in schema
-              // In a future update, we should add report_path column to Reports table
-              files = [];
+              // Scan for files in the report directory
+              const reportDir = path.join(dataDir, 'Reports', row.id);
+              if (fs.existsSync(reportDir)) {
+                const reportFiles = fs.readdirSync(reportDir);
+                files = reportFiles.map(file => path.join(reportDir, file));
+              }
             } catch (e) {
-              console.error('Error parsing report data:', e);
+              console.error('Error parsing report data or reading files:', e);
             }
 
             return {
@@ -200,6 +215,7 @@ export const getPatientReports = (patientId: number): Promise<any[]> => {
     );
   });
 };
+
 
 export const getSettings = (): Promise<any> => {
   return new Promise((resolve, reject) => {

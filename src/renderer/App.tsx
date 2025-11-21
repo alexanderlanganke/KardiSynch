@@ -56,8 +56,8 @@ const NavItem: React.FC<{
 const App: React.FC = () => {
   const { currentView, setCurrentView, currentPatientId, setCurrentPatientId } = useAppContext();
 
-  const handlePatientSelect = (patientId: number) => {
-    setCurrentPatientId(patientId.toString());
+  const handlePatientSelect = (patientId: string) => {
+    setCurrentPatientId(patientId);
     setCurrentView('patientDetail');
   };
 
@@ -76,7 +76,7 @@ const App: React.FC = () => {
         if (currentPatientId) {
           return (
             <PatientDetail
-              patientId={parseInt(currentPatientId)}
+              patientId={currentPatientId}
               onBack={handleBackToDashboard}
             />
           );
@@ -94,9 +94,9 @@ const App: React.FC = () => {
         data-testid="app-container"
       >
         {/* Glassmorphism Sidebar */}
-        <aside className="w-20 flex flex-col items-center py-6 z-50 glass border-r border-border/40">
+        <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border/40">
           <div className="mb-8 p-2 bg-primary/5 rounded-2xl">
-            <Activity className="h-8 w-8 text-primary animate-pulse" />
+            <Activity className="h-6 w-6 text-primary animate-pulse" />
           </div>
 
           <nav className="flex flex-col space-y-4 w-full items-center">
@@ -120,7 +120,7 @@ const App: React.FC = () => {
         {/* Main Content Area */}
         <main className="flex-1 overflow-hidden relative flex flex-col">
           <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-transparent pointer-events-none" />
-          <div className="flex-1 overflow-y-auto p-8 scroll-smooth">
+          <div className="flex-1 overflow-hidden">
             {renderView()}
           </div>
         </main>

@@ -8,7 +8,7 @@ import { Search, Filter, User, Calendar, Clock, MoreVertical, X, Check } from 'l
 import { Badge } from '@/components/ui/badge';
 
 interface Patient {
-  id: number;
+  id: string;
   patientId: string;
   name: string;
   dob: string;
@@ -24,10 +24,17 @@ interface FilterState {
   deviceManufacturer: string;
 }
 
-const PatientDashboard: React.FC<{ onPatientSelect: (patientId: number) => void }> = ({ onPatientSelect }) => {
+const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void }> = ({ onPatientSelect }) => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
+  // ... (state declarations)
+
+  // We need to wrap the return in a div with p-8 and overflow-y-auto
+  // But since I can't easily wrap the entire return without replacing the whole file, 
+  // I'll rely on the fact that the component returns a div.
+  // I'll check the return statement.
+
   const [loading, setLoading] = useState(true);
 
   const [filters, setFilters] = useState<FilterState>({
@@ -83,7 +90,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: number) => void 
   };
 
   return (
-    <div className="space-y-8">
+    <div className="container mx-auto p-8 max-w-7xl space-y-8 h-full overflow-y-auto">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -116,93 +123,95 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: number) => void 
       </div>
 
       {/* Filter Panel */}
-      {showFilters && (
-        <Card className="glass-card animate-accordion-down overflow-hidden border-primary/10">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <Filter className="h-4 w-4" /> Advanced Filters
-            </CardTitle>
-            <CardDescription>Filter patients by specific criteria matching database records.</CardDescription>
-          </CardHeader>
-          <CardContent className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <Label htmlFor="dob">Date of Birth</Label>
-                <Input
-                  id="dob"
-                  type="date"
-                  className="bg-background/50"
-                  value={filters.dob}
-                  onChange={(e) => handleFilterChange('dob', e.target.value)}
-                />
-              </div>
+      {
+        showFilters && (
+          <Card className="glass-card animate-accordion-down overflow-hidden border-primary/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg font-medium flex items-center gap-2">
+                <Filter className="h-4 w-4" /> Advanced Filters
+              </CardTitle>
+              <CardDescription>Filter patients by specific criteria matching database records.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <Label htmlFor="dob">Date of Birth</Label>
+                  <Input
+                    id="dob"
+                    type="date"
+                    className="bg-background/50"
+                    value={filters.dob}
+                    onChange={(e) => handleFilterChange('dob', e.target.value)}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="patientId">Patient ID (Internal)</Label>
-                <Input
-                  id="patientId"
-                  placeholder="e.g. P-12345"
-                  className="bg-background/50"
-                  value={filters.patientId}
-                  onChange={(e) => handleFilterChange('patientId', e.target.value)}
-                />
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="patientId">Patient ID (Internal)</Label>
+                  <Input
+                    id="patientId"
+                    placeholder="e.g. P-12345"
+                    className="bg-background/50"
+                    value={filters.patientId}
+                    onChange={(e) => handleFilterChange('patientId', e.target.value)}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="hospitalPatientId">Hospital MRN</Label>
-                <Input
-                  id="hospitalPatientId"
-                  placeholder="e.g. MRN-999"
-                  className="bg-background/50"
-                  value={filters.hospitalPatientId}
-                  onChange={(e) => handleFilterChange('hospitalPatientId', e.target.value)}
-                />
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="hospitalPatientId">Hospital MRN</Label>
+                  <Input
+                    id="hospitalPatientId"
+                    placeholder="e.g. MRN-999"
+                    className="bg-background/50"
+                    value={filters.hospitalPatientId}
+                    onChange={(e) => handleFilterChange('hospitalPatientId', e.target.value)}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="hospitalVisitId">Visit ID</Label>
-                <Input
-                  id="hospitalVisitId"
-                  placeholder="e.g. V-2023-001"
-                  className="bg-background/50"
-                  value={filters.hospitalVisitId}
-                  onChange={(e) => handleFilterChange('hospitalVisitId', e.target.value)}
-                />
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="hospitalVisitId">Visit ID</Label>
+                  <Input
+                    id="hospitalVisitId"
+                    placeholder="e.g. V-2023-001"
+                    className="bg-background/50"
+                    value={filters.hospitalVisitId}
+                    onChange={(e) => handleFilterChange('hospitalVisitId', e.target.value)}
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="manufacturer">Device Manufacturer</Label>
-                <Select
-                  value={filters.deviceManufacturer}
-                  onValueChange={(value) => handleFilterChange('deviceManufacturer', value)}
-                >
-                  <SelectTrigger id="manufacturer" className="bg-background/50">
-                    <SelectValue placeholder="Select Manufacturer" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Medtronic">Medtronic</SelectItem>
-                    <SelectItem value="Biotronik">Biotronik</SelectItem>
-                    <SelectItem value="Abbott">Abbott</SelectItem>
-                    <SelectItem value="Boston Scientific">Boston Scientific</SelectItem>
-                    <SelectItem value="Impulse Dynamics">Impulse Dynamics</SelectItem>
-                    <SelectItem value="Microport">Microport</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+                <div className="space-y-2">
+                  <Label htmlFor="manufacturer">Device Manufacturer</Label>
+                  <Select
+                    value={filters.deviceManufacturer}
+                    onValueChange={(value) => handleFilterChange('deviceManufacturer', value)}
+                  >
+                    <SelectTrigger id="manufacturer" className="bg-background/50">
+                      <SelectValue placeholder="Select Manufacturer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Medtronic">Medtronic</SelectItem>
+                      <SelectItem value="Biotronik">Biotronik</SelectItem>
+                      <SelectItem value="Abbott">Abbott</SelectItem>
+                      <SelectItem value="Boston Scientific">Boston Scientific</SelectItem>
+                      <SelectItem value="Impulse Dynamics">Impulse Dynamics</SelectItem>
+                      <SelectItem value="Microport">Microport</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-              <div className="space-y-2 flex items-end gap-2">
-                <Button variant="outline" onClick={clearFilters} className="flex-1">
-                  <X className="mr-2 h-4 w-4" /> Clear
-                </Button>
-                {/* Apply is automatic via useEffect, but button gives feedback */}
-                <Button onClick={() => fetchPatients()} className="flex-1">
-                  <Check className="mr-2 h-4 w-4" /> Refresh
-                </Button>
+                <div className="space-y-2 flex items-end gap-2">
+                  <Button variant="outline" onClick={clearFilters} className="flex-1">
+                    <X className="mr-2 h-4 w-4" /> Clear
+                  </Button>
+                  {/* Apply is automatic via useEffect, but button gives feedback */}
+                  <Button onClick={() => fetchPatients()} className="flex-1">
+                    <Check className="mr-2 h-4 w-4" /> Refresh
+                  </Button>
+                </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        )
+      }
 
       {/* Stats Overview (Placeholder for now) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -285,7 +294,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: number) => void 
           ))
         )}
       </div>
-    </div>
+    </div >
   );
 };
 

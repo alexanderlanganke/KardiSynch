@@ -10,8 +10,8 @@ import { getConfig } from './config';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
-    width: 1400,
-    height: 900,
+    width: 1600,
+    height: 1000,
     minWidth: 1200,
     minHeight: 700,
     webPreferences: {
