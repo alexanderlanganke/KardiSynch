@@ -84,94 +84,74 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="p-6 space-y-4">
-          {/* Navigation */}
-          <Button variant="ghost" onClick={onBack} className="mb-2">
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Back to Patients
-          </Button>
-
-          {/* Patient Info */}
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <h1 className="text-3xl font-bold">{patient.name}</h1>
-              <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                <div className="flex items-center gap-1">
-                  <User className="h-4 w-4" />
-                  {patient.patientId}
-                </div>
-                <div className="flex items-center gap-1">
-                  <Calendar className="h-4 w-4" />
-                  DOB: {patient.dob}
+        <div className="px-4 py-2 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <h1 className="text-xl font-bold leading-none">{patient.name}</h1>
+                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                  <div className="flex items-center gap-1">
+                    <User className="h-3 w-3" />
+                    {patient.patientId}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    DOB: {patient.dob}
+                  </div>
                 </div>
               </div>
             </div>
-            <Badge variant="secondary" className="text-lg px-4 py-2">
+            <Badge variant="secondary" className="text-xs px-2 py-0.5">
               {reports.length} Reports
             </Badge>
           </div>
 
-          {/* Device & Lead Summary */}
+          {/* Device & Lead Summary - Compact Row */}
           {latestReport && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div className="flex gap-2 overflow-x-auto pb-1">
               {/* Device Card */}
               {latestReport.device && (
-                <Card className="glass-card border-primary/10">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <Activity className="h-4 w-4" />
-                      Device
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-1">
-                    <div className="font-semibold">{latestReport.device.model || 'N/A'}</div>
-                    <div className="text-xs text-muted-foreground font-mono">
+                <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3 min-w-[200px]">
+                  <Activity className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <div className="text-xs font-semibold">{latestReport.device.model || 'N/A'}</div>
+                    <div className="text-[10px] text-muted-foreground font-mono leading-none">
                       {latestReport.device.serial_number || 'N/A'}
                     </div>
-                  </CardContent>
+                  </div>
                 </Card>
               )}
 
               {/* Battery Card */}
               {latestReport.battery && (
-                <Card className="glass-card border-primary/10">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <Battery className="h-4 w-4" />
-                      Battery
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-1">
-                    <div className="font-semibold">
+                <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3 min-w-[180px]">
+                  <Battery className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <div className="text-xs font-semibold">
                       {latestReport.battery.voltage?.value} {latestReport.battery.voltage?.unit}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {latestReport.battery.remaining_longevity?.value}
-                      {latestReport.battery.remaining_longevity?.unit} remaining
+                    <div className="text-[10px] text-muted-foreground leading-none">
+                      {latestReport.battery.remaining_longevity?.value} {latestReport.battery.remaining_longevity?.unit} left
                     </div>
-                  </CardContent>
+                  </div>
                 </Card>
               )}
 
               {/* Leads Card */}
               {latestReport.leads && latestReport.leads.length > 0 && (
-                <Card className="glass-card border-primary/10">
-                  <CardHeader className="pb-2">
-                    <CardTitle className="text-sm font-medium flex items-center gap-2">
-                      <Zap className="h-4 w-4" />
-                      Leads
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="text-xs space-y-1">
-                      {latestReport.leads.map((lead: any, idx: number) => (
-                        <div key={idx} className="flex justify-between">
-                          <span className="text-muted-foreground">{lead.name}:</span>
-                          <span className="font-medium">{lead.impedance?.value} Ω</span>
-                        </div>
-                      ))}
-                    </div>
-                  </CardContent>
+                <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3">
+                  <Zap className="h-4 w-4 text-muted-foreground" />
+                  <div className="flex gap-3">
+                    {latestReport.leads.map((lead: any, idx: number) => (
+                      <div key={idx} className="flex flex-col">
+                        <span className="text-[10px] text-muted-foreground leading-none">{lead.name}</span>
+                        <span className="text-xs font-medium leading-none">{lead.impedance?.value} Ω</span>
+                      </div>
+                    ))}
+                  </div>
                 </Card>
               )}
             </div>

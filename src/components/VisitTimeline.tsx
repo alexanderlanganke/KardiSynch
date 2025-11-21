@@ -23,18 +23,18 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect }) 
 
     return (
         <div className="border-t border-border bg-card/50">
-            <div className="p-4">
-                <div className="flex items-center gap-2 mb-3">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <h3 className="font-semibold text-sm">Visit Timeline</h3>
-                    <Badge variant="outline" className="ml-auto">
+            <div className="px-4 py-2">
+                <div className="flex items-center gap-2 mb-2">
+                    <Calendar className="h-3 w-3 text-muted-foreground" />
+                    <h3 className="font-semibold text-xs">Visit Timeline</h3>
+                    <Badge variant="outline" className="ml-auto text-[10px] px-1.5 py-0">
                         {visits.length} visits
                     </Badge>
                 </div>
-                <div className="flex gap-3 overflow-x-auto pb-2">
+                <div className="flex gap-2 overflow-x-auto pb-1">
                     {visits.length === 0 ? (
-                        <div className="text-muted-foreground text-sm py-8 text-center w-full">
-                            No visits found for this patient
+                        <div className="text-muted-foreground text-xs py-4 text-center w-full">
+                            No visits found
                         </div>
                     ) : (
                         visits.map((visit) => (
@@ -43,19 +43,19 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect }) 
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, visit)}
                                 onClick={() => onVisitSelect(visit)}
-                                className="glass-card min-w-[180px] cursor-move hover:border-primary/50 transition-all hover:shadow-md"
+                                className="glass-card min-w-[140px] cursor-move hover:border-primary/50 transition-all hover:shadow-sm p-2"
                             >
-                                <div className="p-3 space-y-2">
+                                <div className="space-y-1">
                                     <div className="flex items-center justify-between">
                                         <div className="text-xs font-medium">
                                             {new Date(visit.interrogation_date).toLocaleDateString()}
                                         </div>
-                                        <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                            <FileText className="h-3 w-3 mr-1" />
+                                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
+                                            <FileText className="h-2 w-2 mr-1" />
                                             {visit.fileCount}
                                         </Badge>
                                     </div>
-                                    <div className="text-xs text-muted-foreground truncate">
+                                    <div className="text-[10px] text-muted-foreground truncate">
                                         {visit.manufacturer || 'Unknown'}
                                     </div>
                                 </div>

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import ReportViewer from './ReportViewer';
-import { FileText, X } from 'lucide-react';
+import { FileText, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from './ui/button';
 
 interface ViewPaneProps {
@@ -20,6 +20,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 }) => {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [isDragOver, setIsDragOver] = useState(false);
+    const [isControlsExpanded, setIsControlsExpanded] = useState(true);
 
     // Calculate effective selected file for render to avoid empty value in Select
     const getBestFile = (files: string[]) => {
@@ -36,8 +37,18 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             setSelectedFile(getBestFile(selectedReport.files));
         } else if (!selectedReport) {
             setSelectedFile(null);
+            setIsControlsExpanded(true); // Expand when cleared
         }
     }, [selectedReport, selectedFile]);
+
+    // Auto-collapse when a file is effectively selected and loaded
+    React.useEffect(() => {
+        if (effectiveSelectedFile) {
+            // Small delay to let user see what happened, or immediate?
+            // Immediate is better for "snappy" feel
+            setIsControlsExpanded(false);
+        }
+    }, [effectiveSelectedFile]);
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -83,66 +94,111 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             onDrop={handleDrop}
         >
             {/* Header with file selector */}
-            <div className="p-3 border-b border-border bg-card/50 flex flex-col gap-2">
-                <div className="flex items-center gap-2">
-                    <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
-                    <Select
-                        value={selectedReport?.id || 'none'}
-                        onValueChange={(value) => {
-                            if (value === 'none') {
-                                onReportSelect(paneId, null);
-                            } else {
-                                const report = availableReports.find(r => r.id === value);
-                                onReportSelect(paneId, report || null);
-                            }
-                        }}
+            <div className="border-b border-border bg-card/50 flex flex-col transition-all duration-300 ease-in-out">
+                {/* Collapsed Summary Bar */}
+                {!isControlsExpanded && selectedReport && (
+                    <div
+                        className="flex items-center justify-between p-2 cursor-pointer hover:bg-accent/50"
+                        onClick={() => setIsControlsExpanded(true)}
                     >
-                        <SelectTrigger className="h-8 text-xs flex-1">
-                            <SelectValue placeholder="Select a report..." />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="none">None</SelectItem>
-                            {availableReports.map((report) => (
-                                <SelectItem key={report.id} value={report.id}>
-                                    {new Date(report.interrogation_date).toLocaleDateString()} - {report.manufacturer}
-                                </SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                    {selectedReport && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 flex-shrink-0"
-                            onClick={handleClear}
-                        >
-                            <X className="h-4 w-4" />
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <FileText className="h-3 w-3" />
+                            <span className="font-medium text-foreground">
+                                {new Date(selectedReport.interrogation_date).toLocaleDateString()}
+                            </span>
+                            <span>•</span>
+                            <span>{selectedReport.manufacturer}</span>
+                            {effectiveSelectedFile && (
+                                <>
+                                    <span>•</span>
+                                    <span className="truncate max-w-[150px]">
+                                        {effectiveSelectedFile.split(/[/\\]/).pop()}
+                                    </span>
+                                </>
+                            )}
+                        </div>
+                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                            <ChevronDown className="h-3 w-3" />
                         </Button>
-                    )}
-                </div>
+                    </div>
+                )}
 
-                {/* File Selector (only if report selected and has files) */}
-                {selectedReport && selectedReport.files && selectedReport.files.length > 0 && (
-                    <div className="flex items-center gap-2 pl-6">
-                        <span className="text-xs text-muted-foreground">File:</span>
-                        <Select
-                            value={effectiveSelectedFile || ''}
-                            onValueChange={setSelectedFile}
-                        >
-                            <SelectTrigger className="h-7 text-xs flex-1">
-                                <SelectValue placeholder="Select file" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {selectedReport.files.map((file: string, idx: number) => {
-                                    const fileName = file.split(/[/\\]/).pop();
-                                    return (
-                                        <SelectItem key={idx} value={file}>
-                                            {fileName}
+                {/* Expanded Controls */}
+                {(isControlsExpanded || !selectedReport) && (
+                    <div className="p-3 flex flex-col gap-2">
+                        <div className="flex items-center gap-2">
+                            <FileText className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                            <Select
+                                value={selectedReport?.id || 'none'}
+                                onValueChange={(value) => {
+                                    if (value === 'none') {
+                                        onReportSelect(paneId, null);
+                                    } else {
+                                        const report = availableReports.find(r => r.id === value);
+                                        onReportSelect(paneId, report || null);
+                                    }
+                                }}
+                            >
+                                <SelectTrigger className="h-8 text-xs flex-1">
+                                    <SelectValue placeholder="Select a report..." />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="none">None</SelectItem>
+                                    {availableReports.map((report) => (
+                                        <SelectItem key={report.id} value={report.id}>
+                                            {new Date(report.interrogation_date).toLocaleDateString()} - {report.manufacturer}
                                         </SelectItem>
-                                    );
-                                })}
-                            </SelectContent>
-                        </Select>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            {selectedReport && (
+                                <>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 flex-shrink-0"
+                                        onClick={handleClear}
+                                        title="Clear Selection"
+                                    >
+                                        <X className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 flex-shrink-0"
+                                        onClick={() => setIsControlsExpanded(false)}
+                                        title="Collapse Controls"
+                                    >
+                                        <ChevronUp className="h-4 w-4" />
+                                    </Button>
+                                </>
+                            )}
+                        </div>
+
+                        {/* File Selector (only if report selected and has files) */}
+                        {selectedReport && selectedReport.files && selectedReport.files.length > 0 && (
+                            <div className="flex items-center gap-2 pl-6">
+                                <span className="text-xs text-muted-foreground">File:</span>
+                                <Select
+                                    value={effectiveSelectedFile || ''}
+                                    onValueChange={setSelectedFile}
+                                >
+                                    <SelectTrigger className="h-7 text-xs flex-1">
+                                        <SelectValue placeholder="Select file" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {selectedReport.files.map((file: string, idx: number) => {
+                                            const fileName = file.split(/[/\\]/).pop();
+                                            return (
+                                                <SelectItem key={idx} value={file}>
+                                                    {fileName}
+                                                </SelectItem>
+                                            );
+                                        })}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
