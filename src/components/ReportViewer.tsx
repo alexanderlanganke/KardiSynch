@@ -163,7 +163,7 @@ const BiotronikDataViewer: React.FC<{ data: any }> = ({ data }) => {
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react';
+import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Search, X } from 'lucide-react';
 
 // Configure PDF worker
 pdfjs.GlobalWorkerOptions.workerSrc = new URL(
@@ -178,6 +178,8 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null);
     const [loading, setLoading] = React.useState(false);
     const [error, setError] = React.useState<string | null>(null);
+    const [isSearchVisible, setIsSearchVisible] = React.useState(false);
+    const [searchQuery, setSearchQuery] = React.useState('');
 
     React.useEffect(() => {
         let url: string | null = null;
@@ -192,7 +194,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
 
                 // Create a Blob URL from the data
                 // This avoids ArrayBuffer detachment issues because we pass a URL string to react-pdf
-                const blob = new Blob([data], { type: 'application/pdf' });
+                const blob = new Blob([new Uint8Array(data)], { type: 'application/pdf' });
                 url = URL.createObjectURL(blob);
                 setPdfUrl(url);
             } catch (err) {
@@ -238,6 +240,31 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     const zoomIn = () => setScale(prev => Math.min(prev + 0.1, 2.0));
     const zoomOut = () => setScale(prev => Math.max(prev - 0.1, 0.5));
 
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (searchQuery) {
+            window.electronAPI.findInPage(searchQuery, { forward: true, findNext: false });
+        }
+    };
+
+    const findNext = () => {
+        if (searchQuery) {
+            window.electronAPI.findInPage(searchQuery, { forward: true, findNext: true });
+        }
+    };
+
+    const findPrev = () => {
+        if (searchQuery) {
+            window.electronAPI.findInPage(searchQuery, { forward: false, findNext: true });
+        }
+    };
+
+    const closeSearch = () => {
+        window.electronAPI.stopFindInPage('clearSelection');
+        setIsSearchVisible(false);
+        setSearchQuery('');
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -257,51 +284,91 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     return (
         <div className="flex flex-col h-full">
             {/* Controls */}
-            <div className="flex items-center justify-between p-2 border-b border-border bg-card/50">
-                <div className="flex items-center gap-2">
+            <div className="flex items-center justify-between px-2 py-1 border-b border-border bg-card/50">
+                <div className="flex items-center gap-1">
                     <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7"
                         disabled={pageNumber <= 1}
                         onClick={previousPage}
                         title="Previous Page"
                     >
-                        <ChevronLeft className="h-4 w-4" />
+                        <ChevronLeft className="h-3.5 w-3.5" />
                     </Button>
-                    <span className="text-sm text-muted-foreground">
-                        Page {pageNumber} of {numPages || '--'}
+                    <span className="text-xs text-muted-foreground px-1">
+                        {pageNumber}/{numPages || '--'}
                     </span>
                     <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7"
                         disabled={pageNumber >= (numPages || 0)}
                         onClick={nextPage}
                         title="Next Page"
                     >
-                        <ChevronRight className="h-4 w-4" />
+                        <ChevronRight className="h-3.5 w-3.5" />
                     </Button>
                 </div>
-                <div className="flex items-center gap-2">
+
+                {/* Search Toggle */}
+                <div className="flex items-center gap-1">
+                    {isSearchVisible ? (
+                        <form onSubmit={handleSearch} className="flex items-center gap-1 bg-background border border-input rounded-md px-2 h-7">
+                            <input
+                                type="text"
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                placeholder="Search..."
+                                className="bg-transparent border-none outline-none text-xs w-28"
+                                autoFocus
+                            />
+                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={findPrev}>
+                                <ChevronLeft className="h-3 w-3" />
+                            </Button>
+                            <Button type="submit" variant="ghost" size="icon" className="h-5 w-5" onClick={findNext}>
+                                <ChevronRight className="h-3 w-3" />
+                            </Button>
+                            <Button type="button" variant="ghost" size="icon" className="h-5 w-5" onClick={closeSearch}>
+                                <X className="h-3 w-3" />
+                            </Button>
+                        </form>
+                    ) : (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => setIsSearchVisible(true)}
+                            title="Search Text"
+                        >
+                            <Search className="h-3.5 w-3.5" />
+                        </Button>
+                    )}
+
+                    <div className="w-px h-4 bg-border mx-0.5" />
+
                     <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7"
                         onClick={zoomOut}
                         disabled={scale <= 0.5}
                         title="Zoom Out"
                     >
-                        <ZoomOut className="h-4 w-4" />
+                        <ZoomOut className="h-3.5 w-3.5" />
                     </Button>
-                    <span className="text-sm text-muted-foreground w-12 text-center">
+                    <span className="text-xs text-muted-foreground w-10 text-center">
                         {Math.round(scale * 100)}%
                     </span>
                     <Button
                         variant="ghost"
                         size="icon"
+                        className="h-7 w-7"
                         onClick={zoomIn}
                         disabled={scale >= 2.0}
                         title="Zoom In"
                     >
-                        <ZoomIn className="h-4 w-4" />
+                        <ZoomIn className="h-3.5 w-3.5" />
                     </Button>
                 </div>
             </div>
@@ -327,8 +394,8 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
                     <Page
                         pageNumber={pageNumber}
                         scale={scale}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
+                        renderTextLayer={true}
+                        renderAnnotationLayer={true}
                         className="bg-white"
                     />
                 </Document>

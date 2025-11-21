@@ -157,6 +157,16 @@ ipcMain.handle('get-pdf-data', async (event, filePath) => {
   }
 });
 
+ipcMain.on('find-in-page', (event, text, options) => {
+  const webContents = event.sender;
+  webContents.findInPage(text, options);
+});
+
+ipcMain.on('stop-find-in-page', (event, action) => {
+  const webContents = event.sender;
+  webContents.stopFindInPage(action);
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
