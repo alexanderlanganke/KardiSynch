@@ -7,6 +7,8 @@ interface IElectronAPI {
   resetSettings: () => Promise<any>;
   selectDirectory: () => Promise<string>;
   getPdfData: (filePath: string) => Promise<Uint8Array>;
+  findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) => void;
+  stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
 }
 
 declare global {
