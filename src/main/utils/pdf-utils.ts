@@ -122,35 +122,70 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         }
     }
 
-    // 2. Regex for Patient Name (e.g., "Patient: DOE, JOHN")
-    // Only override if "Unknown" or empty
+    // 2. Regex for Patient Name
+    // Support: "Patient: DOE, JOHN", "Name: Max Mustermann", "Patient Name: Mustermann, Max"
     if (report.patient.last_name === 'Unknown' || report.patient.last_name === '') {
-        const nameMatch = text.match(/(?:Patient(?: Name)?|Name):?\s*(?<lastName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)[, ]\s*(?<firstName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)/i);
-        if (nameMatch?.groups) {
-            report.patient.first_name = nameMatch.groups.firstName;
-            report.patient.last_name = nameMatch.groups.lastName;
+        // Format: Last, First
+        const lastFirstMatch = text.match(/(?:Patient(?: Name)?|Name|Patientenname):?\s*(?<lastName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)[,]\s*(?<firstName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)/i);
+
+        if (lastFirstMatch?.groups) {
+            report.patient.first_name = lastFirstMatch.groups.firstName;
+            report.patient.last_name = lastFirstMatch.groups.lastName;
+        } else {
+            // Format: First Last (less common in headers, but possible)
+            // Be careful not to match "Patient Name" as the name
+            const firstLastMatch = text.match(/(?:Patient(?: Name)?|Name|Patientenname):?\s*(?!Name)(?<firstName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)\s+(?<lastName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)/i);
+            if (firstLastMatch?.groups) {
+                report.patient.first_name = firstLastMatch.groups.firstName;
+                report.patient.last_name = firstLastMatch.groups.lastName;
+            }
         }
     }
 
     // Regex for Date of Birth (e.g., "DOB: 01/23/1945")
-    const dobMatch = text.match(/(?:DOB|Date of Birth|Geburtsdatum):?\s*(?<month>\d{1,2})[/-](?<day>\d{1,2})[/-](?<year>\d{2,4})/i);
+    const dobMatch = text.match(/(?:DOB|Date of Birth|Geburtsdatum|Born):?\s*(?<month>\d{1,2})[/-](?<day>\d{1,2})[/-](?<year>\d{2,4})/i);
     if (dobMatch?.groups) {
         report.patient.dob = formatDate(dobMatch.groups.month, dobMatch.groups.day, dobMatch.groups.year);
     }
 
-    // Regex for Interrogation Date (e.g., "Interrogation Date: 10/27/2023", "Unters.datum: 06.Nov.2025")
-    // German date format: DD.MMM.YYYY or DD.MM.YYYY
+    // Regex for Interrogation Date and Time
+    // Support: "Interrogation Date: 10/27/2023 14:30", "Unters.datum: 06.Nov.2025 09:15"
     if (!report.interrogation_date) {
-        const interrogationDateMatch = text.match(/(?:Interrogation Date|Session Date|Unters\.datum|Messdatum):?\s*(?:(?<day>\d{1,2})[\.\/-](?<month>[A-Za-z]{3}|\d{1,2})[\.\/-](?<year>\d{4}))/i);
+        // Combined Date and Time regex
+        // Looks for Date followed optionally by Time
+        const dateRegex = /(?:Interrogation Date|Session Date|Unters\.datum|Messdatum|Report Date|Date):?\s*(?:(?<day>\d{1,2})[\.\/-](?<month>[A-Za-z]{3}|\d{1,2})[\.\/-](?<year>\d{4}))(?:\s+(?:at\s+)?(?<hour>\d{1,2})[:.](?<minute>\d{2})(?:[:.](?<second>\d{2}))?\s*(?<ampm>AM|PM)?)?/i;
 
-        if (interrogationDateMatch?.groups) {
-            report.interrogation_date = formatDate(interrogationDateMatch.groups.month, interrogationDateMatch.groups.day, interrogationDateMatch.groups.year);
+        const match = text.match(dateRegex);
+
+        if (match?.groups) {
+            let dateStr = formatDate(match.groups.month, match.groups.day, match.groups.year);
+
+            // Append time if found
+            if (match.groups.hour && match.groups.minute) {
+                let hour = parseInt(match.groups.hour);
+                const minute = match.groups.minute;
+                const second = match.groups.second || '00';
+
+                if (match.groups.ampm) {
+                    if (match.groups.ampm.toUpperCase() === 'PM' && hour < 12) hour += 12;
+                    if (match.groups.ampm.toUpperCase() === 'AM' && hour === 12) hour = 0;
+                }
+
+                const timeStr = `T${hour.toString().padStart(2, '0')}:${minute}:${second}`;
+                dateStr += timeStr;
+            } else {
+                // Default to noon if no time found, or keep just date?
+                // ISO format requires T for time. If we just have date, that's valid too.
+                // But for ordering, maybe T12:00:00 is safer? 
+                // Let's leave it as just date if no time found, standard ISO allows YYYY-MM-DD
+            }
+            report.interrogation_date = dateStr;
         }
     }
 
     // Regex for Serial Number
     if (report.device.serial_number === 'Unknown') {
-        const serialMatch = text.match(/(?:Serial Number|Seriennummer|SN):?\s*(?<serial>[A-Z0-9]+)/i);
+        const serialMatch = text.match(/(?:Serial Number|Seriennummer|SN|Serial No\.):?\s*(?<serial>[A-Z0-9]+)/i);
         if (serialMatch?.groups) {
             report.device.serial_number = serialMatch.groups.serial;
         }
@@ -162,10 +197,17 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         report.device.model = modelMatch.groups.model.trim();
     }
 
+    // Manufacturer Detection (Simple Keyword Search)
+    if (report.manufacturer === 'Unknown') {
+        const lowerText = text.toLowerCase();
+        if (lowerText.includes('medtronic')) report.manufacturer = 'Medtronic';
+        else if (lowerText.includes('boston scientific') || lowerText.includes('bostonscientific')) report.manufacturer = 'Boston Scientific';
+        else if (lowerText.includes('biotronik')) report.manufacturer = 'Biotronik';
+        else if (lowerText.includes('abbott') || lowerText.includes('st. jude')) report.manufacturer = 'Abbott';
+        else if (lowerText.includes('microport')) report.manufacturer = 'Microport';
+    }
+
     // Fallback for missing DOB
-    // If we have a valid Patient Name and Serial Number (strong identifiers), but no DOB,
-    // we assign a default DOB to allow the system to process the file.
-    // The user can update this later.
     if (!report.patient.dob && report.patient.last_name !== 'Unknown' && report.device.serial_number !== 'Unknown') {
         console.warn('DOB missing for patient. Assigning default 1900-01-01.');
         report.patient.dob = '1900-01-01';
