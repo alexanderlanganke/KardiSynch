@@ -11,8 +11,42 @@ interface ReportViewerProps {
 }
 
 const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) => {
-    if (type === 'xml' && report) {
-        return <BiotronikDataViewer data={report} />;
+    const [xmlData, setXmlData] = React.useState<any>(null);
+    const [loading, setLoading] = React.useState(false);
+
+    React.useEffect(() => {
+        if (type === 'xml' && filePath) {
+            const loadXml = async () => {
+                setLoading(true);
+                try {
+                    const data = await window.electronAPI.getParsedXml(filePath);
+                    setXmlData(data);
+                } catch (error) {
+                    console.error('Failed to load XML data:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            loadXml();
+        } else {
+            setXmlData(null);
+        }
+    }, [type, filePath]);
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center h-full text-muted-foreground">
+                Loading data...
+            </div>
+        );
+    }
+
+    if (type === 'xml') {
+        // Use fetched data if available (from file), otherwise use passed report object
+        const dataToDisplay = xmlData || report;
+        if (dataToDisplay) {
+            return <BiotronikDataViewer data={dataToDisplay} />;
+        }
     }
 
     if (type === 'pdf' && filePath) {

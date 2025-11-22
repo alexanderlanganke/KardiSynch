@@ -48,17 +48,29 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   const fetchPatients = useCallback(async () => {
     setLoading(true);
     try {
-      const queryFilters = {
-        name: searchTerm,
-        ...filters
-      };
-      // Remove empty filters
-      const cleanFilters = Object.fromEntries(
-        Object.entries(queryFilters).filter(([_, v]) => v !== '')
-      );
+      // Get all patients from filesystem
+      const data = await window.electronAPI.getPatientDirectories();
 
-      const data = await window.electronAPI.getAllPatients(cleanFilters);
-      setPatients(data);
+      // Apply client-side filtering
+      let filtered = data;
+
+      if (searchTerm) {
+        const search = searchTerm.toLowerCase();
+        filtered = filtered.filter(p =>
+          p.name.toLowerCase().includes(search) ||
+          p.patientId.toLowerCase().includes(search)
+        );
+      }
+
+      if (filters.dob) {
+        filtered = filtered.filter(p => p.dob === filters.dob);
+      }
+
+      if (filters.patientId) {
+        filtered = filtered.filter(p => p.patientId.includes(filters.patientId));
+      }
+
+      setPatients(filtered);
     } catch (error) {
       console.error('Error fetching patients:', error);
     } finally {
@@ -72,6 +84,17 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       fetchPatients();
     }, 300);
     return () => clearTimeout(timer);
+  }, [fetchPatients]);
+
+  // Listen for patient list updates
+  useEffect(() => {
+    const handleUpdate = () => {
+      fetchPatients();
+    };
+    window.electronAPI.onPatientListUpdate(handleUpdate);
+    return () => {
+      window.electronAPI.removeListener('patient-list-update', handleUpdate);
+    };
   }, [fetchPatients]);
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
@@ -90,7 +113,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   };
 
   return (
-    <div className="container mx-auto p-8 max-w-7xl space-y-8 h-full overflow-y-auto">
+    <div className="container mx-auto pt-4 px-8 pb-8 max-w-7xl space-y-6 h-full overflow-y-auto">
       {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -213,36 +236,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         )
       }
 
-      {/* Stats Overview (Placeholder for now) */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="glass-card border-none bg-gradient-to-br from-blue-500/10 to-purple-500/10">
-          <CardHeader className="pb-2">
-            <CardDescription>Total Patients</CardDescription>
-            <CardTitle className="text-4xl">{patients.length}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xs text-muted-foreground">Matching current filters</div>
-          </CardContent>
-        </Card>
-        <Card className="glass-card border-none bg-gradient-to-br from-emerald-500/10 to-teal-500/10">
-          <CardHeader className="pb-2">
-            <CardDescription>Reports Processed</CardDescription>
-            <CardTitle className="text-4xl">{patients.reduce((acc, p) => acc + p.reportCount, 0)}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xs text-muted-foreground">Total for selection</div>
-          </CardContent>
-        </Card>
-        <Card className="glass-card border-none bg-gradient-to-br from-orange-500/10 to-red-500/10">
-          <CardHeader className="pb-2">
-            <CardDescription>Pending Review</CardDescription>
-            <CardTitle className="text-4xl">5</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-xs text-muted-foreground">Requires attention</div>
-          </CardContent>
-        </Card>
-      </div>
 
       {/* Patient Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -257,35 +250,43 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
               className="glass-card group cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/5 border-muted-foreground/10"
               onClick={() => onPatientSelect(patient.id)}
             >
-              <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
-                <div className="space-y-1">
-                  <CardTitle className="text-base font-semibold leading-none flex items-center gap-2">
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
+                <div className="space-y-0.5">
+                  <CardTitle className="text-sm font-semibold leading-none flex items-center gap-2 truncate">
                     {patient.name}
                   </CardTitle>
-                  <CardDescription className="text-xs font-mono opacity-70">
+                  <CardDescription className="text-[10px] font-mono opacity-70">
                     {patient.patientId}
                   </CardDescription>
                 </div>
-                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                  <User className="h-4 w-4" />
+                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <User className="h-3 w-3" />
                 </div>
               </CardHeader>
-              <CardContent>
-                <div className="grid gap-3 mt-2">
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <Calendar className="mr-2 h-3 w-3" />
-                    <span className="text-xs">DOB: {patient.dob}</span>
+              <CardContent className="p-3 pt-1">
+                <div className="grid gap-1 mt-1">
+                  <div className="flex items-center text-xs text-muted-foreground">
+                    <Calendar className="mr-1.5 h-3 w-3" />
+                    <span className="text-[10px]">DOB: {patient.dob}</span>
                   </div>
-                  <div className="flex items-center text-sm text-muted-foreground">
-                    <Clock className="mr-2 h-3 w-3" />
-                    <span className="text-xs">Last: {patient.lastReportDate || 'Never'}</span>
+                  <div className="flex items-center text-xs text-muted-foreground">
+                    <Clock className="mr-1.5 h-3 w-3" />
+                    <span className="text-[10px]">Last: {patient.lastReportDate || 'Never'}</span>
                   </div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <Badge variant="secondary" className="bg-secondary/50 hover:bg-secondary/70 transition-colors">
+                  <div className="mt-1.5 flex items-center justify-between">
+                    <Badge variant="secondary" className="h-5 text-[10px] px-1.5 bg-secondary/50 hover:bg-secondary/70 transition-colors">
                       {patient.reportCount} Reports
                     </Badge>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MoreVertical className="h-4 w-4" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        window.electronAPI.openPatientDirectory(patient.id);
+                      }}
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
                     </Button>
                   </div>
                 </div>

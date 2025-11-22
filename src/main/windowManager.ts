@@ -21,3 +21,15 @@ export function sendNotification(message: string, type: 'info' | 'warning' | 'er
     mainWindow.webContents.send('notify', { type, message });
   }
 }
+
+export function sendProcessStatus(status: { type: 'start' | 'progress' | 'complete' | 'error'; message: string; file?: string }) {
+  if (mainWindow) {
+    mainWindow.webContents.send('process-status', status);
+  }
+}
+
+export function sendPatientListUpdate() {
+  if (mainWindow) {
+    mainWindow.webContents.send('patient-list-update');
+  }
+}

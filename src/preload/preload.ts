@@ -23,5 +23,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => {
       ipcRenderer.removeListener('notify', handler);
     };
+  },
+  onProcessStatus: (callback: (status: any) => void) => {
+    ipcRenderer.on('process-status', (event, status) => callback(status));
+  },
+  onPatientListUpdate: (callback: () => void) => {
+    ipcRenderer.on('patient-list-update', () => callback());
+  },
+  openPatientDirectory: (patientId: string) => ipcRenderer.invoke('open-patient-directory', patientId),
+  getPatientDirectories: () => ipcRenderer.invoke('get-patient-directories'),
+  getVisitDirectories: (patientId: string) => ipcRenderer.invoke('get-visit-directories', patientId),
+  getVisitFiles: (patientId: string, visitDirName: string) => ipcRenderer.invoke('get-visit-files', patientId, visitDirName),
+  getParsedXml: (filePath: string) => ipcRenderer.invoke('get-parsed-xml', filePath),
+  removeListener: (channel: string, func: (...args: any[]) => void) => {
+    ipcRenderer.removeListener(channel, func);
   }
 });

@@ -7,7 +7,7 @@ interface Visit {
     id: string;
     interrogation_date: string;
     manufacturer: string;
-    fileCount: number;
+    fileCount?: number;
 }
 
 interface VisitTimelineProps {

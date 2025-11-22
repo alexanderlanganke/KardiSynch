@@ -217,6 +217,29 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
 };
 
 
+export const findReportByDate = (patientId: string, date: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    // Ensure date is YYYY-MM-DD
+    const datePrefix = date.split('T')[0];
+    console.log(`[findReportByDate] Checking for duplicate: Patient ${patientId}, Date ${datePrefix}`);
+
+    db.get(
+      'SELECT * FROM Reports WHERE patient_id = ? AND interrogation_date LIKE ?',
+      [patientId, `${datePrefix}%`],
+      (err, row) => {
+        if (err) {
+          console.error('[findReportByDate] Error:', err);
+          reject(err);
+        } else {
+          if (row) console.log('[findReportByDate] Duplicate found:', row);
+          resolve(row);
+        }
+      }
+    );
+  });
+};
+
 export const getSettings = (): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();

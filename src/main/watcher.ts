@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sendUnmatchedFiles, sendNotification } from './windowManager';
+import { sendUnmatchedFiles, sendNotification, sendProcessStatus } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
-import { getDb } from './database';
+import { getDb, findPatient, findReportByDate } from './database';
 import { storeReport, storeFile } from './storage';
 
 
@@ -99,6 +99,8 @@ const processTempDirectory = async (tempDir: string) => {
   let filesToProcess = fs.readdirSync(tempDir).map(f => path.join(tempDir, f));
   const unmatchedFiles = [];
 
+  sendProcessStatus({ type: 'start', message: `Processing ${filesToProcess.length} files...` });
+
   // Sort files to prioritize potential trigger files (XML, PDF) over images
   filesToProcess.sort((a, b) => {
     const extA = path.extname(a).toLowerCase();
@@ -120,6 +122,7 @@ const processTempDirectory = async (tempDir: string) => {
     if (!triggerFile) continue;
 
     console.log(`Processing trigger file: ${path.basename(triggerFile)}`);
+    sendProcessStatus({ type: 'progress', message: `Analyzing ${path.basename(triggerFile)}...`, file: path.basename(triggerFile) });
     const triggerReport = await parseFile(triggerFile);
     if (!triggerReport) {
       console.warn(`Could not parse trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
@@ -140,6 +143,11 @@ const processTempDirectory = async (tempDir: string) => {
     const triggerBasename = path.basename(triggerFile);
     const timestampMatch = triggerBasename.match(/BIOSTD_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/);
     const timestamp = timestampMatch ? timestampMatch[1] : null;
+
+    // Add any generated files (e.g. extracted PDFs) to the package
+    if (triggerReport.generatedFiles && triggerReport.generatedFiles.length > 0) {
+      visitPackage.push(...triggerReport.generatedFiles);
+    }
 
     for (const file of filesToProcess) {
       const report = await parseFile(file);
@@ -165,13 +173,35 @@ const processTempDirectory = async (tempDir: string) => {
       }
     }
 
+
     if (Object.keys(combinedReport).length > 0) {
       try {
-        const reportId = await storeReport(combinedReport as UnifiedReport);
+        // Check for duplicates
+        if (combinedReport.patient && combinedReport.interrogation_date) {
+          const patient = await findPatient(combinedReport.patient.last_name, combinedReport.patient.dob);
+          if (patient) {
+            const existingReport = await findReportByDate(patient.id, combinedReport.interrogation_date.split('T')[0]);
+            if (existingReport) {
+              console.warn(`Duplicate report found for patient ${patient.id} on ${combinedReport.interrogation_date}. Skipping import.`);
+              unmatchedFiles.push(...visitPackage);
+              continue;
+            }
+          }
+        }
+
+        const { reportId, patient: storedPatient } = await storeReport(combinedReport as UnifiedReport);
+        const patientName = combinedReport.patient ? `${combinedReport.patient.last_name}_${combinedReport.patient.first_name}` : undefined;
+
+        // Get patient ID from database to use in directory structure
+        const fetchedPatient = combinedReport.patient ? await findPatient(combinedReport.patient.last_name, combinedReport.patient.dob) : null;
+        const patientId = fetchedPatient?.id || '';
+        const interrogationDate = combinedReport.interrogation_date;
+
         for (const file of visitPackage) {
-          await storeFile(file, reportId);
+          await storeFile(file, reportId, patientId, patientName, interrogationDate, storedPatient, combinedReport as UnifiedReport);
         }
         console.log(`Successfully stored report and ${visitPackage.length} files.`);
+        sendProcessStatus({ type: 'complete', message: `Imported visit for ${combinedReport.patient?.last_name}` });
       } catch (e) {
         console.error('Error storing report or files', e);
         sendNotification(`Error storing report: ${(e as Error).message}`, 'error');
@@ -197,6 +227,7 @@ const processTempDirectory = async (tempDir: string) => {
   try {
     fs.rmSync(tempDir, { recursive: true, force: true });
     console.log(`Successfully removed temporary directory: ${tempDir}`);
+    sendProcessStatus({ type: 'complete', message: 'Processing complete.' });
   } catch (error) {
     console.error(`Error removing temporary directory ${tempDir}:`, error);
     sendNotification(`Error cleaning up temp directory: ${(error as Error).message}`, 'error');
@@ -248,6 +279,10 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
           clearTimeout(watcherTimeout);
         }
         watcherTimeout = setTimeout(() => {
+          const currentFiles = getFilesRecursively(importDir);
+          if (currentFiles.length === 0) {
+            return;
+          }
           console.log('File changes stabilized. Starting processing...');
           const tempDir = createTempDirectory();
           stageFilesToTempDir(tempDir);
