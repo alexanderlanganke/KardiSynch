@@ -25,17 +25,18 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const loadPatientData = async () => {
     try {
       setLoading(true);
-      const [patientData, reportsData] = await Promise.all([
-        window.electronAPI.getPatientById(patientId),
-        window.electronAPI.getPatientReports(patientId)
-      ]);
+      // Fetch patient data (from DB or filesystem - currently DB for ID lookup)
+      const patientData = await window.electronAPI.getPatientById(patientId);
+
+      // Fetch visits from filesystem
+      const visitsData = await window.electronAPI.getVisitDirectories(patientId);
 
       setPatient(patientData);
-      setReports(reportsData);
+      setReports(visitsData);
 
       // Auto-select the first report in pane 0
-      if (reportsData.length > 0) {
-        setSelectedReports([reportsData[0], null]);
+      if (visitsData.length > 0) {
+        setSelectedReports([visitsData[0], null]);
       }
     } catch (error) {
       console.error('Failed to load patient data:', error);
@@ -105,7 +106,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
               </div>
             </div>
             <Badge variant="secondary" className="text-xs px-2 py-0.5">
-              {reports.length} Reports
+              {reports.length} Visits
             </Badge>
           </div>
 
@@ -113,19 +114,19 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           {latestReport && (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {/* Device Card */}
-              {latestReport.device && (
+              {(latestReport.device_model || latestReport.device?.model) && (
                 <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3 min-w-[200px]">
                   <Activity className="h-4 w-4 text-muted-foreground" />
                   <div>
-                    <div className="text-xs font-semibold">{latestReport.device.model || 'N/A'}</div>
+                    <div className="text-xs font-semibold">{latestReport.device_model || latestReport.device?.model || 'N/A'}</div>
                     <div className="text-[10px] text-muted-foreground font-mono leading-none">
-                      {latestReport.device.serial_number || 'N/A'}
+                      {latestReport.device_serial || latestReport.device?.serial_number || 'N/A'}
                     </div>
                   </div>
                 </Card>
               )}
 
-              {/* Battery Card */}
+              {/* Battery Card - Only if available (DB only) */}
               {latestReport.battery && (
                 <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3 min-w-[180px]">
                   <Battery className="h-4 w-4 text-muted-foreground" />
@@ -140,7 +141,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                 </Card>
               )}
 
-              {/* Leads Card */}
+              {/* Leads Card - Only if available (DB only) */}
               {latestReport.leads && latestReport.leads.length > 0 && (
                 <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3">
                   <Zap className="h-4 w-4 text-muted-foreground" />
@@ -164,12 +165,14 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         <div className="grid grid-cols-2 h-full">
           <ViewPane
             paneId={0}
+            patientId={patientId}
             selectedReport={selectedReports[0]}
             availableReports={reports}
             onReportSelect={handleReportSelect}
           />
           <ViewPane
             paneId={1}
+            patientId={patientId}
             selectedReport={selectedReports[1]}
             availableReports={reports}
             onReportSelect={handleReportSelect}
@@ -183,7 +186,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           id: r.id,
           interrogation_date: r.interrogation_date,
           manufacturer: r.manufacturer,
-          fileCount: r.files?.length || 0
+          fileCount: r.files?.length // Optional now
         }))}
         onVisitSelect={handleVisitSelect}
       />

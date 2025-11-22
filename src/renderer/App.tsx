@@ -6,6 +6,7 @@ import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
 import NotificationArea from './NotificationArea';
+import ProcessStatusPanel from '@/components/ProcessStatusPanel';
 import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -126,6 +127,7 @@ const App: React.FC = () => {
         </main>
 
         <NotificationArea />
+        <ProcessStatusPanel />
       </div>
     </ThemeProvider>
   );

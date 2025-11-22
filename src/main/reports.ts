@@ -67,5 +67,6 @@ export interface UnifiedReport {
   };
 
   // --- Raw Data ---
-  raw_text: string;
+  raw_text?: string;
+  generatedFiles?: string[]; // Paths to files generated during parsing (e.g. extracted PDFs)
 }

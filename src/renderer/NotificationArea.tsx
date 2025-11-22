@@ -28,9 +28,12 @@ const NotificationArea: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-4 right-4 w-96 space-y-2 z-50">
+    <div
+      style={{ position: 'fixed', top: '1rem', right: '1rem', width: '24rem', zIndex: 50 }}
+      className="space-y-2"
+    >
       {notifications.map(notification => (
-        <Alert key={notification.id} variant={notification.type === 'error' ? 'destructive' : 'default'}>
+        <Alert key={notification.id} variant={notification.type === 'error' ? 'destructive' : 'default'} className="w-full">
           <AlertTitle>{notification.type.toUpperCase()}</AlertTitle>
           <AlertDescription>{notification.message}</AlertDescription>
           <Button

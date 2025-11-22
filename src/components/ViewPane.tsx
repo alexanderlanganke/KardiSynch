@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 
 interface ViewPaneProps {
     paneId: number;
+    patientId: string;
     selectedReport: any | null;
     availableReports: any[];
     onReportSelect: (paneId: number, report: any | null) => void;
@@ -14,13 +15,39 @@ interface ViewPaneProps {
 
 const ViewPane: React.FC<ViewPaneProps> = ({
     paneId,
+    patientId,
     selectedReport,
     availableReports,
     onReportSelect,
 }) => {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
+    const [availableFiles, setAvailableFiles] = useState<string[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isControlsExpanded, setIsControlsExpanded] = useState(true);
+
+    // Fetch files when selected report changes
+    React.useEffect(() => {
+        const loadFiles = async () => {
+            if (selectedReport && selectedReport.directoryName) {
+                try {
+                    const files = await window.electronAPI.getVisitFiles(patientId, selectedReport.directoryName);
+                    setAvailableFiles(files);
+
+                    // Auto-select best file
+                    if (files.length > 0 && !selectedFile) {
+                        setSelectedFile(getBestFile(files));
+                    }
+                } catch (error) {
+                    console.error('Failed to load visit files:', error);
+                    setAvailableFiles([]);
+                }
+            } else {
+                setAvailableFiles([]);
+                setSelectedFile(null);
+            }
+        };
+        loadFiles();
+    }, [selectedReport, patientId]);
 
     // Calculate effective selected file for render to avoid empty value in Select
     const getBestFile = (files: string[]) => {
@@ -29,17 +56,17 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         return xmlFile || pdfFile || files[0];
     };
 
-    const effectiveSelectedFile = selectedFile || (selectedReport?.files?.length > 0 ? getBestFile(selectedReport.files) : null);
+    const effectiveSelectedFile = selectedFile || (availableFiles.length > 0 ? getBestFile(availableFiles) : null);
 
     // Update state if needed (for consistency)
     React.useEffect(() => {
-        if (selectedReport?.files?.length > 0 && !selectedFile) {
-            setSelectedFile(getBestFile(selectedReport.files));
+        if (availableFiles.length > 0 && !selectedFile) {
+            setSelectedFile(getBestFile(availableFiles));
         } else if (!selectedReport) {
             setSelectedFile(null);
             setIsControlsExpanded(true); // Expand when cleared
         }
-    }, [selectedReport, selectedFile]);
+    }, [availableFiles, selectedFile, selectedReport]);
 
     // Auto-collapse when a file is effectively selected and loaded
     React.useEffect(() => {
@@ -176,7 +203,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                         </div>
 
                         {/* File Selector (only if report selected and has files) */}
-                        {selectedReport && selectedReport.files && selectedReport.files.length > 0 && (
+                        {selectedReport && availableFiles.length > 0 && (
                             <div className="flex items-center gap-2 pl-6">
                                 <span className="text-xs text-muted-foreground">File:</span>
                                 <Select
@@ -187,7 +214,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                         <SelectValue placeholder="Select file" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {selectedReport.files.map((file: string, idx: number) => {
+                                        {availableFiles.map((file: string, idx: number) => {
                                             const fileName = file.split(/[/\\]/).pop();
                                             return (
                                                 <SelectItem key={idx} value={file}>
