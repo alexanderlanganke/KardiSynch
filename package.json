@@ -1,5 +1,5 @@
 {
-  "name": "app",
+  "name": "kardisynch",
   "version": "1.0.0",
   "description": "A self contained electron based database, renderer and pdf viewer for IECD interrogations",
   "main": "dist/main/main.js",

@@ -20,7 +20,8 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false
-    }
+    },
+    title: 'KardiSynch'
   });
 
   if (process.env.NODE_ENV === 'development') {
