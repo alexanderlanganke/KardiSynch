@@ -9,6 +9,8 @@ import NotificationArea from './NotificationArea';
 import ProcessStatusPanel from '@/components/ProcessStatusPanel';
 import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import icon from './assets/icon.jpg';
+
 
 const ThemeToggle: React.FC = () => {
   const { theme, setTheme } = useTheme();
@@ -96,20 +98,20 @@ const App: React.FC = () => {
       >
         {/* Glassmorphism Sidebar */}
         <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border/40">
-          <div className="mb-8 p-2 bg-primary/5 rounded-2xl">
-            <Activity className="h-6 w-6 text-primary animate-pulse" />
+          <div className="mb-8 w-10 h-10 flex items-center justify-center bg-primary/5 rounded-xl">
+            <img src={icon} alt="KardiSynch" className="h-6 w-6 object-contain" style={{ width: '1.5rem', height: '1.5rem' }} />
           </div>
 
           <nav className="flex flex-col space-y-4 w-full items-center">
             <NavItem
               active={currentView === 'dashboard'}
               onClick={() => setCurrentView('dashboard')}
-              icon={<LayoutDashboard className="h-5 w-5" />}
+              icon={<LayoutDashboard className="h-6 w-6" />}
             />
             <NavItem
               active={currentView === 'settings'}
               onClick={() => setCurrentView('settings')}
-              icon={<SettingsIcon className="h-5 w-5" />}
+              icon={<SettingsIcon className="h-6 w-6" />}
             />
           </nav>
 
