@@ -32,6 +32,13 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
       return parseBostonScientificPdf(rawText);
     }
 
+    // Biotronik PDFs are usually accompanied by an XML file which is the source of truth.
+    // We return null here so that the watcher can group them by timestamp instead of trying to parse them independently.
+    if (filename.includes('BIOSTD_')) {
+      console.log('Identified Biotronik PDF (skipping parse to allow timestamp grouping).');
+      return null;
+    }
+
     return extractStructuredData(rawText, filename);
   } else if (fileExtension === '.xml' && filename.includes('BIOSTD_')) {
     const xmlData = fs.readFileSync(filePath, 'utf-8');
