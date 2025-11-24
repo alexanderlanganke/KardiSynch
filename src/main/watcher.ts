@@ -256,6 +256,31 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
   console.log(`Watching for file changes on ${importDir}`);
 
+  // DEBUG: Polling fallback
+  setInterval(() => {
+    try {
+      const files = fs.readdirSync(importDir);
+      if (files.length > 0) {
+        console.log(`POLLING: Found ${files.length} files in ${importDir}: ${files.join(', ')}`);
+        // Trigger processing if files exist but watcher didn't fire
+        if (!watcherTimeout) {
+          console.log('POLLING: Triggering processing fallback...');
+          watcherTimeout = setTimeout(() => {
+            const currentFiles = getFilesRecursively(importDir);
+            if (currentFiles.length > 0) {
+              const tempDir = createTempDirectory();
+              stageFilesToTempDir(tempDir);
+              processTempDirectory(tempDir);
+            }
+            watcherTimeout = null;
+          }, 1000);
+        }
+      }
+    } catch (e) {
+      console.error('POLLING ERROR:', e);
+    }
+  }, 5000);
+
   // Check for existing files on startup
   try {
     const existingFiles = getFilesRecursively(importDir);
@@ -274,13 +299,17 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
   try {
     currentWatcher = fs.watch(importDir, { recursive: true }, (eventType, filename) => {
+      console.log(`Watcher event: ${eventType} for file: ${filename}`);
       if (filename) {
         if (watcherTimeout) {
           clearTimeout(watcherTimeout);
         }
         watcherTimeout = setTimeout(() => {
+          console.log('Watcher timeout triggered. Checking for files...');
           const currentFiles = getFilesRecursively(importDir);
+          console.log(`Found ${currentFiles.length} files in import directory.`);
           if (currentFiles.length === 0) {
+            console.log('No files found, skipping processing.');
             return;
           }
           console.log('File changes stabilized. Starting processing...');

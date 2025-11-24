@@ -5,7 +5,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import { UnifiedReport } from './reports';
 import { parseBiotronikXML } from './parsers/biotronik-parser';
-import { parseBostonScientificBnk } from './parsers/boston-scientific-parser';
+import { parseBostonScientificBnk, parseBostonScientificPdf } from './parsers/boston-scientific-parser';
 import { parseMedtronicPdd, parseMedtronicPkg } from './parsers/medtronic-parser';
 import { extractTextFromPdf, extractStructuredData } from './utils/pdf-utils';
 
@@ -25,6 +25,13 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
 
   if (fileExtension === '.pdf') {
     const rawText = await extractTextFromPdf(filePath);
+
+    // Check for Boston Scientific markers
+    if (rawText.includes('Boston Scientific') || rawText.includes('LATITUDE') || rawText.includes('S-ICD') || rawText.includes('EMBLEM')) {
+      console.log('Identified Boston Scientific PDF content.');
+      return parseBostonScientificPdf(rawText);
+    }
+
     return extractStructuredData(rawText, filename);
   } else if (fileExtension === '.xml' && filename.includes('BIOSTD_')) {
     const xmlData = fs.readFileSync(filePath, 'utf-8');
