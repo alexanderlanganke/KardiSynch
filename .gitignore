@@ -6,3 +6,21 @@ _DATA
 test-results
 .vscode
 .idea
+
+# Debug & Analysis Scripts
+debug_data/
+debug_marker.js
+debug_pdf.js
+debug_pdf.mjs
+debug_pdf_content.txt
+debug_paths.txt
+analyze_*.js
+analyze_*.mjs
+analyze_*.ts
+standalone_*.js
+standalone_*.ts
+standalone_result.log
+test_output.txt
+test_pdd_parser.ts
+test_result_v2.log
+reproduce_*.ts

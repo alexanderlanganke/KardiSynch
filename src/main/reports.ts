@@ -16,8 +16,10 @@ export interface LeadData {
   anatomic_location?: string;
   implant_date?: string; // ADDED: ISO 8601 format for individual lead implant date
   pacing_threshold?: Measurement;
+  pacing_amplitude?: Measurement; // ADDED: Pacing output amplitude
   sensing?: Measurement;
-  impedance?: Measurement;
+  impedance?: Measurement; // Pacing Impedance
+  shock_impedance?: Measurement; // ADDED: Defibrillation Impedance
 }
 
 /**
@@ -26,6 +28,7 @@ export interface LeadData {
 export interface BatteryData {
   voltage?: Measurement;
   remaining_longevity?: Measurement;
+  lastChargeTime?: Measurement; // ADDED: Last capacitor charge time
   status?: 'OK' | 'ERI' | 'EOL' | string;
 }
 

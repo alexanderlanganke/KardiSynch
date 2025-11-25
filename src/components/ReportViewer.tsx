@@ -154,6 +154,14 @@ const BiotronikDataViewer: React.FC<{ data: any }> = ({ data }) => {
                                             {lead.impedance?.value} {lead.impedance?.unit}
                                         </div>
                                     </div>
+                                    {lead.shock_impedance && (
+                                        <div>
+                                            <div className="text-xs text-muted-foreground">Shock Imp.</div>
+                                            <div>
+                                                {lead.shock_impedance.value} {lead.shock_impedance.unit}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}

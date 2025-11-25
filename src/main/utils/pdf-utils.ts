@@ -153,7 +153,7 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
     if (!report.interrogation_date) {
         // Combined Date and Time regex
         // Looks for Date followed optionally by Time
-        const dateRegex = /(?:Interrogation Date|Session Date|Unters\.datum|Messdatum|Report Date|Date):?\s*(?:(?<day>\d{1,2})[\.\/-](?<month>[A-Za-z]{3}|\d{1,2})[\.\/-](?<year>\d{4}))(?:\s+(?:at\s+)?(?<hour>\d{1,2})[:.](?<minute>\d{2})(?:[:.](?<second>\d{2}))?\s*(?<ampm>AM|PM)?)?/i;
+        const dateRegex = /(?:Interrogation Date|Session Date|Unters\.datum|Untersuchungsdatum|Messdatum|Report Date|Date):?\s*(?:(?<day>\d{1,2})[\.\/-](?<month>[A-Za-z]{3}|\d{1,2})[\.\/-](?<year>\d{4}))(?:\s+(?:at\s+)?(?<hour>\d{1,2})[:.](?<minute>\d{2})(?:[:.](?<second>\d{2}))?\s*(?<ampm>AM|PM)?)?/i;
 
         const match = text.match(dateRegex);
 
