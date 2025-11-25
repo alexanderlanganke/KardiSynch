@@ -37,15 +37,48 @@ const generatePatientXML = (patient: { id: string; first_name: string; last_name
  * Generates visit.xml content
  */
 const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
-  return `<?xml version="1.0" encoding="UTF-8"?>
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <visit>
   <report_id>${reportId}</report_id>
   <interrogation_date>${report.interrogation_date}</interrogation_date>
   <manufacturer>${report.manufacturer || ''}</manufacturer>
   <device_type>${report.device?.type || ''}</device_type>
   <device_model>${report.device?.model || ''}</device_model>
-  <device_serial>${report.device?.serial_number || ''}</device_serial>
+  <device_serial>${report.device?.serial_number || ''}</device_serial>`;
+
+  if (report.battery) {
+    xml += `
+  <battery>
+    <voltage value="${report.battery.voltage?.value || ''}" unit="${report.battery.voltage?.unit || ''}" />
+    <last_charge_time value="${report.battery.lastChargeTime?.value || ''}" unit="${report.battery.lastChargeTime?.unit || ''}" />
+    <status>${report.battery.status || ''}</status>
+  </battery>`;
+  }
+
+  if (report.leads && report.leads.length > 0) {
+    xml += `
+  <leads>`;
+    report.leads.forEach(lead => {
+      xml += `
+    <lead>
+      <name>${lead.name || ''}</name>
+      <model>${(lead as any).model || ''}</model>
+      <serial>${(lead as any).serial || ''}</serial>
+      <anatomic_location>${lead.anatomic_location || ''}</anatomic_location>
+      <impedance value="${lead.impedance?.value || ''}" unit="${lead.impedance?.unit || ''}" />
+      <sensing value="${lead.sensing?.value || ''}" unit="${lead.sensing?.unit || ''}" />
+      <pacing_threshold value="${lead.pacing_threshold?.value || ''}" unit="${lead.pacing_threshold?.unit || ''}" />
+      <pacing_amplitude value="${lead.pacing_amplitude?.value || ''}" unit="${lead.pacing_amplitude?.unit || ''}" />
+      <shock_impedance value="${lead.shock_impedance?.value || ''}" unit="${lead.shock_impedance?.unit || ''}" />
+    </lead>`;
+    });
+    xml += `
+  </leads>`;
+  }
+
+  xml += `
 </visit>`;
+  return xml;
 };
 
 /**

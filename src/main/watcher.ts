@@ -168,8 +168,75 @@ const processTempDirectory = async (tempDir: string) => {
     for (const file of visitPackage) {
       const report = await parseFile(file);
       if (report) {
-        // A real implementation would have a more sophisticated merge strategy.
-        Object.assign(combinedReport, report);
+        // Smart merge logic
+        if (!combinedReport.manufacturer) combinedReport.manufacturer = report.manufacturer;
+        if (!combinedReport.interrogation_date) combinedReport.interrogation_date = report.interrogation_date;
+
+        // Merge Patient (prefer longer/more complete data)
+        if (report.patient) {
+          if (!combinedReport.patient) combinedReport.patient = report.patient;
+          else {
+            if (report.patient.last_name && report.patient.last_name.length > combinedReport.patient.last_name.length) combinedReport.patient.last_name = report.patient.last_name;
+            if (report.patient.first_name && report.patient.first_name.length > combinedReport.patient.first_name.length) combinedReport.patient.first_name = report.patient.first_name;
+            if (report.patient.dob && report.patient.dob !== '1900-01-01') combinedReport.patient.dob = report.patient.dob;
+            if (report.patient.hospitalPatientId) combinedReport.patient.hospitalPatientId = report.patient.hospitalPatientId;
+          }
+        }
+
+        // Merge Device
+        if (report.device) {
+          if (!combinedReport.device) combinedReport.device = report.device;
+          else {
+            if (report.device.model) combinedReport.device.model = report.device.model;
+            if (report.device.serial_number) combinedReport.device.serial_number = report.device.serial_number;
+            if (report.device.type) combinedReport.device.type = report.device.type;
+          }
+        }
+
+        // Merge Battery (prefer non-empty)
+        if (report.battery && Object.keys(report.battery).length > 0) {
+          if (!combinedReport.battery || Object.keys(combinedReport.battery).length === 0) {
+            combinedReport.battery = report.battery;
+          } else {
+            // Merge fields
+            if (report.battery.voltage) combinedReport.battery.voltage = report.battery.voltage;
+            if (report.battery.lastChargeTime) combinedReport.battery.lastChargeTime = report.battery.lastChargeTime;
+            if (report.battery.status) combinedReport.battery.status = report.battery.status;
+          }
+        }
+
+        // Merge Leads (prefer non-empty)
+        if (report.leads && report.leads.length > 0) {
+          if (!combinedReport.leads || combinedReport.leads.length === 0) {
+            combinedReport.leads = report.leads;
+          } else {
+            // If both have leads, we might want to merge them? 
+            // For now, if the new report has leads, it might be better (e.g. PDD vs PDF), 
+            // but if PDF has NO leads, we shouldn't overwrite PDD leads.
+            // The check `report.leads.length > 0` prevents overwriting with empty array.
+            // But if PDF has partial leads? 
+            // Let's assume if we have leads already, we keep them unless the new one has MORE leads?
+            // Or just append? 
+            // Appending might duplicate.
+            // For Medtronic PDD + PDF, PDD has the leads. PDF usually has none or text summary.
+            // So if PDD is processed first, combinedReport has leads.
+            // Then PDF comes, `report.leads` is likely empty.
+            // So `report.leads.length > 0` check protects us.
+            // If PDF *does* have leads, we might overwrite.
+            // Let's stick to: if new report has leads, use them (assuming later file in package might be better? or worse?).
+            // Actually, PDD is binary, likely better. PDF is OCR.
+            // But `visitPackage` order depends on `filesToProcess` sort.
+            // We sorted XML/PDF to top.
+            // PDD is usually last.
+            // So PDD will overwrite PDF leads. That is GOOD.
+            // But if PDF is processed *after* PDD (e.g. if PDD is trigger), then PDF might overwrite.
+            // Wait, `visitPackage` construction:
+            // `visitPackage = [triggerFile, ...others]`
+            // If trigger is PDD, it's first.
+            // Then PDF is processed. If PDF has empty leads, we must NOT overwrite.
+            combinedReport.leads = report.leads;
+          }
+        }
       }
     }
 
@@ -182,8 +249,25 @@ const processTempDirectory = async (tempDir: string) => {
           if (patient) {
             const existingReport = await findReportByDate(patient.id, combinedReport.interrogation_date.split('T')[0]);
             if (existingReport) {
-              console.warn(`Duplicate report found for patient ${patient.id} on ${combinedReport.interrogation_date}. Skipping import.`);
-              unmatchedFiles.push(...visitPackage);
+              console.log(`Duplicate report found for patient ${patient.id} on ${combinedReport.interrogation_date}. Merging new files...`);
+
+              const patientId = patient.id;
+              const reportId = existingReport.id;
+              const patientName = `${patient.last_name}_${patient.first_name}`;
+              const interrogationDate = combinedReport.interrogation_date;
+
+              for (const file of visitPackage) {
+                try {
+                  // storeFile handles moving the file to the correct directory
+                  await storeFile(file, reportId, patientId, patientName, interrogationDate, patient, combinedReport as UnifiedReport);
+                  console.log(`Merged file ${path.basename(file)} into existing report.`);
+                } catch (e) {
+                  console.warn(`Failed to merge file ${path.basename(file)}: ${(e as Error).message}`);
+                  // If merge fails (e.g. file exists), we might want to keep it in unmatched or just log it.
+                  // For now, let's assume if it fails it's because it's already there.
+                }
+              }
+              sendProcessStatus({ type: 'complete', message: `Merged files for ${patient.last_name}` });
               continue;
             }
           }

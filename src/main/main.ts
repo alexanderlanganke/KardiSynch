@@ -48,6 +48,7 @@ app.whenReady().then(async () => {
   initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
   createWindow();
   console.log('Electron app is ready.');
+  fs.writeFile('debug_paths.txt', `UserData: ${app.getPath('userData')}\nImportDir: ${settings.importDir}\nDataDir: ${settings.dataPath}`);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -303,7 +304,7 @@ ipcMain.handle('get-visit-files', async (event, patientId: string, visitDirName:
     const displayableExts = ['.pdf', '.png', '.jpg', '.jpeg', '.xml'];
     const displayableFiles = files
       .filter(f => displayableExts.includes(path.extname(f).toLowerCase()))
-      .filter(f => f !== 'visit.xml') // Exclude metadata file
+      // .filter(f => f !== 'visit.xml') // Allow metadata file to be viewed
       .map(f => path.join(visitPath, f));
 
     return displayableFiles;
