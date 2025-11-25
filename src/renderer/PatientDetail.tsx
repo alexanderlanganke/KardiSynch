@@ -17,6 +17,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null]);
+  const [activePaneId, setActivePaneId] = useState(0);
 
   useEffect(() => {
     loadPatientData();
@@ -169,6 +170,8 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             selectedReport={selectedReports[0]}
             availableReports={reports}
             onReportSelect={handleReportSelect}
+            isActive={activePaneId === 0}
+            onActivate={() => setActivePaneId(0)}
           />
           <ViewPane
             paneId={1}
@@ -176,6 +179,8 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             selectedReport={selectedReports[1]}
             availableReports={reports}
             onReportSelect={handleReportSelect}
+            isActive={activePaneId === 1}
+            onActivate={() => setActivePaneId(1)}
           />
         </div>
       </div>

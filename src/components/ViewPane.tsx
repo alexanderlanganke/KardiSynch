@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import ReportViewer from './ReportViewer';
-import { FileText, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
 
 interface ViewPaneProps {
@@ -11,6 +11,8 @@ interface ViewPaneProps {
     selectedReport: any | null;
     availableReports: any[];
     onReportSelect: (paneId: number, report: any | null) => void;
+    isActive: boolean;
+    onActivate: () => void;
 }
 
 const ViewPane: React.FC<ViewPaneProps> = ({
@@ -19,6 +21,8 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     selectedReport,
     availableReports,
     onReportSelect,
+    isActive,
+    onActivate,
 }) => {
     const [selectedFile, setSelectedFile] = useState<string | null>(null);
     const [availableFiles, setAvailableFiles] = useState<string[]>([]);
@@ -71,11 +75,41 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     // Auto-collapse when a file is effectively selected and loaded
     React.useEffect(() => {
         if (effectiveSelectedFile) {
-            // Small delay to let user see what happened, or immediate?
-            // Immediate is better for "snappy" feel
             setIsControlsExpanded(false);
         }
     }, [effectiveSelectedFile]);
+
+    // Keyboard Navigation
+    React.useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!isActive || !availableFiles.length) return;
+
+            if (e.key === 'ArrowLeft') {
+                cycleFile('prev');
+            } else if (e.key === 'ArrowRight') {
+                cycleFile('next');
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isActive, availableFiles, effectiveSelectedFile]);
+
+    const cycleFile = (direction: 'next' | 'prev') => {
+        if (!availableFiles.length || !effectiveSelectedFile) return;
+
+        const currentIndex = availableFiles.indexOf(effectiveSelectedFile);
+        if (currentIndex === -1) return;
+
+        let newIndex;
+        if (direction === 'next') {
+            newIndex = (currentIndex + 1) % availableFiles.length;
+        } else {
+            newIndex = (currentIndex - 1 + availableFiles.length) % availableFiles.length;
+        }
+
+        setSelectedFile(availableFiles[newIndex]);
+    };
 
     const handleDragOver = (e: React.DragEvent) => {
         e.preventDefault();
@@ -114,27 +148,28 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
     return (
         <div
-            className={`flex flex-col h-full border-r border-border last:border-r-0 transition-colors ${isDragOver ? 'bg-primary/5' : ''
-                }`}
+            className={`flex flex-col h-full border-r border-border last:border-r-0 transition-all duration-200 ${isDragOver ? 'bg-primary/5' : ''
+                } ${isActive ? 'ring-2 ring-inset ring-primary/20' : ''}`}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
+            onClick={onActivate}
         >
             {/* Header with file selector */}
             <div className="border-b border-border bg-card/50 flex flex-col transition-all duration-300 ease-in-out">
                 {/* Collapsed Summary Bar */}
                 {!isControlsExpanded && selectedReport && (
                     <div
-                        className="flex items-center justify-between p-2 cursor-pointer hover:bg-accent/50"
+                        className="flex items-center justify-between p-2 cursor-pointer hover:bg-accent/50 group"
                         onClick={() => setIsControlsExpanded(true)}
                     >
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <FileText className="h-3 w-3" />
-                            <span className="font-medium text-foreground">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-1 min-w-0">
+                            <FileText className="h-3 w-3 flex-shrink-0" />
+                            <span className="font-medium text-foreground whitespace-nowrap">
                                 {new Date(selectedReport.interrogation_date).toLocaleDateString()}
                             </span>
                             <span>•</span>
-                            <span>{selectedReport.manufacturer}</span>
+                            <span className="whitespace-nowrap">{selectedReport.manufacturer}</span>
                             {effectiveSelectedFile && (
                                 <>
                                     <span>•</span>
@@ -144,9 +179,35 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                 </>
                             )}
                         </div>
-                        <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
-                            <ChevronDown className="h-3 w-3" />
-                        </Button>
+
+                        <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            {availableFiles.length > 1 && (
+                                <>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={(e) => { e.stopPropagation(); cycleFile('prev'); }}
+                                        title="Previous Document (Left Arrow)"
+                                    >
+                                        <ChevronLeft className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        onClick={(e) => { e.stopPropagation(); cycleFile('next'); }}
+                                        title="Next Document (Right Arrow)"
+                                    >
+                                        <ChevronRight className="h-3 w-3" />
+                                    </Button>
+                                    <div className="w-px h-3 bg-border mx-1" />
+                                </>
+                            )}
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                                <ChevronDown className="h-3 w-3" />
+                            </Button>
+                        </div>
                     </div>
                 )}
 
@@ -224,6 +285,28 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                         })}
                                     </SelectContent>
                                 </Select>
+                                {availableFiles.length > 1 && (
+                                    <div className="flex items-center gap-0.5">
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7"
+                                            onClick={() => cycleFile('prev')}
+                                            title="Previous Document"
+                                        >
+                                            <ChevronLeft className="h-3.5 w-3.5" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-7 w-7"
+                                            onClick={() => cycleFile('next')}
+                                            title="Next Document"
+                                        >
+                                            <ChevronRight className="h-3.5 w-3.5" />
+                                        </Button>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
@@ -231,7 +314,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             </div>
 
             {/* Content area */}
-            <div className="flex-1 overflow-auto relative">
+            <div className="flex-1 overflow-hidden relative flex flex-col">
                 {selectedReport ? (
                     <ReportViewer
                         report={selectedReport}
