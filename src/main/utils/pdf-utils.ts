@@ -5,7 +5,6 @@ import { app } from 'electron';
 import { UnifiedReport } from '../reports';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdfParse = require('pdf-parse');
-import * as pdfjsLib from 'pdfjs-dist';
 
 /**
  * Extracts text from a PDF file, using pdf-parse, then pdfjs-dist, then OCR as a fallback.
@@ -37,6 +36,10 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
     // 2. Try pdfjs-dist (Legacy/Standard approach)
     try {
         console.log('Attempting pdfjs-dist...');
+        // Dynamic import for ESM-only package in CommonJS environment
+        // @ts-ignore
+        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+
         const uint8Array = new Uint8Array(dataBuffer);
         const loadingTask = pdfjsLib.getDocument(uint8Array);
         const pdfDocument = await loadingTask.promise;
