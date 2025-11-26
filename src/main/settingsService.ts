@@ -9,6 +9,8 @@ export interface AppSettings {
     dataPath: string;
     dbPath: string;
     theme?: 'light' | 'dark' | 'system';
+    usbSourceDirectories: string[];
+    usbTargetDirectory: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -17,6 +19,8 @@ const DEFAULT_SETTINGS: AppSettings = {
     dataPath: path.join(app.getPath('userData'), '_DATA'),
     dbPath: path.join(app.getPath('userData'), '_DATA', 'database.db'),
     theme: 'system',
+    usbSourceDirectories: [],
+    usbTargetDirectory: '',
 };
 
 export const getAllSettings = async (): Promise<AppSettings> => {
@@ -24,10 +28,20 @@ export const getAllSettings = async (): Promise<AppSettings> => {
         const dbSettings = await getDbSettings();
         const config = getConfig();
 
+        // Parse JSON strings for array/object fields
+        const parsedDbSettings = { ...dbSettings };
+        if (parsedDbSettings.usbSourceDirectories) {
+            try {
+                parsedDbSettings.usbSourceDirectories = JSON.parse(parsedDbSettings.usbSourceDirectories);
+            } catch (e) {
+                parsedDbSettings.usbSourceDirectories = [];
+            }
+        }
+
         // Merge defaults, DB settings, and Config (config takes precedence for dbPath)
         return {
             ...DEFAULT_SETTINGS,
-            ...dbSettings,
+            ...parsedDbSettings,
             dbPath: config.dbPath || DEFAULT_SETTINGS.dbPath,
         };
     } catch (error) {
@@ -49,7 +63,12 @@ export const saveSettings = async (settings: Partial<AppSettings>): Promise<void
 
         // Save other settings to SQLite
         if (Object.keys(otherSettings).length > 0) {
-            await setDbSettings(otherSettings);
+            // Stringify arrays/objects
+            const settingsToSave: any = { ...otherSettings };
+            if (settingsToSave.usbSourceDirectories) {
+                settingsToSave.usbSourceDirectories = JSON.stringify(settingsToSave.usbSourceDirectories);
+            }
+            await setDbSettings(settingsToSave);
         }
     } catch (error) {
         console.error('Error saving settings:', error);
@@ -67,7 +86,14 @@ export const resetSettings = async (): Promise<AppSettings> => {
         // Reset SQLite settings
         // We need to manually set each default value to ensure it overrides existing data
         const { dbPath, ...settingsToSave } = DEFAULT_SETTINGS;
-        await setDbSettings(settingsToSave);
+
+        // Stringify arrays
+        const dbReadySettings: any = { ...settingsToSave };
+        if (dbReadySettings.usbSourceDirectories) {
+            dbReadySettings.usbSourceDirectories = JSON.stringify(dbReadySettings.usbSourceDirectories);
+        }
+
+        await setDbSettings(dbReadySettings);
 
         return DEFAULT_SETTINGS;
     } catch (error) {

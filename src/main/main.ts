@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports } from './database';
 import { initializeWatcher, stopWatcher } from './watcher';
+import { startUsbWatcher, stopUsbWatcher } from './usbWatcher';
 import { initializeStorage } from './storage';
 import { setMainWindow, getMainWindow } from './windowManager';
 import { getAllSettings, saveSettings } from './settingsService';
@@ -46,6 +47,10 @@ app.whenReady().then(async () => {
 
   // Initialize watcher (NO MOCK DATA SEEDING)
   initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
+
+  // Initialize USB Watcher
+  startUsbWatcher(settings);
+
   createWindow();
   console.log('Electron app is ready.');
   fs.writeFile('debug_paths.txt', `UserData: ${app.getPath('userData')}\nImportDir: ${settings.importDir}\nDataDir: ${settings.dataPath}`);
@@ -126,6 +131,9 @@ ipcMain.handle('set-settings', async (event, settings) => {
       initializeWatcher(newSettings.importDir, newSettings.unmatchedDir, newSettings.dataPath);
     }
 
+    // Always restart USB watcher on settings change to pick up new source/target dirs
+    startUsbWatcher(newSettings);
+
   } catch (error) {
     console.error('Failed to set settings:', error);
     throw error;
@@ -140,6 +148,9 @@ ipcMain.handle('reset-settings', async () => {
     console.log('Settings reset, restarting watcher...');
     stopWatcher();
     initializeWatcher(newSettings.importDir, newSettings.unmatchedDir, newSettings.dataPath);
+
+    // Restart USB watcher
+    startUsbWatcher(newSettings);
 
     return newSettings;
   } catch (error) {
