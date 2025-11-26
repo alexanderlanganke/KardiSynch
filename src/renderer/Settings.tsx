@@ -8,11 +8,20 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Save, RotateCcw } from 'lucide-react';
 
 const Settings: React.FC = () => {
-  const [settings, setSettings] = useState({
+  const [settings, setSettings] = useState<{
+    importDir: string;
+    unmatchedDir: string;
+    dataPath: string;
+    dbPath: string;
+    usbSourceDirectories: string[];
+    usbTargetDirectory: string;
+  }>({
     importDir: '',
     unmatchedDir: '',
     dataPath: '',
     dbPath: '',
+    usbSourceDirectories: [],
+    usbTargetDirectory: '',
   });
   const [loading, setLoading] = useState(false);
 
@@ -87,6 +96,7 @@ const Settings: React.FC = () => {
       <Tabs defaultValue="paths" className="space-y-4">
         <TabsList>
           <TabsTrigger value="paths">File Paths</TabsTrigger>
+          <TabsTrigger value="usb">USB Watcher</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
@@ -240,6 +250,88 @@ const Settings: React.FC = () => {
               {loading ? 'Saving...' : 'Save Changes'}
             </Button>
           </div>
+          <TabsContent value="usb">
+            <Card>
+              <CardHeader>
+                <CardTitle>USB Watcher Configuration</CardTitle>
+                <CardDescription>
+                  Automatically move files from source drives (e.g., USB sticks) to a target directory and import them.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+
+                <div className="space-y-2">
+                  <Label htmlFor="usb-target-dir">Target Directory (External App)</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      id="usb-target-dir"
+                      name="usbTargetDirectory"
+                      value={settings.usbTargetDirectory || ''}
+                      onChange={handleInputChange}
+                      placeholder="Select target directory..."
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      onClick={() => handleDirectorySelection('usbTargetDirectory')}
+                    >
+                      <FolderOpen className="h-4 w-4" />
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Files found in source directories will be moved here.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Source Directories</Label>
+                  <div className="space-y-2">
+                    {settings.usbSourceDirectories && settings.usbSourceDirectories.map((dir, index) => (
+                      <div key={index} className="flex gap-2 items-center">
+                        <Input value={dir} readOnly className="bg-muted" />
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => {
+                            const newDirs = settings.usbSourceDirectories.filter((_, i) => i !== index);
+                            setSettings({ ...settings, usbSourceDirectories: newDirs });
+                          }}
+                        >
+                          <span className="text-xs">X</span>
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={async () => {
+                      try {
+                        const directoryPath = await window.electronAPI.selectDirectory();
+                        if (directoryPath && !settings.usbSourceDirectories?.includes(directoryPath)) {
+                          setSettings({
+                            ...settings,
+                            usbSourceDirectories: [...(settings.usbSourceDirectories || []), directoryPath]
+                          });
+                        }
+                      } catch (error) {
+                        console.error('Error selecting directory:', error);
+                      }
+                    }}
+                  >
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                    Add Source Directory
+                  </Button>
+                  <p className="text-xs text-muted-foreground">
+                    Directories to watch for new files (e.g., mapped network drives or USB paths).
+                  </p>
+                </div>
+
+              </CardContent>
+            </Card>
+          </TabsContent>
         </form>
       </Tabs>
     </div >
