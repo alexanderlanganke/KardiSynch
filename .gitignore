@@ -24,3 +24,11 @@ test_output.txt
 test_pdd_parser.ts
 test_result_v2.log
 reproduce_*.ts
+
+# Build & Release
+release/
+dist-electron/
+
+# Local Data
+_IMPORT/
+_UNMATCHED/
