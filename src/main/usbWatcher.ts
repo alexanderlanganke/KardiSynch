@@ -73,8 +73,41 @@ const processDirectory = (currentDir: string, sourceBase: string) => {
     }
 };
 
-const handleFile = (filePath: string, sourceBase: string) => {
+import { sendNotification } from './windowManager';
+
+const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): Promise<boolean> => {
+    let retries = 0;
+    let lastSize = -1;
+
+    while (retries < maxRetries) {
+        try {
+            const stats = fs.statSync(filePath);
+            const currentSize = stats.size;
+
+            if (currentSize === lastSize && currentSize > 0) {
+                return true; // Stable
+            }
+
+            lastSize = currentSize;
+            await new Promise(resolve => setTimeout(resolve, interval));
+            retries++;
+        } catch (error) {
+            console.warn(`[UsbWatcher] Error checking file stability for ${filePath}:`, error);
+            return false;
+        }
+    }
+    return false; // Timed out
+};
+
+const handleFile = async (filePath: string, sourceBase: string) => {
     if (!currentSettings) return;
+
+    // Check stability first
+    const stable = await isFileStable(filePath);
+    if (!stable) {
+        console.warn(`[UsbWatcher] File ${filePath} is not stable (still writing?). Skipping.`);
+        return;
+    }
 
     const relativePath = path.relative(sourceBase, filePath);
     const targetPath = path.join(currentSettings.usbTargetDirectory, relativePath);
@@ -102,11 +135,23 @@ const handleFile = (filePath: string, sourceBase: string) => {
         }
         fs.copyFileSync(filePath, importPath);
 
-        // 3. Delete from Source
-        fs.unlinkSync(filePath);
+        // 3. Verify Copy Success before Deletion
+        const sourceStats = fs.statSync(filePath);
+        const targetStats = fs.statSync(targetPath);
+        const importStats = fs.statSync(importPath);
 
-        console.log(`[UsbWatcher] Moved ${relativePath} to Target and Import.`);
+        if (targetStats.size === sourceStats.size && importStats.size === sourceStats.size) {
+            // 4. Delete from Source
+            fs.unlinkSync(filePath);
+            console.log(`[UsbWatcher] Moved ${relativePath} to Target and Import.`);
+            sendNotification(`Imported from USB: ${path.basename(filePath)}`, 'info');
+        } else {
+            console.error(`[UsbWatcher] Copy verification failed for ${filePath}. Sizes do not match.`);
+            sendNotification(`Failed to import ${path.basename(filePath)}: Verification failed`, 'error');
+        }
+
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process ${filePath}:`, error);
+        sendNotification(`Error importing from USB: ${(error as Error).message}`, 'error');
     }
 };
