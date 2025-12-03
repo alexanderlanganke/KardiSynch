@@ -37,8 +37,8 @@ export const extractTextFromPdf = async (filePath: string): Promise<string> => {
     try {
         console.log('Attempting pdfjs-dist...');
         // Dynamic import for ESM-only package in CommonJS environment
-        // @ts-ignore
-        const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
+        // Using new Function to bypass TypeScript transpilation of dynamic import to require()
+        const pdfjsLib = await (new Function('return import("pdfjs-dist/legacy/build/pdf.mjs")'))();
 
         const uint8Array = new Uint8Array(dataBuffer);
         const loadingTask = pdfjsLib.getDocument(uint8Array);
@@ -103,18 +103,30 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         };
 
         let m = month;
-        if (isNaN(parseInt(month))) {
+        // Check if month is a number (e.g. "05")
+        if (!isNaN(parseInt(month))) {
+            m = month.padStart(2, '0');
+        } else {
             const shortM = month.substring(0, 3);
             if (monthMap[shortM]) m = monthMap[shortM];
         }
-        return `${year.padStart(4, '20')}-${m.padStart(2, '0')}-${day.padStart(2, '0')}`;
+        return `${year.padStart(4, '20')}-${m}-${day.padStart(2, '0')}`;
     };
 
     // 1. Try to parse from Filename first (High confidence for Medtronic)
     // Format: UUID_LASTNAME_FIRSTNAME-SERIAL-TYPE-DD_MMM_YYYY_...
     // Example: ..._KOLKENBROCK_RALF-PMZ629976S-SmartSyncPDF-06_Nov_2025...
+    // New Format: Prefix_Lastname,_Firstname-Serial-Type-Date...
+    // Example: Kuba_Szitar,_Elisabeth-RSH604898S-SmartSyncPDF-24_Jul_2024...
     if (filename) {
-        const filenameMatch = filename.match(/_(?<last>[A-Z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<first>[A-Z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)-(?<serial>[A-Z0-9]+)-(?<type>[A-Za-z0-9]+)-(?<day>\d{2})_(?<month>[A-Za-z]{3})_(?<year>\d{4})/);
+        // Try original format
+        let filenameMatch = filename.match(/_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)(?:_|, ?)(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)-(?<serial>[A-Z0-9]+)-(?<type>[A-Za-z0-9]+)-(?<day>\d{2})_(?<month>[A-Za-z]{3})_(?<year>\d{4})/);
+
+        // Try new format (Lastname,_Firstname) - Handle comma+underscore separator
+        if (!filenameMatch) {
+            filenameMatch = filename.match(/(?:^|_)(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)(?:_|, ?_?)(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)-(?<serial>[A-Z0-9]+)-(?<type>[A-Za-z0-9]+)-(?<day>\d{2})_(?<month>[A-Za-z]{3})_(?<year>\d{4})/);
+        }
+
         if (filenameMatch?.groups) {
             console.log('Filename metadata match:', filenameMatch.groups);
             report.patient.last_name = filenameMatch.groups.last;
@@ -128,27 +140,60 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
     // 2. Regex for Patient Name
     // Support: "Patient: DOE, JOHN", "Name: John Doe", "Patient Name: Doe, John"
     if (report.patient.last_name === 'Unknown' || report.patient.last_name === '') {
-        // Format: Last, First
+        // Blocklist for invalid names (system text that looks like names)
+        const invalidNames = ['NA', 'Software', 'Cardiac', 'Patient', 'Arztes', 'Enaktivität', 'Enidentifikation', 'Analyse', 'Bericht', 'Report', 'Device', 'Model', 'Serial'];
+
+        // Helper to validate name
+        const isValidName = (last: string, first: string) => {
+            if (!last || !first) return false;
+            if (invalidNames.includes(last) || invalidNames.includes(first)) return false;
+            if (last.length < 2 || first.length < 2) return false;
+            return true;
+        };
+
+        // Format: Last, First (e.g. "Patient: Mustermann, Max")
+        // We use a stricter regex to avoid matching random text
         const lastFirstMatch = text.match(/(?:Patient(?: Name)?|Name|Patientenname):?\s*(?<lastName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)[,]\s*(?<firstName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)/i);
 
-        if (lastFirstMatch?.groups) {
+        if (lastFirstMatch?.groups && isValidName(lastFirstMatch.groups.lastName, lastFirstMatch.groups.firstName)) {
             report.patient.first_name = lastFirstMatch.groups.firstName;
             report.patient.last_name = lastFirstMatch.groups.lastName;
         } else {
             // Format: First Last (less common in headers, but possible)
             // Be careful not to match "Patient Name" as the name
             const firstLastMatch = text.match(/(?:Patient(?: Name)?|Name|Patientenname):?\s*(?!Name)(?<firstName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)\s+(?<lastName>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff'-]+)/i);
-            if (firstLastMatch?.groups) {
+            if (firstLastMatch?.groups && isValidName(firstLastMatch.groups.lastName, firstLastMatch.groups.firstName)) {
                 report.patient.first_name = firstLastMatch.groups.firstName;
                 report.patient.last_name = firstLastMatch.groups.lastName;
             }
         }
     }
 
-    // Regex for Date of Birth (e.g., "DOB: 01/23/1945")
-    const dobMatch = text.match(/(?:DOB|Date of Birth|Geburtsdatum|Born):?\s*(?<month>\d{1,2})[/-](?<day>\d{1,2})[/-](?<year>\d{2,4})/i);
+    // Regex for Date of Birth (e.g., "DOB: 01/23/1945" or "Geburtsdatum: 15.05.1950")
+    // Support German format dd.mm.yyyy
+    const dobMatch = text.match(/(?:DOB|Date of Birth|Geburtsdatum|Born):?\s*(?<part1>\d{1,2})[\.\/-](?<part2>\d{1,2})[\.\/-](?<year>\d{2,4})/i);
     if (dobMatch?.groups) {
-        report.patient.dob = formatDate(dobMatch.groups.month, dobMatch.groups.day, dobMatch.groups.year);
+        // Heuristic to determine if dd.mm or mm.dd
+        // If separator is '.', assume dd.mm.yyyy (German)
+        // If separator is '/', assume mm/dd/yyyy (US) - though Medtronic might use dd/mm/yyyy in EU?
+        // Let's check the full match string to see the separator
+        const fullMatch = dobMatch[0];
+        if (fullMatch.includes('.')) {
+            // German: dd.mm.yyyy
+            report.patient.dob = formatDate(dobMatch.groups.part2, dobMatch.groups.part1, dobMatch.groups.year);
+        } else {
+            // US: mm/dd/yyyy (Default assumption for / or -)
+            // But wait, if part1 > 12, it MUST be day.
+            const p1 = parseInt(dobMatch.groups.part1);
+            const p2 = parseInt(dobMatch.groups.part2);
+            if (p1 > 12) {
+                // dd-mm-yyyy
+                report.patient.dob = formatDate(dobMatch.groups.part2, dobMatch.groups.part1, dobMatch.groups.year);
+            } else {
+                // mm-dd-yyyy (Standard US)
+                report.patient.dob = formatDate(dobMatch.groups.part1, dobMatch.groups.part2, dobMatch.groups.year);
+            }
+        }
     }
 
     // Regex for Interrogation Date and Time

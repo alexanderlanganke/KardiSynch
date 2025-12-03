@@ -32,3 +32,15 @@ dist-electron/
 # Local Data
 _IMPORT/
 _UNMATCHED/
+
+# Temporary Analysis
+temp_analysis/
+*.pkg
+*.xml
+debug_log.txt
+debug_*.txt
+test_regex.js
+scripts/extract_*.ts
+scripts/extract_*.js
+scripts/verify_*.ts
+scripts/verify_*.js

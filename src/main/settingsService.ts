@@ -13,11 +13,13 @@ export interface AppSettings {
     usbTargetDirectory: string;
 }
 
+const isDev = process.env.NODE_ENV === 'development';
+
 const DEFAULT_SETTINGS: AppSettings = {
-    importDir: path.join(app.getPath('userData'), '_IMPORT'),
-    unmatchedDir: path.join(app.getPath('userData'), '_UNMATCHED'),
-    dataPath: path.join(app.getPath('userData'), '_DATA'),
-    dbPath: path.join(app.getPath('userData'), '_DATA', 'database.db'),
+    importDir: isDev ? path.join(process.cwd(), '_IMPORT') : path.join(app.getPath('userData'), '_IMPORT'),
+    unmatchedDir: isDev ? path.join(process.cwd(), '_UNMATCHED') : path.join(app.getPath('userData'), '_UNMATCHED'),
+    dataPath: isDev ? path.join(process.cwd(), '_DATA') : path.join(app.getPath('userData'), '_DATA'),
+    dbPath: isDev ? path.join(process.cwd(), '_DATA', 'database.db') : path.join(app.getPath('userData'), '_DATA', 'database.db'),
     theme: 'system',
     usbSourceDirectories: [],
     usbTargetDirectory: '',

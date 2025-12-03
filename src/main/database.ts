@@ -91,6 +91,29 @@ export const findPatient = (lastName: string, dob: string): Promise<any> => {
   });
 };
 
+
+export const findPatientBySerial = (serial: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    // Find the most recent patient associated with this serial number
+    db.get(
+      `SELECT p.* FROM Patients p
+       JOIN Reports r ON p.id = r.patient_id
+       WHERE r.device_serial_number = ?
+       ORDER BY r.interrogation_date DESC
+       LIMIT 1`,
+      [serial],
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      }
+    );
+  });
+};
+
 export const createPatient = (patient: {
   id: string;
   first_name: string;
