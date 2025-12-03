@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { sendUnmatchedFiles, sendNotification, sendProcessStatus } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
-import { getDb, findPatient, findReportByDate } from './database';
+import { getDb, findPatient, findReportByDate, findPatientBySerial } from './database';
 import { storeReport, storeFile } from './storage';
 
 
@@ -96,214 +96,206 @@ const getReportKey = (report: UnifiedReport): string | null => {
  */
 const processTempDirectory = async (tempDir: string) => {
   console.log(`Processing files in temporary directory: ${tempDir}`);
-  let filesToProcess = fs.readdirSync(tempDir).map(f => path.join(tempDir, f));
-  const unmatchedFiles = [];
+  const allFiles = fs.readdirSync(tempDir).map(f => path.join(tempDir, f));
+  const unmatchedFiles: string[] = [];
 
-  sendProcessStatus({ type: 'start', message: `Processing ${filesToProcess.length} files...` });
+  sendProcessStatus({ type: 'start', message: `Processing ${allFiles.length} files...` });
 
-  // Sort files to prioritize potential trigger files (XML, PDF) over images
-  filesToProcess.sort((a, b) => {
-    const extA = path.extname(a).toLowerCase();
-    const extB = path.extname(b).toLowerCase();
-
-    // Prioritize XML over PDF, and both over everything else
-    if (extA === '.xml' && extB !== '.xml') return -1;
-    if (extB === '.xml' && extA !== '.xml') return 1;
-
-    const isTriggerA = extA === '.pdf';
-    const isTriggerB = extB === '.pdf';
-    if (isTriggerA && !isTriggerB) return -1;
-    if (!isTriggerA && isTriggerB) return 1;
-    return 0;
+  // Filter out unsupported files early
+  const supportedFiles = allFiles.filter(file => {
+    const ext = path.extname(file).toLowerCase();
+    if (['.docx', '.zip', '.jar', '.bat', '.bak', '.log'].includes(ext)) {
+      console.log(`Skipping unsupported file type: ${ext} (${path.basename(file)})`);
+      unmatchedFiles.push(file);
+      return false;
+    }
+    return true;
   });
 
-  while (filesToProcess.length > 0) {
-    const triggerFile = filesToProcess.shift();
-    if (!triggerFile) continue;
+  // Categorize files
+  const structuredFiles = supportedFiles.filter(f => {
+    const ext = path.extname(f).toLowerCase();
+    return ext === '.xml' || ext === '.pkg';
+  });
 
-    console.log(`Processing trigger file: ${path.basename(triggerFile)}`);
-    sendProcessStatus({ type: 'progress', message: `Analyzing ${path.basename(triggerFile)}...`, file: path.basename(triggerFile) });
-    const triggerReport = await parseFile(triggerFile);
-    if (!triggerReport) {
-      console.warn(`Could not parse trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
-      unmatchedFiles.push(triggerFile);
-      continue;
-    }
+  const pdfFiles = supportedFiles.filter(f => {
+    const ext = path.extname(f).toLowerCase();
+    return ext === '.pdf';
+  });
 
-    const triggerKey = getReportKey(triggerReport);
-    if (!triggerKey) {
-      console.warn(`Could not generate a key for trigger file ${path.basename(triggerFile)}. Moving to unmatched.`);
-      unmatchedFiles.push(triggerFile);
-      continue;
-    }
+  // Track active visits created in this batch
+  // Key: "Last_First_DOB_Date" -> { reportId, patientId, patient, date }
+  const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string }>();
 
-    const visitPackage = [triggerFile];
-    const remainingFiles = [];
+  // --- STEP 1: Process Structured Reports (.pkg, .xml) ---
+  console.log('--- STEP 1: Processing Structured Reports ---');
+  for (const file of structuredFiles) {
+    console.log(`Processing structured file: ${path.basename(file)}`);
+    sendProcessStatus({ type: 'progress', message: `Importing ${path.basename(file)}...`, file: path.basename(file) });
 
-    const triggerBasename = path.basename(triggerFile);
-    const timestampMatch = triggerBasename.match(/BIOSTD_(\d{4}-\d{2}-\d{2}_\d{2}-\d{2}-\d{2})/);
-    const timestamp = timestampMatch ? timestampMatch[1] : null;
-
-    // Add any generated files (e.g. extracted PDFs) to the package
-    if (triggerReport.generatedFiles && triggerReport.generatedFiles.length > 0) {
-      visitPackage.push(...triggerReport.generatedFiles);
-    }
-
-    for (const file of filesToProcess) {
-      const report = await parseFile(file);
-      if (report && getReportKey(report) === triggerKey) {
-        visitPackage.push(file);
-      } else if (!report && timestamp && path.basename(file).includes(timestamp)) {
-        // If parsing failed (e.g. image) but it shares the timestamp, include it in the package
-        visitPackage.push(file);
-      } else {
-        remainingFiles.push(file);
-      }
-    }
-
-    filesToProcess = remainingFiles;
-    console.log(`Created visit package with ${visitPackage.length} files for key: ${triggerKey}`);
-
-    const combinedReport: Partial<UnifiedReport> = {};
-    for (const file of visitPackage) {
-      const report = await parseFile(file);
-      if (report) {
-        // Smart merge logic
-        if (!combinedReport.manufacturer) combinedReport.manufacturer = report.manufacturer;
-        if (!combinedReport.interrogation_date) combinedReport.interrogation_date = report.interrogation_date;
-
-        // Merge Patient (prefer longer/more complete data)
-        if (report.patient) {
-          if (!combinedReport.patient) combinedReport.patient = report.patient;
-          else {
-            if (report.patient.last_name && report.patient.last_name.length > combinedReport.patient.last_name.length) combinedReport.patient.last_name = report.patient.last_name;
-            if (report.patient.first_name && report.patient.first_name.length > combinedReport.patient.first_name.length) combinedReport.patient.first_name = report.patient.first_name;
-            if (report.patient.dob && report.patient.dob !== '1900-01-01') combinedReport.patient.dob = report.patient.dob;
-            if (report.patient.hospitalPatientId) combinedReport.patient.hospitalPatientId = report.patient.hospitalPatientId;
-          }
-        }
-
-        // Merge Device
-        if (report.device) {
-          if (!combinedReport.device) combinedReport.device = report.device;
-          else {
-            if (report.device.model) combinedReport.device.model = report.device.model;
-            if (report.device.serial_number) combinedReport.device.serial_number = report.device.serial_number;
-            if (report.device.type) combinedReport.device.type = report.device.type;
-          }
-        }
-
-        // Merge Battery (prefer non-empty)
-        if (report.battery && Object.keys(report.battery).length > 0) {
-          if (!combinedReport.battery || Object.keys(combinedReport.battery).length === 0) {
-            combinedReport.battery = report.battery;
-          } else {
-            // Merge fields
-            if (report.battery.voltage) combinedReport.battery.voltage = report.battery.voltage;
-            if (report.battery.lastChargeTime) combinedReport.battery.lastChargeTime = report.battery.lastChargeTime;
-            if (report.battery.status) combinedReport.battery.status = report.battery.status;
-          }
-        }
-
-        // Merge Leads (prefer non-empty)
-        if (report.leads && report.leads.length > 0) {
-          if (!combinedReport.leads || combinedReport.leads.length === 0) {
-            combinedReport.leads = report.leads;
-          } else {
-            // If both have leads, we might want to merge them? 
-            // For now, if the new report has leads, it might be better (e.g. PDD vs PDF), 
-            // but if PDF has NO leads, we shouldn't overwrite PDD leads.
-            // The check `report.leads.length > 0` prevents overwriting with empty array.
-            // But if PDF has partial leads? 
-            // Let's assume if we have leads already, we keep them unless the new one has MORE leads?
-            // Or just append? 
-            // Appending might duplicate.
-            // For Medtronic PDD + PDF, PDD has the leads. PDF usually has none or text summary.
-            // So if PDD is processed first, combinedReport has leads.
-            // Then PDF comes, `report.leads` is likely empty.
-            // So `report.leads.length > 0` check protects us.
-            // If PDF *does* have leads, we might overwrite.
-            // Let's stick to: if new report has leads, use them (assuming later file in package might be better? or worse?).
-            // Actually, PDD is binary, likely better. PDF is OCR.
-            // But `visitPackage` order depends on `filesToProcess` sort.
-            // We sorted XML/PDF to top.
-            // PDD is usually last.
-            // So PDD will overwrite PDF leads. That is GOOD.
-            // But if PDF is processed *after* PDD (e.g. if PDD is trigger), then PDF might overwrite.
-            // Wait, `visitPackage` construction:
-            // `visitPackage = [triggerFile, ...others]`
-            // If trigger is PDD, it's first.
-            // Then PDF is processed. If PDF has empty leads, we must NOT overwrite.
-            combinedReport.leads = report.leads;
-          }
-        }
-      }
-    }
-
-
-    if (Object.keys(combinedReport).length > 0) {
-      try {
-        // Check for duplicates
-        if (combinedReport.patient && combinedReport.interrogation_date) {
-          const patient = await findPatient(combinedReport.patient.last_name, combinedReport.patient.dob);
-          if (patient) {
-            const existingReport = await findReportByDate(patient.id, combinedReport.interrogation_date.split('T')[0]);
-            if (existingReport) {
-              console.log(`Duplicate report found for patient ${patient.id} on ${combinedReport.interrogation_date}. Merging new files...`);
-
-              const patientId = patient.id;
-              const reportId = existingReport.id;
-              const patientName = `${patient.last_name}_${patient.first_name}`;
-              const interrogationDate = combinedReport.interrogation_date;
-
-              for (const file of visitPackage) {
-                try {
-                  // storeFile handles moving the file to the correct directory
-                  await storeFile(file, reportId, patientId, patientName, interrogationDate, patient, combinedReport as UnifiedReport);
-                  console.log(`Merged file ${path.basename(file)} into existing report.`);
-                } catch (e) {
-                  console.warn(`Failed to merge file ${path.basename(file)}: ${(e as Error).message}`);
-                  // If merge fails (e.g. file exists), we might want to keep it in unmatched or just log it.
-                  // For now, let's assume if it fails it's because it's already there.
-                }
-              }
-              sendProcessStatus({ type: 'complete', message: `Merged files for ${patient.last_name}` });
-              continue;
-            }
-          }
-        }
-
-        const { reportId, patient: storedPatient } = await storeReport(combinedReport as UnifiedReport);
-        const patientName = combinedReport.patient ? `${combinedReport.patient.last_name}_${combinedReport.patient.first_name}` : undefined;
-
-        // Get patient ID from database to use in directory structure
-        const fetchedPatient = combinedReport.patient ? await findPatient(combinedReport.patient.last_name, combinedReport.patient.dob) : null;
-        const patientId = fetchedPatient?.id || '';
-        const interrogationDate = combinedReport.interrogation_date;
-
-        for (const file of visitPackage) {
-          await storeFile(file, reportId, patientId, patientName, interrogationDate, storedPatient, combinedReport as UnifiedReport);
-        }
-        console.log(`Successfully stored report and ${visitPackage.length} files.`);
-        sendProcessStatus({ type: 'complete', message: `Imported visit for ${combinedReport.patient?.last_name}` });
-      } catch (e) {
-        console.error('Error storing report or files', e);
-        sendNotification(`Error storing report: ${(e as Error).message}`, 'error');
-        unmatchedFiles.push(...visitPackage);
-      }
-    } else {
-      unmatchedFiles.push(...visitPackage);
-    }
-  }
-
-  for (const file of unmatchedFiles) {
-    const newPath = path.join(unmatchedDir, path.basename(file));
     try {
-      fs.renameSync(file, newPath);
+      const report = await parseFile(file);
+      if (!report) {
+        console.warn(`Failed to parse structured file ${path.basename(file)}`);
+        unmatchedFiles.push(file);
+        continue;
+      }
+
+      // Store the report (creates patient/visit if needed)
+      const { reportId, patient } = await storeReport(report);
+
+      // Generate a key for this visit
+      const key = getReportKey(report);
+      if (key) {
+        activeVisits.set(key, {
+          reportId,
+          patientId: patient.id,
+          patient,
+          date: report.interrogation_date,
+          serial: report.device?.serial_number
+        });
+      }
+
+      // --- STEP 2: Handle Internal PDFs (extracted from .pkg) ---
+      if (report.generatedFiles && report.generatedFiles.length > 0) {
+        console.log(`Processing ${report.generatedFiles.length} internal PDFs for ${path.basename(file)}`);
+        for (const genFile of report.generatedFiles) {
+          await storeFile(genFile, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+        }
+      }
+
     } catch (e) {
-      console.error(`Error moving unmatched file ${file}:`, e);
+      console.error(`Error processing structured file ${path.basename(file)}:`, e);
+      unmatchedFiles.push(file);
     }
   }
+
+  // --- STEP 3: Match Associated PDFs ---
+  console.log('--- STEP 3: Matching Associated PDFs ---');
+  const remainingPdfs: string[] = [];
+
+  for (const file of pdfFiles) {
+    try {
+      const report = await parseFile(file);
+      if (!report) {
+        remainingPdfs.push(file);
+        continue;
+      }
+
+      let matched = false;
+
+      // Try to match with active visits
+      for (const [key, visit] of activeVisits.entries()) {
+        // Match Logic:
+        // 1. Serial Number Match (Strongest)
+        if (visit.serial && report.device?.serial_number && visit.serial === report.device.serial_number) {
+          console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Serial Number`);
+          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, report);
+          matched = true;
+          break;
+        }
+
+        // 2. Name + DOB + Date Match
+        const pdfKey = getReportKey(report);
+        if (pdfKey && pdfKey === key) {
+          console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Name/DOB/Date`);
+          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, report);
+          matched = true;
+          break;
+        }
+      }
+
+      if (!matched) {
+        remainingPdfs.push(file);
+      }
+
+    } catch (e) {
+      console.error(`Error analyzing PDF ${path.basename(file)}:`, e);
+      remainingPdfs.push(file);
+    }
+  }
+
+  // --- STEP 4: Process Standalone PDFs ---
+  console.log('--- STEP 4: Processing Standalone PDFs ---');
+  for (const file of remainingPdfs) {
+    console.log(`Processing standalone PDF: ${path.basename(file)}`);
+    sendProcessStatus({ type: 'progress', message: `Analyzing ${path.basename(file)}...`, file: path.basename(file) });
+
+    try {
+      const report = await parseFile(file);
+      if (!report) {
+        console.warn(`Could not parse PDF ${path.basename(file)}. Moving to unmatched.`);
+        unmatchedFiles.push(file);
+        continue;
+      }
+
+      // Check for existing patient in DB
+      let patient = null;
+
+      // 1. Try by Name + DOB
+      if (report.patient.last_name !== 'Unknown' && report.patient.dob) {
+        patient = await findPatient(report.patient.last_name, report.patient.dob);
+      }
+
+      // 2. Try by Serial Number
+      if (!patient && report.device?.serial_number && report.device.serial_number !== 'Unknown') {
+        patient = await findPatientBySerial(report.device.serial_number);
+      }
+
+      if (patient) {
+        console.log(`Found existing patient for PDF ${path.basename(file)}: ${patient.last_name}, ${patient.first_name}`);
+
+        // Check for existing visit on this date
+        const datePrefix = report.interrogation_date.split('T')[0];
+        const existingReport = await findReportByDate(patient.id, datePrefix);
+
+        if (existingReport) {
+          console.log(`Merging PDF into existing visit for ${patient.last_name} on ${datePrefix}`);
+          await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+        } else {
+          console.log(`Creating new visit for existing patient ${patient.last_name}`);
+          // Ensure patient_id is set
+          report.patient_id = patient.id;
+          const { reportId } = await storeReport(report);
+          await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+        }
+      } else {
+        // Patient not found
+        if (report.device?.serial_number && report.device.serial_number !== 'Unknown') {
+          console.log(`Creating NEW patient from PDF ${path.basename(file)} (Serial: ${report.device.serial_number})`);
+          const { reportId, patient: newPatient } = await storeReport(report);
+          await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
+        } else {
+          // No match, no serial -> Unmatched
+          if (report.patient.last_name !== 'Unknown') {
+            console.warn(`No match and no serial for ${path.basename(file)}. Moving to unmatched.`);
+            unmatchedFiles.push(file);
+          } else {
+            console.warn(`No identifiers for ${path.basename(file)}. Moving to unmatched.`);
+            unmatchedFiles.push(file);
+          }
+        }
+      }
+
+    } catch (e) {
+      console.error(`Error processing standalone PDF ${path.basename(file)}:`, e);
+      unmatchedFiles.push(file);
+    }
+  }
+
+  // Move unmatched files
+  for (const file of unmatchedFiles) {
+    // Check if file still exists (it might have been moved if we messed up logic)
+    if (fs.existsSync(file)) {
+      const newPath = path.join(unmatchedDir, path.basename(file));
+      try {
+        fs.renameSync(file, newPath);
+      } catch (e) {
+        console.error(`Error moving unmatched file ${file}:`, e);
+      }
+    }
+  }
+
   if (unmatchedFiles.length > 0) {
     sendUnmatchedFiles(unmatchedFiles.map(f => path.basename(f)));
   }
