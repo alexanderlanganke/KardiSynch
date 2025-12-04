@@ -91,7 +91,11 @@ const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): 
             lastSize = currentSize;
             await new Promise(resolve => setTimeout(resolve, interval));
             retries++;
-        } catch (error) {
+        } catch (error: any) {
+            // If file disappears (ENOENT), it's definitely not stable/ready.
+            if (error.code === 'ENOENT') {
+                return false;
+            }
             console.warn(`[UsbWatcher] Error checking file stability for ${filePath}:`, error);
             return false;
         }
@@ -105,7 +109,10 @@ const handleFile = async (filePath: string, sourceBase: string) => {
     // Check stability first
     const stable = await isFileStable(filePath);
     if (!stable) {
-        console.warn(`[UsbWatcher] File ${filePath} is not stable (still writing?). Skipping.`);
+        // Only warn if the file still exists (it might have been deleted/moved)
+        if (fs.existsSync(filePath)) {
+            console.warn(`[UsbWatcher] File ${filePath} is not stable (still writing?). Skipping.`);
+        }
         return;
     }
 
