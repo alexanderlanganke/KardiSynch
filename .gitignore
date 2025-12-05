@@ -44,3 +44,19 @@ scripts/extract_*.ts
 scripts/extract_*.js
 scripts/verify_*.ts
 scripts/verify_*.js
+
+# Test Output
+vitest_output.txt
+tsc_output.txt
+test_debug*.log
+verification_output.txt
+test_microport.ts
+test_filename_repro.ts
+test_import_logic.ts
+test_parsing_refinement.ts
+test_regex_mixedcase.ts
+mock_import_dir/
+mock_usb_source/
+mock_usb_target/
+microport_sample.txt
+usb_target_manifest.json

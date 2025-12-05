@@ -144,6 +144,9 @@ const processTempDirectory = async (tempDir: string) => {
       // Store the report (creates patient/visit if needed)
       const { reportId, patient } = await storeReport(report);
 
+      // Store the structured file itself
+      await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+
       // Generate a key for this visit
       const key = getReportKey(report);
       if (key) {
