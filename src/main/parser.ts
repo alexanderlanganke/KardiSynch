@@ -8,11 +8,13 @@ import { parseBiotronikXML } from './parsers/biotronik-parser';
 import { parseBostonScientificBnk, parseBostonScientificPdf } from './parsers/boston-scientific-parser';
 import { parseMedtronicPdd, parseMedtronicPkg } from './parsers/medtronic-parser';
 import { extractTextFromPdf, extractStructuredData } from './utils/pdf-utils';
+import { parseMicroportXML } from './parsers/microport-parser';
 
 /**
  * Acts as a dispatcher, routing files to the appropriate parser based on their
  * file type and naming conventions. It handles PDFs (with OCR fallback),
- * Biotronik XML files, Boston Scientific .bnk files, and Medtronic .pdd/.pkg files.
+ * Biotronik XML files, Boston Scientific .bnk files, Medtronic .pdd/.pkg files,
+ * and Microport XML files.
  * @param filePath The path to the file to be parsed.
  * @returns A promise that resolves with a UnifiedReport object, or null if the
  * file type is not supported.
@@ -42,6 +44,12 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     return extractStructuredData(rawText, filename);
   } else if (fileExtension === '.xml') {
     const xmlData = fs.readFileSync(filePath, 'utf-8');
+
+    // Check for Microport/Paceart
+    if (xmlData.includes('<Paceart>')) {
+      return parseMicroportXML(xmlData);
+    }
+
     if (filename.includes('BIOSTD_')) {
       return parseBiotronikXML(xmlData);
     } else if (filename === 'visit.xml') {
@@ -104,4 +112,3 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     return null;
   }
 };
-
