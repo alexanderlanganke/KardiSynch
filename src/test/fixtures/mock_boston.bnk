@@ -1,0 +1,10 @@
+Brady.LastInterrogationDate, 2023-10-27
+Patient.PatientFirstName, Max
+Patient.PatientLastName, Mustermann
+Patient.PatientDOB, 1980-01-01
+Device.Model, ACCOLADE
+Device.SerialNumber, 123456
+Device.ImplantDate, 2020-05-15
+BatteryStatus.BatteryVoltage, 3.05
+BatteryStatus.EstLongevity, 60
+BatteryStatus.BatteryPhase, Good
