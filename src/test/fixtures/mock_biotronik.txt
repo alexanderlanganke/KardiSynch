@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<carddas:InterfaceData xmlns:carddas="http://www.biotronik.com/carddas">
+    <carddas:Examination>
+        <carddas:ExaminationDate>2023-10-27</carddas:ExaminationDate>
+        <carddas:Measurements>
+            <carddas:Table>
+                <carddas:TableName>TBU_DEFI_DATA</carddas:TableName>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Biotronik</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>CATAGGREGATDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Rivacor 7</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>SERHSM</carddas:AttributeName>
+                    <carddas:CharValue>12345678</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>ACTBATTERYVOLTAGE</carddas:AttributeName>
+                    <carddas:DecimalValue>3.10</carddas:DecimalValue>
+                </carddas:TableEntry>
+            </carddas:Table>
+        </carddas:Measurements>
+    </carddas:Examination>
+    <carddas:Patient>
+        <carddas:PersonalData>
+            <carddas:FirstName>Jane</carddas:FirstName>
+            <carddas:Name>Doe</carddas:Name>
+            <carddas:DOB>1975-05-20</carddas:DOB>
+        </carddas:PersonalData>
+    </carddas:Patient>
+</carddas:InterfaceData>

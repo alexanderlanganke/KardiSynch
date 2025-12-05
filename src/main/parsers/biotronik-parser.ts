@@ -17,7 +17,9 @@ import { UnifiedReport, LeadData, BatteryData, Measurement } from '../reports';
 */
 function findTable(data: any, tableName: string): any[] | null {
     try {
-        const tables = data['carddas:InterfaceData']['carddas:Examination']['carddas:Measurements']['carddas:Table'];
+        const rawTables = data['carddas:InterfaceData']['carddas:Examination']['carddas:Measurements']['carddas:Table'];
+        const tables = Array.isArray(rawTables) ? rawTables : [rawTables];
+
         for (const table of tables) {
             if (table['carddas:TableName'] === tableName) {
                 return table['carddas:TableEntry'];
@@ -33,16 +35,17 @@ function findTable(data: any, tableName: string): any[] | null {
 * Finds a value from a table entry
 * E.g., findTableEntry(table, 'SERHSM') -> '88763967'
 */
-function findEntry(tableEntries: any[] | null, attributeName: string): string | null {
-    if (!tableEntries) return null;
+function findEntry(rawTableEntries: any[] | any | null, attributeName: string): string | null {
+    if (!rawTableEntries) return null;
     try {
-        const entry = tableEntries.find(e => e['carddas:AttributeName'] === attributeName);
+        const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
+        const entry = tableEntries.find((e: any) => e['carddas:AttributeName'] === attributeName);
         if (!entry) return null;
 
-        if (entry['carddas:CharValue']) return entry['carddas:CharValue'];
+        if (entry['carddas:CharValue']) return String(entry['carddas:CharValue']);
         if (entry['carddas:DecimalValue']) return entry['carddas:DecimalValue'].toString();
         if (entry['carddas:SmallIntValue']) return entry['carddas:SmallIntValue'].toString();
-        if (entry['carddas:DateValue']) return entry['carddas:DateValue'];
+        if (entry['carddas:DateValue']) return String(entry['carddas:DateValue']);
 
     } catch (e) {
         console.error(`Error finding attribute: ${attributeName}`, e);
@@ -68,10 +71,9 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         // Count 'nsT' episodes from the episode list (if it exists)
         let nsTCount = 0;
         try {
-            const tables = xml['carddas:InterfaceData']['carddas:Examination']['carddas:Measurements']['carddas:Table'];
-            const episodeTable = Array.isArray(tables)
-                ? tables.find((t: any) => t['carddas:TableName'] === 'TBU_EPISODE_LIST')
-                : null;
+            const rawTables = xml['carddas:InterfaceData']['carddas:Examination']['carddas:Measurements']['carddas:Table'];
+            const tables = Array.isArray(rawTables) ? rawTables : [rawTables];
+            const episodeTable = tables.find((t: any) => t['carddas:TableName'] === 'TBU_EPISODE_LIST');
 
             if (episodeTable && episodeTable['carddas:ForeignKey']) {
                 const episodeList = Array.isArray(episodeTable['carddas:ForeignKey'])

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<MDT_Discrete_Data>
+    <System_Information>
+        <Model>Cobalt XT</Model>
+        <Serial_Number>123456</Serial_Number>
+    </System_Information>
+    <Battery_Information>
+        <Voltage>3.05</Voltage>
+    </Battery_Information>
+    <Patient_Information>
+        <Name>
+            <First>John</First>
+            <Last>Smith</Last>
+        </Name>
+        <DOB>1960-01-01</DOB>
+    </Patient_Information>
+</MDT_Discrete_Data>

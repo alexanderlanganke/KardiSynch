@@ -78,6 +78,25 @@ export const getDb = () => {
   return dbInstance;
 };
 
+export const closeDatabase = (): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    if (dbInstance) {
+      dbInstance.close((err) => {
+        if (err) {
+          console.error('Error closing database:', err);
+          reject(err);
+        } else {
+          dbInstance = undefined as any;
+          console.log('Database connection closed.');
+          resolve();
+        }
+      });
+    } else {
+      resolve();
+    }
+  });
+};
+
 export const findPatient = (lastName: string, dob: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
