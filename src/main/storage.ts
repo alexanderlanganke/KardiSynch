@@ -5,6 +5,7 @@ import { findPatient, createPatient, createReport, getSettings } from './databas
 import { UnifiedReport } from './reports';
 import { app } from 'electron';
 import { sendNotification, sendPatientListUpdate } from './windowManager';
+import { XMLParser } from 'fast-xml-parser';
 
 let dataDir: string;
 
@@ -22,15 +23,57 @@ export const initializeStorage = async () => {
 /**
  * Generates patient.xml content
  */
-const generatePatientXML = (patient: { id: string; first_name: string; last_name: string; dob: string; hospitalPatientId: string | null }): string => {
-  return `<?xml version="1.0" encoding="UTF-8"?>
+/**
+ * Generates patient.xml content
+ */
+const generatePatientXML = (
+  patient: { id: string; first_name: string; last_name: string; dob: string; hospitalPatientId: string | null },
+  devices: any[] = [],
+  leads: any[] = []
+): string => {
+  let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <patient>
   <id>${patient.id}</id>
   <first_name>${patient.first_name || ''}</first_name>
   <last_name>${patient.last_name}</last_name>
   <dob>${patient.dob}</dob>
-  <hospitalPatientId>${patient.hospitalPatientId || ''}</hospitalPatientId>
+  <hospitalPatientId>${patient.hospitalPatientId || ''}</hospitalPatientId>`;
+
+  if (devices && devices.length > 0) {
+    xml += `
+  <devices>`;
+    devices.forEach(d => {
+      xml += `
+    <device>
+      <model>${d.model || 'Unknown'}</model>
+      <serial>${d.serial || 'Unknown'}</serial>
+      <manufacturer>${d.manufacturer || 'Unknown'}</manufacturer>
+      <implant_date>${d.implant_date || 'Unknown'}</implant_date>
+    </device>`;
+    });
+    xml += `
+  </devices>`;
+  }
+
+  if (leads && leads.length > 0) {
+    xml += `
+  <leads>`;
+    leads.forEach(l => {
+      xml += `
+    <lead>
+      <model>${l.model || 'Unknown'}</model>
+      <serial>${l.serial || 'Unknown'}</serial>
+      <manufacturer>${l.manufacturer || 'Unknown'}</manufacturer>
+      <implant_date>${l.implant_date || 'Unknown'}</implant_date>
+    </lead>`;
+    });
+    xml += `
+  </leads>`;
+  }
+
+  xml += `
 </patient>`;
+  return xml;
 };
 
 /**
@@ -172,12 +215,73 @@ export const storeFile = async (
   const destPath = path.join(visitDir, path.basename(sourcePath));
   fs.renameSync(sourcePath, destPath);
 
-  // Generate patient.xml if patient data provided and file doesn't exist
+  // Generate or update patient.xml with device history
   if (patient) {
     const patientXmlPath = path.join(patientDir, 'patient.xml');
-    if (!fs.existsSync(patientXmlPath)) {
-      fs.writeFileSync(patientXmlPath, generatePatientXML(patient));
+    let existingDevices: any[] = [];
+    let existingLeads: any[] = [];
+
+    // Read existing data if available
+    if (fs.existsSync(patientXmlPath)) {
+      try {
+        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+        const parser = new XMLParser({ ignoreAttributes: false });
+        const parsed = parser.parse(xmlContent);
+
+        if (parsed.patient) {
+          if (parsed.patient.devices && parsed.patient.devices.device) {
+            existingDevices = Array.isArray(parsed.patient.devices.device)
+              ? parsed.patient.devices.device
+              : [parsed.patient.devices.device];
+          }
+          if (parsed.patient.leads && parsed.patient.leads.lead) {
+            existingLeads = Array.isArray(parsed.patient.leads.lead)
+              ? parsed.patient.leads.lead
+              : [parsed.patient.leads.lead];
+          }
+        }
+      } catch (e) {
+        console.error('Error reading existing patient.xml:', e);
+      }
     }
+
+    // Append new device if from a report
+    if (report && report.device && report.device.serial_number) {
+      const newDevice = {
+        model: report.device.model,
+        serial: report.device.serial_number,
+        manufacturer: report.manufacturer,
+        implant_date: report.device.implant_date || 'Unknown'
+      };
+
+      // Check if already exists (by serial)
+      const exists = existingDevices.some(d => d.serial === newDevice.serial);
+      if (!exists) {
+        existingDevices.push(newDevice);
+      }
+    }
+
+    // Append new leads if from a report
+    if (report && report.leads) {
+      report.leads.forEach(l => {
+        if (l.serial) { // Only track leads with serials
+          const newLead = {
+            model: l.model,
+            serial: l.serial,
+            manufacturer: report.manufacturer, // Assuming same manufacturer for now, or unknown
+            implant_date: l.implant_date || 'Unknown'
+          };
+
+          const exists = existingLeads.some(existing => existing.serial === newLead.serial);
+          if (!exists) {
+            existingLeads.push(newLead);
+          }
+        }
+      });
+    }
+
+    // Write updated XML
+    fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads));
   }
 
   // Generate visit.xml if report data provided

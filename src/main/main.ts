@@ -218,6 +218,32 @@ ipcMain.handle('get-patient-directories', async () => {
         const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
         const patientData = parser.parse(xmlContent).patient;
 
+        // Extract latest device info
+        let deviceManufacturer = 'Unknown';
+        let deviceModel = 'Unknown';
+        let leadsSummary: string[] = [];
+
+        if (patientData.devices && patientData.devices.device) {
+          const devices = Array.isArray(patientData.devices.device)
+            ? patientData.devices.device
+            : [patientData.devices.device];
+
+          // Get the last added device (assuming append order)
+          if (devices.length > 0) {
+            const latest = devices[devices.length - 1];
+            deviceManufacturer = latest.manufacturer;
+            deviceModel = latest.model;
+          }
+        }
+
+        if (patientData.leads && patientData.leads.lead) {
+          const leads = Array.isArray(patientData.leads.lead)
+            ? patientData.leads.lead
+            : [patientData.leads.lead];
+
+          leadsSummary = leads.map((l: any) => `${l.manufacturer} ${l.model} (${l.serial})`);
+        }
+
         // Count visits
         const patientDirPath = path.join(reportsDir, dir.name); const visitDirs = await fs.readdir(patientDirPath, { withFileTypes: true });
         const visitCount = visitDirs.filter(d => d.isDirectory() && d.name !== 'patient.xml').length;
@@ -236,7 +262,10 @@ ipcMain.handle('get-patient-directories', async () => {
           patientId: patientData.hospitalPatientId || patientData.id,
           dob: patientData.dob,
           reportCount: visitCount,
-          lastReportDate: visitDates[0] || null
+          lastReportDate: visitDates[0] || null,
+          deviceManufacturer,
+          deviceModel,
+          leads: leadsSummary
         });
       } catch (err) {
         console.warn(`Failed to read patient data from ${dir.name}:`, err);

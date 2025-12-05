@@ -16,6 +16,9 @@ interface Patient {
   dob: string;
   lastReportDate: string;
   reportCount: number;
+  deviceManufacturer?: string;
+  deviceModel?: string;
+  leads?: string[];
 }
 
 interface FilterState {
@@ -229,61 +232,78 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         </Card>
       )}
 
-      {/* Patient Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+      {/* Patient List (Table View) */}
+      <div className="flex flex-col gap-1 pb-4">
+        {/* Header Row */}
+        <div className="flex items-center px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/30 rounded-lg mb-1">
+          <div className="w-[20%] min-w-[150px]">Name / ID</div>
+          <div className="w-[15%] min-w-[100px]">DOB</div>
+          <div className="w-[20%] min-w-[120px]">Device</div>
+          <div className="w-[20%] min-w-[120px]">Model</div>
+          <div className="w-[15%] min-w-[100px]">Last Report</div>
+          <div className="w-[10%] text-right">Actions</div>
+        </div>
+
         {loading ? (
-          <div className="col-span-full text-center py-20 text-muted-foreground">Loading patients...</div>
+          <div className="text-center py-20 text-muted-foreground">Loading patients...</div>
         ) : patients.length === 0 ? (
-          <div className="col-span-full text-center py-20 text-muted-foreground">No patients found matching criteria.</div>
+          <div className="text-center py-20 text-muted-foreground">No patients found matching criteria.</div>
         ) : (
           patients.map((patient) => (
-            <Card
+            <div
               key={patient.id}
-              className="glass-card group cursor-pointer hover:-translate-y-1 hover:shadow-lg hover:shadow-primary/5 border-muted-foreground/10"
+              className="group flex items-center px-4 py-2 bg-background/40 hover:bg-muted/50 border border-transparent hover:border-border/50 rounded-lg transition-all cursor-pointer text-sm"
               onClick={() => onPatientSelect(patient.id)}
             >
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 p-3 pb-1">
-                <div className="space-y-0.5">
-                  <CardTitle className="text-sm font-semibold leading-none flex items-center gap-2 truncate">
-                    {patient.name}
-                  </CardTitle>
-                  <CardDescription className="text-[10px] font-mono opacity-70">
-                    {patient.patientId}
-                  </CardDescription>
-                </div>
-                <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                  <User className="h-3 w-3" />
-                </div>
-              </CardHeader>
-              <CardContent className="p-3 pt-1">
-                <div className="grid gap-1 mt-1">
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    <Calendar className="mr-1.5 h-3 w-3" />
-                    <span className="text-[10px]">DOB: {patient.dob}</span>
-                  </div>
-                  <div className="flex items-center text-xs text-muted-foreground">
-                    <Clock className="mr-1.5 h-3 w-3" />
-                    <span className="text-[10px]">Last: {patient.lastReportDate || 'Never'}</span>
-                  </div>
-                  <div className="mt-1.5 flex items-center justify-between">
-                    <Badge variant="secondary" className="h-5 text-[10px] px-1.5 bg-secondary/50 hover:bg-secondary/70 transition-colors">
-                      {patient.reportCount} Reports
-                    </Badge>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.electronAPI.openPatientDirectory(patient.id);
-                      }}
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              {/* Name & ID */}
+              <div className="w-[20%] min-w-[150px] flex flex-col justify-center pr-2">
+                <span className="font-semibold truncate text-foreground/90">{patient.name}</span>
+                <span className="text-[10px] font-mono text-muted-foreground opacity-70">{patient.patientId}</span>
+              </div>
+
+              {/* DOB */}
+              <div className="w-[15%] min-w-[100px] text-muted-foreground flex items-center">
+                <Calendar className="mr-1.5 h-3 w-3 opacity-50" />
+                {patient.dob}
+              </div>
+
+              {/* Manufacturer */}
+              <div className="w-[20%] min-w-[120px] text-muted-foreground truncate pr-2">
+                {patient.deviceManufacturer || '-'}
+              </div>
+
+              {/* Model */}
+              <div className="w-[20%] min-w-[120px] text-muted-foreground truncate pr-2" title={patient.deviceModel}>
+                {patient.deviceModel || '-'}
+              </div>
+
+              {/* Last Report */}
+              <div className="w-[15%] min-w-[100px] text-muted-foreground flex items-center">
+                <Clock className="mr-1.5 h-3 w-3 opacity-50" />
+                {patient.lastReportDate || 'Never'}
+                {patient.reportCount > 0 && (
+                  <Badge variant="secondary" className="ml-2 h-4 text-[9px] px-1 bg-secondary/40">
+                    {patient.reportCount}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Actions */}
+              <div className="w-[10%] flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.electronAPI.openPatientDirectory(patient.id);
+                  }}
+                  title="Open Patient Directory"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
+                </Button>
+              </div>
+            </div>
           ))
         )}
       </div>
