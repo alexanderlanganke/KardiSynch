@@ -290,3 +290,65 @@ export const storeFile = async (
     fs.writeFileSync(visitXmlPath, generateVisitXML(report, reportId));
   }
 };
+
+/**
+ * Updates the patient.xml file with new patient details, preserving device/lead history.
+ */
+export const updatePatientXML = async (
+  patientId: string,
+  updatedData: { first_name: string; last_name: string; dob: string; hospitalPatientId: string | null }
+): Promise<void> => {
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  // Find patient directory
+  const dirs = await fs.promises.readdir(reportsDir);
+  const patientDirName = dirs.find(dir => dir.startsWith(patientId));
+
+  if (!patientDirName) {
+    throw new Error(`Patient directory not found for ID: ${patientId}`);
+  }
+
+  const patientDir = path.join(reportsDir, patientDirName);
+  const patientXmlPath = path.join(patientDir, 'patient.xml');
+
+  let existingDevices: any[] = [];
+  let existingLeads: any[] = [];
+
+  // Read existing data
+  if (fs.existsSync(patientXmlPath)) {
+    try {
+      const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+      const parser = new XMLParser({ ignoreAttributes: false });
+      const parsed = parser.parse(xmlContent);
+
+      if (parsed.patient) {
+        if (parsed.patient.devices && parsed.patient.devices.device) {
+          existingDevices = Array.isArray(parsed.patient.devices.device)
+            ? parsed.patient.devices.device
+            : [parsed.patient.devices.device];
+        }
+        if (parsed.patient.leads && parsed.patient.leads.lead) {
+          existingLeads = Array.isArray(parsed.patient.leads.lead)
+            ? parsed.patient.leads.lead
+            : [parsed.patient.leads.lead];
+        }
+      }
+    } catch (e) {
+      console.error('Error reading existing patient.xml during update:', e);
+    }
+  }
+
+  // Generate new XML with updated patient info and existing devices/leads
+  const newXml = generatePatientXML(
+    {
+      id: patientId,
+      ...updatedData
+    },
+    existingDevices,
+    existingLeads
+  );
+
+  fs.writeFileSync(patientXmlPath, newXml);
+};

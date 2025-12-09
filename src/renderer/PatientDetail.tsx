@@ -84,80 +84,55 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="px-4 py-2 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0">
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div>
-                <h1 className="text-xl font-bold leading-none">{patient.name}</h1>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                  <div className="flex items-center gap-1">
-                    <User className="h-3 w-3" />
-                    {patient.patientId}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    DOB: {patient.dob}
-                  </div>
-                </div>
-              </div>
+      {/* Compact Header */}
+      <div className="border-b border-border bg-card/50 backdrop-blur-sm h-14 flex items-center px-4 gap-4 shrink-0">
+        {/* Left: Navigation & Patient Info */}
+        <div className="flex items-center gap-3 shrink-0 border-r border-border/50 pr-4">
+          <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted/50 rounded-full">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex flex-col justify-center">
+            <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient.name}</h1>
+            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+              <span className="font-mono opacity-80">{patient.patientId}</span>
+              <span>•</span>
+              <span>{patient.dob}</span>
             </div>
-            <Badge variant="secondary" className="text-xs px-2 py-0.5">
-              {reports.length} Visits
-            </Badge>
           </div>
+        </div>
 
-          {/* Device & Lead Summary - Compact Row */}
-          {latestReport && (
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {/* Device Card */}
-              {(latestReport.device_model || latestReport.device?.model) && (
-                <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3 min-w-[200px]">
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <div className="text-xs font-semibold">{latestReport.device_model || latestReport.device?.model || 'N/A'}</div>
-                    <div className="text-[10px] text-muted-foreground font-mono leading-none">
-                      {latestReport.device_serial || latestReport.device?.serial_number || 'N/A'}
-                    </div>
-                  </div>
-                </Card>
-              )}
-
-              {/* Battery Card - Only if available (DB only) */}
-              {latestReport.battery && (
-                <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3 min-w-[180px]">
-                  <Battery className="h-4 w-4 text-muted-foreground" />
-                  <div>
-                    <div className="text-xs font-semibold">
-                      {latestReport.battery.voltage?.value} {latestReport.battery.voltage?.unit}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground leading-none">
-                      {latestReport.battery.remaining_longevity?.value} {latestReport.battery.remaining_longevity?.unit} left
-                    </div>
-                  </div>
-                </Card>
-              )}
-
-              {/* Leads Card - Only if available (DB only) */}
-              {latestReport.leads && latestReport.leads.length > 0 && (
-                <Card className="glass-card border-primary/10 flex-shrink-0 p-2 flex items-center gap-3">
-                  <Zap className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex gap-3">
-                    {latestReport.leads.map((lead: any, idx: number) => (
-                      <div key={idx} className="flex flex-col">
-                        <span className="text-[10px] text-muted-foreground leading-none">{lead.name}</span>
-                        <span className="text-xs font-medium leading-none">{lead.impedance?.value} Ω</span>
-                      </div>
-                    ))}
-                  </div>
-                </Card>
-              )}
+        {/* Middle: Scrollable History (Devices & Leads) */}
+        <div className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-2 mask-linear-fade">
+          {/* Devices */}
+          {patient.devices && patient.devices.length > 0 && patient.devices.map((device: any, idx: number) => (
+            <div key={`dev-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 border border-primary/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
+              <Activity className="h-3 w-3 text-primary/70" />
+              <span className="font-semibold text-foreground/80">{device.model}</span>
+              <span className="font-mono text-muted-foreground opacity-70">{device.serial}</span>
+              <span className="text-muted-foreground border-l border-primary/10 pl-1.5 ml-0.5">{device.implant_date}</span>
             </div>
+          ))}
+
+          {/* Leads */}
+          {patient.leads && patient.leads.length > 0 && patient.leads.map((lead: any, idx: number) => (
+            <div key={`lead-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/5 border border-yellow-500/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
+              <Zap className="h-3 w-3 text-yellow-600/70" />
+              <span className="font-semibold text-foreground/80">{lead.model}</span>
+              <span className="font-mono text-muted-foreground opacity-70">{lead.serial}</span>
+              <span className="text-muted-foreground border-l border-yellow-500/10 pl-1.5 ml-0.5">{lead.implant_date}</span>
+            </div>
+          ))}
+
+          {(!patient.devices?.length && !patient.leads?.length) && (
+            <span className="text-[10px] text-muted-foreground italic px-2">No device history</span>
           )}
+        </div>
+
+        {/* Right: Stats */}
+        <div className="shrink-0 pl-2 border-l border-border/50">
+          <Badge variant="secondary" className="text-[10px] h-6 px-2 bg-secondary/50">
+            {reports.length} Visits
+          </Badge>
         </div>
       </div>
 

@@ -156,6 +156,29 @@ export const createPatient = (patient: {
   });
 };
 
+export const updatePatient = (patient: {
+  id: string;
+  first_name: string;
+  last_name: string;
+  dob: string;
+  hospitalPatientId: string | null;
+}): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run(
+      'UPDATE Patients SET first_name = ?, last_name = ?, dob = ?, hospitalPatientId = ? WHERE id = ?',
+      [patient.first_name, patient.last_name, patient.dob, patient.hospitalPatientId, patient.id],
+      (err) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve();
+        }
+      }
+    );
+  });
+};
+
 export const getPatientById = (patientId: string): Promise<any> => {
   console.log('[getPatientById] Looking for patient with ID:', patientId);
   return new Promise((resolve, reject) => {
