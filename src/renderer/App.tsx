@@ -5,8 +5,7 @@ import PatientDetail from './PatientDetail';
 import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
-import NotificationArea from './NotificationArea';
-import ProcessStatusPanel from '@/components/ProcessStatusPanel';
+import NotificationCenter from '@/components/NotificationCenter';
 import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import icon from './assets/icon.jpg';
@@ -128,8 +127,11 @@ const App: React.FC = () => {
           </div>
         </main>
 
-        <NotificationArea />
-        <ProcessStatusPanel />
+
+
+        <div style={{ position: 'fixed', top: '0px', right: '0px', zIndex: 100, margin: '4px' }}>
+          <NotificationCenter />
+        </div>
       </div>
     </ThemeProvider>
   );

@@ -218,6 +218,40 @@ const Settings: React.FC = () => {
                     Location of the SQLite database file. Changing this requires a restart.
                   </p>
                 </div>
+
+                <div className="pt-4 border-t">
+                  <h3 className="text-sm font-medium mb-2">Maintenance</h3>
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label>Rebuild Database</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Re-scan all patient files and rebuild the database index. Use this if data is missing or out of sync.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={async () => {
+                        if (confirm('This will rescan all files and rebuild the database. This may take a while. Continue?')) {
+                          setLoading(true);
+                          try {
+                            const result = await window.electronAPI.rebuildDatabase();
+                            alert(`Database rebuild complete.\nProcessed ${result.patients} patients and ${result.reports} reports.`);
+                          } catch (error) {
+                            console.error('Rebuild failed:', error);
+                            alert('Failed to rebuild database.');
+                          } finally {
+                            setLoading(false);
+                          }
+                        }
+                      }}
+                      disabled={loading}
+                    >
+                      <RotateCcw className="mr-2 h-4 w-4" />
+                      Rebuild Index
+                    </Button>
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
