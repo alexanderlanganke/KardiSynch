@@ -140,6 +140,20 @@ ipcMain.handle('update-patient', async (event, patient) => {
   }
 });
 
+ipcMain.handle('rebuild-database', async () => {
+  try {
+    const mainWindow = getMainWindow();
+    return await import('./database').then(m => m.rebuildDatabase((status) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('process-status', { ...status, taskId: 'rebuild-db' });
+      }
+    }));
+  } catch (error) {
+    console.error('Failed to rebuild database:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
   try {
     const reports = await getPatientReports(patientId);

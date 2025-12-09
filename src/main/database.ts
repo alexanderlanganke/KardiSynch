@@ -404,6 +404,8 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
   });
 };
 
+
+
 export const createReport = (report: UnifiedReport & { patient_id: string; id: string }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
@@ -433,4 +435,141 @@ export const createReport = (report: UnifiedReport & { patient_id: string; id: s
       }
     );
   });
+};
+
+export const rebuildDatabase = async (onProgress?: (status: any) => void): Promise<{ patients: number; reports: number }> => {
+  console.log('[rebuildDatabase] Starting database rebuild...');
+  if (onProgress) onProgress({ type: 'start', title: 'Rebuilding Database', message: 'Initializing...', progress: 0 });
+
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  if (!fs.existsSync(reportsDir)) {
+    console.warn('[rebuildDatabase] Reports directory not found:', reportsDir);
+    return { patients: 0, reports: 0 };
+  }
+
+  // Dynamically import XMLParser to avoid circular dependency issues if any, though standard import is usually fine
+  const { XMLParser } = await import('fast-xml-parser');
+  const parser = new XMLParser({ ignoreAttributes: false });
+
+  let patientCount = 0;
+  let reportCount = 0;
+
+  const patientDirs = await fs.promises.readdir(reportsDir, { withFileTypes: true });
+  const totalDirs = patientDirs.filter(d => d.isDirectory()).length;
+  let processedDirs = 0;
+
+  for (const dir of patientDirs) {
+    if (!dir.isDirectory()) continue;
+
+    processedDirs++;
+    const progress = Math.round((processedDirs / totalDirs) * 100);
+    if (onProgress) onProgress({ type: 'progress', message: `Processing ${dir.name}...`, progress });
+
+    const patientDir = path.join(reportsDir, dir.name);
+    const patientXmlPath = path.join(patientDir, 'patient.xml');
+
+    // 1. Process Patient
+    if (fs.existsSync(patientXmlPath)) {
+      try {
+        const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
+        const parsed = parser.parse(xmlContent);
+        const p = parsed.patient;
+
+        if (p && p.id && p.last_name && p.dob) {
+          // Upsert Patient
+          await new Promise<void>((resolve, reject) => {
+            const db = getDb();
+            db.run(
+              `INSERT OR REPLACE INTO Patients (id, first_name, last_name, dob, hospitalPatientId) 
+               VALUES (?, ?, ?, ?, ?)`,
+              [p.id, p.first_name, p.last_name, p.dob, p.hospitalPatientId || null],
+              (err) => {
+                if (err) reject(err);
+                else resolve();
+              }
+            );
+          });
+          patientCount++;
+        }
+      } catch (e) {
+        console.error(`[rebuildDatabase] Failed to process patient XML for ${dir.name}:`, e);
+      }
+    }
+
+    // 2. Process Visits (Reports)
+    const visitDirs = await fs.promises.readdir(patientDir, { withFileTypes: true });
+    for (const vDir of visitDirs) {
+      if (!vDir.isDirectory()) continue;
+
+      const visitDir = path.join(patientDir, vDir.name);
+      const visitXmlPath = path.join(visitDir, 'visit.xml');
+
+      if (fs.existsSync(visitXmlPath)) {
+        try {
+          const xmlContent = await fs.promises.readFile(visitXmlPath, 'utf-8');
+          const parsed = parser.parse(xmlContent);
+          const v = parsed.visit;
+
+          if (v && v.report_id && v.interrogation_date) {
+            // Reconstruct minimal report object for DB
+            // Note: We might not have the full raw text or JSON data here easily without re-parsing the PDF/PKG.
+            // For now, we store what we have in XML.
+
+            // Extract patient ID from directory name or parent context if not in visit.xml
+            // visit.xml doesn't strictly have patient_id, but we know it from the loop context.
+            // Wait, we need patient_id for the Reports table.
+            // The directory name is `ID_Name`.
+            const patientId = dir.name.split('_')[0];
+
+            const reportData = {
+              id: v.report_id,
+              patient_id: patientId,
+              manufacturer: v.manufacturer,
+              interrogation_date: v.interrogation_date,
+              device: {
+                type: v.device_type,
+                model: v.device_model,
+                serial_number: v.device_serial
+              },
+              // Battery/Leads could be reconstructed but let's stick to core metadata for indexing
+            };
+
+            await new Promise<void>((resolve, reject) => {
+              const db = getDb();
+              db.run(
+                `INSERT OR REPLACE INTO Reports (
+                   id, patient_id, manufacturer, interrogation_date, 
+                   device_type, device_model, device_serial_number, data
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  reportData.id,
+                  reportData.patient_id,
+                  reportData.manufacturer,
+                  reportData.interrogation_date,
+                  reportData.device.type,
+                  reportData.device.model,
+                  reportData.device.serial_number,
+                  JSON.stringify(reportData) // Store minimal data JSON
+                ],
+                (err) => {
+                  if (err) reject(err);
+                  else resolve();
+                }
+              );
+            });
+            reportCount++;
+          }
+        } catch (e) {
+          console.error(`[rebuildDatabase] Failed to process visit XML for ${vDir.name}:`, e);
+        }
+      }
+    }
+  }
+
+  console.log(`[rebuildDatabase] Complete. Processed ${patientCount} patients and ${reportCount} reports.`);
+  if (onProgress) onProgress({ type: 'complete', message: 'Database rebuild complete.', progress: 100 });
+  return { patients: patientCount, reports: reportCount };
 };
