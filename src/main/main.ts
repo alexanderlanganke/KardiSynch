@@ -75,9 +75,67 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
 ipcMain.handle('get-patient-by-id', async (event, patientId) => {
   try {
     const patient = await getPatientById(patientId);
+
+    // Enrich with device/lead history from patient.xml
+    try {
+      const settings = await getAllSettings();
+      const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+      const reportsDir = path.join(dataDir, 'Reports');
+
+      // Find patient directory
+      const dirs = await fs.readdir(reportsDir);
+      const patientDirName = dirs.find(dir => dir.startsWith(patientId));
+
+      if (patientDirName) {
+        const patientXmlPath = path.join(reportsDir, patientDirName, 'patient.xml');
+        const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
+        const parser = new XMLParser({ ignoreAttributes: false });
+        const patientData = parser.parse(xmlContent).patient;
+
+        if (patientData.devices && patientData.devices.device) {
+          patient.devices = Array.isArray(patientData.devices.device)
+            ? patientData.devices.device
+            : [patientData.devices.device];
+        } else {
+          patient.devices = [];
+        }
+
+        if (patientData.leads && patientData.leads.lead) {
+          patient.leads = Array.isArray(patientData.leads.lead)
+            ? patientData.leads.lead
+            : [patientData.leads.lead];
+        } else {
+          patient.leads = [];
+        }
+      }
+    } catch (fsError) {
+      console.warn(`Failed to read patient.xml for ${patientId}:`, fsError);
+      // Non-fatal, return patient from DB
+    }
+
     return patient;
   } catch (error) {
     console.error('Failed to get patient by id:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('update-patient', async (event, patient) => {
+  try {
+    // 1. Update Database
+    await import('./database').then(m => m.updatePatient(patient));
+
+    // 2. Update XML Storage
+    await import('./storage').then(m => m.updatePatientXML(patient.id, {
+      first_name: patient.first_name,
+      last_name: patient.last_name,
+      dob: patient.dob,
+      hospitalPatientId: patient.hospitalPatientId
+    }));
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update patient:', error);
     throw error;
   }
 });
@@ -258,6 +316,8 @@ ipcMain.handle('get-patient-directories', async () => {
 
         patients.push({
           id: patientData.id,
+          first_name: patientData.first_name,
+          last_name: patientData.last_name,
           name: `${patientData.last_name}, ${patientData.first_name}`,
           patientId: patientData.hospitalPatientId || patientData.id,
           dob: patientData.dob,

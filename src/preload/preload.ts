@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   getAllPatients: (filters: any) => ipcRenderer.invoke('get-all-patients', filters),
   getPatientById: (patientId: string) => ipcRenderer.invoke('get-patient-by-id', patientId),
+  updatePatient: (patient: any) => ipcRenderer.invoke('update-patient', patient),
   getPatientReports: (patientId: string) => ipcRenderer.invoke('get-patient-reports', patientId),
   getPdfData: (filePath: string) => ipcRenderer.invoke('get-pdf-data', filePath),
   findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) =>
