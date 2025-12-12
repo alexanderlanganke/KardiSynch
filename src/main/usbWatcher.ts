@@ -136,7 +136,7 @@ const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): 
     return false; // Timed out
 };
 
-const handleSourceFile = async (filePath: string, sourceBase: string) => {
+export const handleSourceFile = async (filePath: string, sourceBase: string) => {
     if (!currentSettings) return;
 
     // Check stability first
@@ -150,7 +150,6 @@ const handleSourceFile = async (filePath: string, sourceBase: string) => {
 
     const relativePath = path.relative(sourceBase, filePath);
     const targetPath = path.join(currentSettings.usbTargetDirectory, relativePath);
-    const importPath = path.join(currentSettings.importDir, path.basename(filePath));
 
     try {
         // 1. Copy to Target (Preserve Structure)
@@ -160,37 +159,30 @@ const handleSourceFile = async (filePath: string, sourceBase: string) => {
         }
         fs.copyFileSync(filePath, targetPath);
 
-        // 2. Copy to Import Directory (Flat)
-        if (!fs.existsSync(currentSettings.importDir)) {
-            fs.mkdirSync(currentSettings.importDir, { recursive: true });
-        }
-        fs.copyFileSync(filePath, importPath);
-
-        // 3. Verify Copy Success before Deletion
+        // 2. Verify Copy Success before Deletion
         const sourceStats = fs.statSync(filePath);
         const targetStats = fs.statSync(targetPath);
-        const importStats = fs.statSync(importPath);
 
-        if (targetStats.size === sourceStats.size && importStats.size === sourceStats.size) {
-            // 4. Delete from Source
+        if (targetStats.size === sourceStats.size) {
+            // 3. Delete from Source
             fs.unlinkSync(filePath);
-            console.log(`[UsbWatcher] Moved source file ${relativePath} to Target and Import.`);
-            sendNotification(`Imported from USB: ${path.basename(filePath)}`, 'info');
+            console.log(`[UsbWatcher] Moved source file ${relativePath} to Target.`);
+            sendNotification(`Moved from USB to Target: ${path.basename(filePath)}`, 'info');
 
-            // Mark as processed in manifest so we don't re-process it from target immediately
-            markFileProcessed(relativePath, targetStats);
+            // NOTE: We do NOT mark as processed here. We let the handleTargetFile logic pick it up
+            // naturally from the target directory to ensure the second step of the pipeline runs.
         } else {
             console.error(`[UsbWatcher] Copy verification failed for ${filePath}.`);
-            sendNotification(`Failed to import ${path.basename(filePath)}: Verification failed`, 'error');
+            sendNotification(`Failed to move ${path.basename(filePath)}: Verification failed`, 'error');
         }
 
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process source file ${filePath}:`, error);
-        sendNotification(`Error importing from USB: ${(error as Error).message}`, 'error');
+        sendNotification(`Error moving from USB: ${(error as Error).message}`, 'error');
     }
 };
 
-const handleTargetFile = async (filePath: string, targetBase: string) => {
+export const handleTargetFile = async (filePath: string, targetBase: string) => {
     if (!currentSettings) return;
 
     const relativePath = path.relative(targetBase, filePath);
@@ -212,11 +204,13 @@ const handleTargetFile = async (filePath: string, targetBase: string) => {
         // Re-check stats after stability check to be sure
         const stableStats = fs.statSync(filePath);
 
-        const importPath = path.join(currentSettings.importDir, path.basename(filePath));
+        // Preserve structure in Import directory
+        const importPath = path.join(currentSettings.importDir, relativePath);
+        const importDir = path.dirname(importPath);
 
         // Copy to Import Directory
-        if (!fs.existsSync(currentSettings.importDir)) {
-            fs.mkdirSync(currentSettings.importDir, { recursive: true });
+        if (!fs.existsSync(importDir)) {
+            fs.mkdirSync(importDir, { recursive: true });
         }
         fs.copyFileSync(filePath, importPath);
 
