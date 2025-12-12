@@ -35,10 +35,10 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     }
 
     // Biotronik PDFs are usually accompanied by an XML file which is the source of truth.
-    // We return null here so that the watcher can group them by timestamp instead of trying to parse them independently.
+    // We now allow them to parse so we can extract the Serial Number / Name for matching.
+    // The watcher will ensure we don't overwrite the XML data.
     if (filename.includes('BIOSTD_')) {
-      console.log('Identified Biotronik PDF (skipping parse to allow timestamp grouping).');
-      return null;
+      console.log('Identified Biotronik PDF. Proceeding to extract data for matching.');
     }
 
     return extractStructuredData(rawText, filename);

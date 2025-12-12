@@ -193,7 +193,8 @@ const processTempDirectory = async (tempDir: string) => {
         // 1. Serial Number Match (Strongest)
         if (visit.serial && report.device?.serial_number && visit.serial === report.device.serial_number) {
           console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Serial Number`);
-          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, report);
+          // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
+          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
           matched = true;
           break;
         }
@@ -202,7 +203,8 @@ const processTempDirectory = async (tempDir: string) => {
         const pdfKey = getReportKey(report);
         if (pdfKey && pdfKey === key) {
           console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Name/DOB/Date`);
-          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, report);
+          // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
+          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
           matched = true;
           break;
         }
@@ -254,7 +256,8 @@ const processTempDirectory = async (tempDir: string) => {
 
         if (existingReport) {
           console.log(`Merging PDF into existing visit for ${patient.last_name} on ${datePrefix}`);
-          await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+          // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
+          await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, undefined);
         } else {
           console.log(`Creating new visit for existing patient ${patient.last_name}`);
           // Ensure patient_id is set

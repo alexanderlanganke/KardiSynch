@@ -134,6 +134,19 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
             report.device.serial_number = filenameMatch.groups.serial;
             report.manufacturer = 'Medtronic'; // Safe assumption for this format
             report.interrogation_date = formatDate(filenameMatch.groups.month, filenameMatch.groups.day, filenameMatch.groups.year);
+        } else {
+            // Check for Biotronik Format: BIOSTD_YYYY-MM-DD_HH-MM-SS_Lastname_Firstname_Serial.PDF
+            // Example: BIOSTD_2025-11-03_14-21-46_SepulvedaSantana_A_88763967
+            const bioMatch = filename.match(/BIOSTD_(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})_(?<hour>\d{2})-(?<minute>\d{2})-(?<second>\d{2})_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<serial>[A-Z0-9]+)/);
+
+            if (bioMatch?.groups) {
+                console.log('Biotronik filename metadata match:', bioMatch.groups);
+                report.patient.last_name = bioMatch.groups.last;
+                report.patient.first_name = bioMatch.groups.first;
+                report.device.serial_number = bioMatch.groups.serial;
+                report.manufacturer = 'Biotronik';
+                report.interrogation_date = `${bioMatch.groups.year}-${bioMatch.groups.month}-${bioMatch.groups.day}T${bioMatch.groups.hour}:${bioMatch.groups.minute}:${bioMatch.groups.second}`;
+            }
         }
     }
 
