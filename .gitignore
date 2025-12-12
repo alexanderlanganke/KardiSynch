@@ -61,4 +61,7 @@ mock_usb_target/
 microport_sample.txt
 usb_target_manifest.json
 usbwatcher.ps1
+debug_*.json
+*_output.txt
+*.log
 
