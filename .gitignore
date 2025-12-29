@@ -6,6 +6,7 @@ _DATA
 test-results
 .vscode
 .idea
+.devcontainer
 
 # Debug & Analysis Scripts
 debug_data/

@@ -169,6 +169,16 @@ ipcMain.handle('select-directory', async () => {
   if (!mainWindow) {
     return;
   }
+
+  // On Linux, attaching the dialog to the window can cause crashes or freezes
+  // so we detach it by not passing the window argument.
+  if (process.platform === 'linux') {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory']
+    });
+    return result.filePaths[0];
+  }
+
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
   });

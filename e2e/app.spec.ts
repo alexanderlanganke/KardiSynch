@@ -2,7 +2,7 @@
 import { test, expect, _electron } from '@playwright/test';
 
 test('App launches, displays a window, and renders UI without errors', async () => {
-  const electronApp = await _electron.launch({ args: ['.'] });
+  const electronApp = await _electron.launch({ args: ['.', '--no-sandbox'] });
 
   // Capture main process console output
   electronApp.on('stdout', (data) => {
