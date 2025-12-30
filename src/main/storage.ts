@@ -212,8 +212,20 @@ export const storeFile = async (
     fs.mkdirSync(visitDir, { recursive: true });
   }
 
+  /*
+   * Handle cross-device moves (EXDEV) by falling back to copy+unlink.
+   */
   const destPath = path.join(visitDir, path.basename(sourcePath));
-  fs.renameSync(sourcePath, destPath);
+  try {
+    fs.renameSync(sourcePath, destPath);
+  } catch (error: any) {
+    if (error.code === 'EXDEV') {
+      fs.copyFileSync(sourcePath, destPath);
+      fs.unlinkSync(sourcePath);
+    } else {
+      throw error;
+    }
+  }
 
   // Generate or update patient.xml with device history
   if (patient) {

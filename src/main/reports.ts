@@ -44,6 +44,7 @@ export interface UnifiedReport {
   manufacturer: 'Medtronic' | 'Biotronik' | 'Abbott' | 'Boston Scientific' | 'Impulse Dynamics' | 'Microport' | 'Unknown' | string;
   interrogation_date: string; // ISO 8601 format
   hospitalVisitId?: string; // ADDED: The hospital's identifier for this specific visit/encounter.
+  session_id?: string; // ADDED: ID derived from filename/log (e.g. Abbott Log ID) for linking
 
   // --- Patient Identification ---
   patient: {

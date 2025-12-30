@@ -268,7 +268,31 @@ const Settings: React.FC = () => {
                     <Label>Reset Application Data</Label>
                     <p className="text-xs text-muted-foreground">Clear all local data and reset to defaults.</p>
                   </div>
-                  <Button variant="destructive" type="button" onClick={handleReset} disabled={loading}>Reset</Button>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="destructive"
+                      type="button"
+                      onClick={async () => {
+                        if (confirm('ARE YOU SURE? This will permanently DELETE ALL PATIENTS AND REPORTS. This action cannot be undone.')) {
+                          setLoading(true);
+                          try {
+                            await window.electronAPI.clearAllData();
+                            alert('All data has been deleted. The application has been reset.');
+                            window.location.reload(); // Reload UI to clear state
+                          } catch (error) {
+                            console.error('Failed to clear data:', error);
+                            alert('Failed to delete data. Check logs.');
+                          } finally {
+                            setLoading(false);
+                          }
+                        }
+                      }}
+                      disabled={loading}
+                    >
+                      Delete All Data
+                    </Button>
+                    <Button variant="outline" type="button" onClick={handleReset} disabled={loading}>Reset Settings</Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>

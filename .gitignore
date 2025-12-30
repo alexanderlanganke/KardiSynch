@@ -37,7 +37,7 @@ _UNMATCHED/
 # Temporary Analysis
 temp_analysis/
 *.pkg
-*.xml
+# *.xml
 debug_log.txt
 debug_*.txt
 test_regex.js
