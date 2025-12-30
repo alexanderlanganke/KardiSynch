@@ -4,12 +4,12 @@ import { extractStructuredData } from '../utils/pdf-utils';
 
 describe('Biotronik Filename Parsing', () => {
     it('should extract metadata from Biotronik filename', () => {
-        const filename = 'BIOSTD_2025-11-03_14-21-46_SepulvedaSantana_A_88763967.PDF';
+        const filename = 'BIOSTD_2025-11-03_14-21-46_Garcia_Maria_88763967.PDF';
         const report = extractStructuredData('', filename);
 
         expect(report.manufacturer).toBe('Biotronik');
-        expect(report.patient.last_name).toBe('SepulvedaSantana');
-        expect(report.patient.first_name).toBe('A');
+        expect(report.patient.last_name).toBe('Garcia');
+        expect(report.patient.first_name).toBe('Maria');
         expect(report.device.serial_number).toBe('88763967');
         expect(report.interrogation_date).toBe('2025-11-03T14:21:46');
     });
