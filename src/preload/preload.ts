@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getSettings: () => ipcRenderer.invoke('get-settings'),
   setSettings: (settings: any) => ipcRenderer.invoke('set-settings', settings),
   resetSettings: () => ipcRenderer.invoke('reset-settings'),
+  clearAllData: () => ipcRenderer.invoke('clear-all-data'),
   selectDirectory: () => ipcRenderer.invoke('select-directory'),
   onUnmatchedFiles: (callback: (files: string[]) => void) => {
     ipcRenderer.on('unmatched-files', (event, files) => callback(files));

@@ -25,6 +25,22 @@ const createTempDirectory = (): string => {
 };
 
 /**
+ * Moves a file, handling cross-device moves (EXDEV) by falling back to copy+unlink.
+ */
+const moveFile = (src: string, dest: string) => {
+  try {
+    fs.renameSync(src, dest);
+  } catch (error: any) {
+    if (error.code === 'EXDEV') {
+      fs.copyFileSync(src, dest);
+      fs.unlinkSync(src);
+    } else {
+      throw error;
+    }
+  }
+};
+
+/**
  * Recursively finds all files in a directory, excluding temporary directories.
  */
 const getFilesRecursively = (dir: string): string[] => {
@@ -67,9 +83,7 @@ const stageFilesToTempDir = (tempDir: string) => {
     const newPath = path.join(tempDir, uniqueName);
 
     try {
-      // We use copy+unlink instead of rename to handle cross-device moves if necessary,
-      // and to ensure we don't leave broken empty directories immediately (though we aren't cleaning them up yet)
-      fs.renameSync(filePath, newPath);
+      moveFile(filePath, newPath);
     } catch (error) {
       console.error(`Error moving file ${filePath} to temp directory:`, error);
       sendNotification(`Error staging file ${originalName}: ${(error as Error).message}`, 'error');
@@ -104,7 +118,7 @@ const processTempDirectory = async (tempDir: string) => {
   // Filter out unsupported files early
   const supportedFiles = allFiles.filter(file => {
     const ext = path.extname(file).toLowerCase();
-    if (['.docx', '.zip', '.jar', '.bat', '.bak', '.log'].includes(ext)) {
+    if (['.docx', '.zip', '.jar', '.bat', '.bak'].includes(ext)) {
       console.log(`Skipping unsupported file type: ${ext} (${path.basename(file)})`);
       unmatchedFiles.push(file);
       return false;
@@ -115,7 +129,7 @@ const processTempDirectory = async (tempDir: string) => {
   // Categorize files
   const structuredFiles = supportedFiles.filter(f => {
     const ext = path.extname(f).toLowerCase();
-    return ext === '.xml' || ext === '.pkg';
+    return ext === '.xml' || ext === '.pkg' || ext === '.log';
   });
 
   const pdfFiles = supportedFiles.filter(f => {
@@ -124,8 +138,8 @@ const processTempDirectory = async (tempDir: string) => {
   });
 
   // Track active visits created in this batch
-  // Key: "Last_First_DOB_Date" -> { reportId, patientId, patient, date }
-  const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string }>();
+  // Key: "Last_First_DOB_Date" -> { reportId, patientId, patient, date, serial?, sessionId? }
+  const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string, sessionId?: string }>();
 
   // --- STEP 1: Process Structured Reports (.pkg, .xml) ---
   console.log('--- STEP 1: Processing Structured Reports ---');
@@ -155,7 +169,8 @@ const processTempDirectory = async (tempDir: string) => {
           patientId: patient.id,
           patient,
           date: report.interrogation_date,
-          serial: report.device?.serial_number
+          serial: report.device?.serial_number,
+          sessionId: report.session_id
         });
       }
 
@@ -199,7 +214,15 @@ const processTempDirectory = async (tempDir: string) => {
           break;
         }
 
-        // 2. Name + DOB + Date Match
+        // 2. Session ID Match
+        if (visit.sessionId && path.basename(file).includes(visit.sessionId)) {
+          console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Session ID (${visit.sessionId})`);
+          await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
+          matched = true;
+          break;
+        }
+
+        // 3. Name + DOB + Date Match
         const pdfKey = getReportKey(report);
         if (pdfKey && pdfKey === key) {
           console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Name/DOB/Date`);
@@ -295,7 +318,7 @@ const processTempDirectory = async (tempDir: string) => {
     if (fs.existsSync(file)) {
       const newPath = path.join(unmatchedDir, path.basename(file));
       try {
-        fs.renameSync(file, newPath);
+        moveFile(file, newPath);
       } catch (e) {
         console.error(`Error moving unmatched file ${file}:`, e);
       }

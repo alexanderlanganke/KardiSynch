@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
-import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports } from './database';
+import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports, closeDatabase } from './database';
 import { initializeWatcher, stopWatcher } from './watcher';
 import { startUsbWatcher, stopUsbWatcher } from './usbWatcher';
 import { initializeStorage } from './storage';
@@ -237,6 +237,48 @@ ipcMain.handle('reset-settings', async () => {
     return newSettings;
   } catch (error) {
     console.error('Failed to reset settings:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('clear-all-data', async () => {
+  console.log('[Main] Clearing all application data...');
+  try {
+    const settings = await getAllSettings();
+    const dataPath = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+    const unmatchedDir = settings.unmatchedDir || path.join(app.getPath('userData'), '_UNMATCHED');
+    const dbPath = settings.dbPath || path.join(dataPath, 'database.db');
+
+    // 1. Stop Watchers
+    stopWatcher();
+    stopUsbWatcher();
+
+    // 2. Close Database
+    await closeDatabase();
+
+    // 3. Delete Data Directories
+    console.log('[Main] Deleting data directory:', dataPath);
+    await fs.rm(dataPath, { recursive: true, force: true });
+
+    console.log('[Main] Deleting unmatched directory:', unmatchedDir);
+    await fs.rm(unmatchedDir, { recursive: true, force: true });
+
+    // 4. Delete Database File if outside dataDir (redundant but safe)
+    if (dbPath && !dbPath.startsWith(dataPath)) {
+      console.log('[Main] Deleting database file:', dbPath);
+      await fs.rm(dbPath, { force: true });
+    }
+
+    // 5. Re-initialize
+    console.log('[Main] Re-initializing system...');
+    initializeDatabase(dbPath);
+    await initializeStorage();
+    initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
+    startUsbWatcher(settings);
+
+    return true;
+  } catch (error) {
+    console.error('[Main] Failed to clear all data:', error);
     throw error;
   }
 });

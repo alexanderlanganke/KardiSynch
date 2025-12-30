@@ -9,6 +9,7 @@ import { parseBostonScientificBnk, parseBostonScientificPdf } from './parsers/bo
 import { parseMedtronicPdd, parseMedtronicPkg } from './parsers/medtronic-parser';
 import { extractTextFromPdf, extractStructuredData } from './utils/pdf-utils';
 import { parseMicroportXML } from './parsers/microport-parser';
+import { parseAbbottLog } from './parsers/abbott-parser';
 
 /**
  * Acts as a dispatcher, routing files to the appropriate parser based on their
@@ -107,6 +108,8 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     return parseMedtronicPdd(filePath);
   } else if (fileExtension === '.pkg') {
     return parseMedtronicPkg(filePath);
+  } else if (fileExtension === '.log') {
+    return parseAbbottLog(filePath);
   } else {
     console.warn(`Unsupported file type: ${fileExtension}`);
     return null;
