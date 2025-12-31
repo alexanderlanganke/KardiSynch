@@ -1,28 +1,16 @@
-name: Test
+name: Release
 
 on:
   push:
-    branches: [ "main" ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.agent/**'
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [ "main" ]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.agent/**'
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    tags:
+      - 'v*'
 
 jobs:
-  test:
-    name: Test on ${{ matrix.os }}
+  release:
+    name: Build & Release
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # Required for uploading to Releases
     strategy:
       fail-fast: false
       matrix:
@@ -45,8 +33,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run Build (Type Check) & Tests
-        # We run build for type checking, but not 'package'
-        run: |
-          npm run build
-          npm test
+      # Build and Publish using electron-builder
+      # It will detect the tag and GitHub context automatically
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run publish:gh
