@@ -1,68 +1,87 @@
-# .gitignore
-node_modules
-dist
-.DS_Store
-_DATA
-test-results
-.vscode
-.idea
-.devcontainer
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
 
-# Debug & Analysis Scripts
+# Production Build
+dist/
+dist-electron/
+release/
+build/
+
+# Testing
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache
+test_output.txt
+vitest_output.txt
+tsc_output.txt
+*_output.txt
+test_result_v2.log
+.nyc_output
+
+# Local Configuration & Data
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+_DATA/
+_IMPORT/
+_UNMATCHED/
+mock_import_dir/
+mock_usb_target/
+mock_usb_source/
+
+# Debugging & Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+debug_paths.txt
+debug_*.txt
+debug_*.json
+*.log
 debug_data/
+
+# IDE & System
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.devcontainer/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Temporary & Generated Files
+*.pkg
+app-update.yml
+latest.yml
 debug_marker.js
 debug_pdf.js
 debug_pdf.mjs
 debug_pdf_content.txt
-debug_paths.txt
 analyze_*.js
 analyze_*.mjs
 analyze_*.ts
 standalone_*.js
 standalone_*.ts
 standalone_result.log
-test_output.txt
 test_pdd_parser.ts
-test_result_v2.log
 reproduce_*.ts
-
-# Build & Release
-release/
-dist-electron/
-
-# Local Data
-_IMPORT/
-_UNMATCHED/
-
-# Temporary Analysis
-temp_analysis/
-*.pkg
-# *.xml
-debug_log.txt
-debug_*.txt
 test_regex.js
-scripts/extract_*.ts
-scripts/extract_*.js
-scripts/verify_*.ts
-scripts/verify_*.js
-
-# Test Output
-vitest_output.txt
-tsc_output.txt
-test_debug*.log
-verification_output.txt
 test_microport.ts
 test_filename_repro.ts
 test_import_logic.ts
 test_parsing_refinement.ts
 test_regex_mixedcase.ts
-mock_import_dir/
-mock_usb_source/
-mock_usb_target/
 microport_sample.txt
 usb_target_manifest.json
 usbwatcher.ps1
-debug_*.json
-*_output.txt
-*.log
-
+scripts/extract_*.ts
+scripts/extract_*.js
+scripts/verify_*.ts
+scripts/verify_*.js
