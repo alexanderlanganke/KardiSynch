@@ -1,6 +1,6 @@
 {
   "name": "kardisynch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A self contained electron based database, renderer and pdf viewer for IECD interrogations",
   "main": "dist/main/main.js",
   "scripts": {
@@ -15,6 +15,8 @@
     "test:e2e": "npm run build && xvfb-run --auto-servernum --server-args=\"-screen 0 1280x960x24\" -- playwright test",
     "test:e2e:ci": "npm run build && cross-os e2e-test-runner",
     "package": "npm run build && electron-builder",
+    "release": "release-it",
+    "publish:gh": "npm run build && electron-builder --publish always",
     "prepackage": "node scripts/ensure-canvas-dirs.js",
     "postinstall": "npx @electron/rebuild"
   },
@@ -70,6 +72,7 @@
     "electron": "33.0.0",
     "electron-builder": "^26.0.12",
     "postcss": "^8.5.6",
+    "release-it": "^19.2.2",
     "tailwindcss": "^4.1.16",
     "tailwindcss-animate": "^1.0.7",
     "ts-node": "^10.9.2",
