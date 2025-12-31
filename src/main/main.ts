@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports, closeDatabase } from './database';
@@ -35,25 +36,94 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // Initialize Database FIRST
-  const config = getConfig();
-  const dbPath = config.dbPath;
-  initializeDatabase(dbPath);
+  let settings;
 
-  // Now get all settings
-  const settings = await getAllSettings();
+  // 1. Try to initialize critical components
+  try {
+    // Initialize Database
+    const config = getConfig();
+    const dbPath = config.dbPath;
+    initializeDatabase(dbPath);
 
-  await initializeStorage();
+    // Get settings
+    settings = await getAllSettings();
+  } catch (error) {
+    console.error('Critical initialization failed:', error);
+    // Use fallback settings if DB/Config fails
+    settings = {
+      updateChannel: 'stable',
+      importDir: path.join(app.getPath('userData'), '_IMPORT'),
+      unmatchedDir: path.join(app.getPath('userData'), '_UNMATCHED'),
+      dataPath: path.join(app.getPath('userData'), '_DATA')
+    } as any;
+  }
 
-  // Initialize watcher (NO MOCK DATA SEEDING)
-  initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
+  // 2. Initialize Auto-Updater (Robust)
+  try {
+    autoUpdater.logger = console;
+    autoUpdater.allowPrerelease = settings.updateChannel === 'beta';
 
-  // Initialize USB Watcher
-  startUsbWatcher(settings);
+    // DEBUG: Force dev updates to work (for verification)
+    if (process.env.NODE_ENV === 'development') {
+      autoUpdater.forceDevUpdateConfig = true;
+    }
 
+    // Check for updates immediately
+
+    // Check for updates immediately
+    autoUpdater.checkForUpdatesAndNotify();
+
+    // Setup listeners to forward to renderer
+    autoUpdater.on('checking-for-update', () => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('update-status', 'Checking for updates...');
+    });
+    autoUpdater.on('update-available', (info) => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('update-status', `Update available: ${info.version}`);
+    });
+    autoUpdater.on('update-not-available', (info) => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('update-status', 'Your application is up to date.');
+    });
+    autoUpdater.on('error', (err) => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('update-status', { message: 'Update error', error: err.toString() });
+    });
+    autoUpdater.on('download-progress', (progressObj) => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('update-status', `Downloading: ${Math.round(progressObj.percent)}%`);
+    });
+    autoUpdater.on('update-downloaded', (info) => {
+      const win = getMainWindow();
+      if (win) win.webContents.send('update-status', `Update downloaded. Ready to install.`);
+
+      // Ask user to update? Or just notify. Detailed UI can handle "Restart and Install"
+    });
+
+  } catch (error) {
+    console.error('Failed to initialize auto-updater:', error);
+  }
+
+  // 3. Initialize rest of the app (Storage, Watchers)
+  try {
+    // If we have valid settings from step 1
+    if (settings && settings.dbPath) { // Check if we got real settings
+      await initializeStorage();
+      initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
+      startUsbWatcher(settings);
+    }
+  } catch (error) {
+    console.error('Non-critical initialization failed:', error);
+  }
+
+  // 4. Create Window
   createWindow();
   console.log('Electron app is ready.');
-  fs.writeFile('debug_paths.txt', `UserData: ${app.getPath('userData')}\nImportDir: ${settings.importDir}\nDataDir: ${settings.dataPath}`);
+
+  if (settings) {
+    fs.writeFile('debug_paths.txt', `UserData: ${app.getPath('userData')}\nImportDir: ${settings.importDir}\nDataDir: ${settings.dataPath}`);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -500,6 +570,30 @@ ipcMain.on('find-in-page', (event, text, options) => {
 ipcMain.on('stop-find-in-page', (event, action) => {
   const webContents = event.sender;
   webContents.stopFindInPage(action);
+});
+
+// Update Handlers
+ipcMain.handle('check-for-updates', async () => {
+  console.log('[Main] Manual check for updates initiated...');
+  try {
+    const settings = await getAllSettings();
+    console.log('[Main] Settings loaded:', settings.updateChannel);
+
+    // Ensure prerelease setting is active
+    autoUpdater.allowPrerelease = settings.updateChannel === 'beta';
+
+    console.log('[Main] calling autoUpdater.checkForUpdates()...');
+    const result = await autoUpdater.checkForUpdates();
+    console.log('[Main] checkForUpdates result:', result);
+    return result;
+  } catch (e) {
+    console.error('[Main] Failed to check for updates:', e);
+    throw e;
+  }
+});
+
+ipcMain.handle('quit-and-install', () => {
+  autoUpdater.quitAndInstall();
 });
 
 app.on('window-all-closed', () => {
