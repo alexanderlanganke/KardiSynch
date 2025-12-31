@@ -1,0 +1,19 @@
+{
+    "git": {
+        "commitMessage": "chore: release v${version}",
+        "tagName": "v${version}",
+        "requireCleanWorkingDir": false
+    },
+    "github": {
+        "release": true,
+        "draft": true,
+        "releaseName": "v${version}",
+        "tokenRef": "GITHUB_TOKEN"
+    },
+    "npm": {
+        "publish": false
+    },
+    "hooks": {
+        "after:bump": "npm run build"
+    }
+}
