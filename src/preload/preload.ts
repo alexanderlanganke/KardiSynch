@@ -40,6 +40,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVisitDirectories: (patientId: string) => ipcRenderer.invoke('get-visit-directories', patientId),
   getVisitFiles: (patientId: string, visitDirName: string) => ipcRenderer.invoke('get-visit-files', patientId, visitDirName),
   getParsedXml: (filePath: string) => ipcRenderer.invoke('get-parsed-xml', filePath),
+
+  // Updates
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
+  onUpdateStatus: (callback: (status: any) => void) => {
+    const subscription = (_: any, status: any) => callback(status);
+    ipcRenderer.on('update-status', subscription);
+    return () => ipcRenderer.removeListener('update-status', subscription);
+  },
   removeListener: (channel: string, func: (...args: any[]) => void) => {
     ipcRenderer.removeListener(channel, func);
   }

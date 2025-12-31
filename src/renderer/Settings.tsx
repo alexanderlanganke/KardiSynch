@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FolderOpen, Save, RotateCcw } from 'lucide-react';
+import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck } from 'lucide-react';
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<{
@@ -22,7 +22,10 @@ const Settings: React.FC = () => {
     dbPath: '',
     usbSourceDirectories: [],
     usbTargetDirectory: '',
+    updateChannel: 'stable',
   });
+  const [updateStatus, setUpdateStatus] = useState<string>('Idle');
+  const [appVersion, setAppVersion] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -37,6 +40,23 @@ const Settings: React.FC = () => {
       }
     };
     fetchSettings();
+    fetchSettings();
+
+    // Listen for update status
+    const cleanup = window.electronAPI.onUpdateStatus((status: any) => {
+      console.log('Update status:', status);
+      if (typeof status === 'string') {
+        setUpdateStatus(status);
+      } else if (status.message) {
+        setUpdateStatus(status.message);
+      } else {
+        setUpdateStatus(JSON.stringify(status));
+      }
+    });
+
+    return () => {
+      cleanup();
+    };
   }, []);
 
   const saveSettings = async (e: React.FormEvent) => {
@@ -98,6 +118,7 @@ const Settings: React.FC = () => {
           <TabsTrigger value="paths">File Paths</TabsTrigger>
           <TabsTrigger value="usb">USB Watcher</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
+          <TabsTrigger value="updates">Updates</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
 
@@ -252,6 +273,86 @@ const Settings: React.FC = () => {
                     </Button>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+          </TabsContent>
+
+          <TabsContent value="updates">
+            <Card>
+              <CardHeader>
+                <CardTitle>Software Updates</CardTitle>
+                <CardDescription>
+                  Manage application updates and preferences.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="h-5 w-5 text-green-600" />
+                      <span className="font-medium">Current Status</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{updateStatus}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={() => window.electronAPI.checkForUpdates()}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Check for Updates
+                  </Button>
+                </div>
+
+                <div className="space-y-4">
+                  <Label>Update Channel</Label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div
+                      className={`cursor-pointer border rounded-lg p-4 flex items-start gap-3 hover:bg-muted/50 transition-colors ${settings.updateChannel === 'stable' ? 'ring-2 ring-primary bg-muted/20' : ''}`}
+                      onClick={() => setSettings({ ...settings, updateChannel: 'stable' })}
+                    >
+                      <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-full">
+                        <Archive className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">Stable Releases</h4>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Official, tested releases. Recommended for production use.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`cursor-pointer border rounded-lg p-4 flex items-start gap-3 hover:bg-muted/50 transition-colors ${settings.updateChannel === 'beta' ? 'ring-2 ring-primary bg-muted/20' : ''}`}
+                      onClick={() => setSettings({ ...settings, updateChannel: 'beta' })}
+                    >
+                      <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-full">
+                        <Download className="h-4 w-4 text-purple-600 dark:text-purple-300" />
+                      </div>
+                      <div>
+                        <h4 className="font-medium">Beta / Pre-releases</h4>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Get the latest features early. May contain bugs.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {updateStatus.includes('Downloaded') && (
+                  <div className="pt-4 border-t">
+                    <Button
+                      type="button"
+                      className="w-full"
+                      variant="default"
+                      onClick={() => window.electronAPI.quitAndInstall()}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                      Restart and Install Update
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

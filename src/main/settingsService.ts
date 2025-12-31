@@ -11,6 +11,7 @@ export interface AppSettings {
     theme?: 'light' | 'dark' | 'system';
     usbSourceDirectories: string[];
     usbTargetDirectory: string;
+    updateChannel: 'stable' | 'beta';
 }
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -23,6 +24,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     theme: 'system',
     usbSourceDirectories: [],
     usbTargetDirectory: '',
+    updateChannel: 'stable',
 };
 
 export const getAllSettings = async (): Promise<AppSettings> => {
