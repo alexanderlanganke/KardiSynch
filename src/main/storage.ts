@@ -301,6 +301,7 @@ export const storeFile = async (
     const visitXmlPath = path.join(visitDir, 'visit.xml');
     fs.writeFileSync(visitXmlPath, generateVisitXML(report, reportId));
   }
+
 };
 
 /**
