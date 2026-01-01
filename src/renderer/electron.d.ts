@@ -18,13 +18,13 @@ export interface IElectronAPI {
   clearAllData: () => Promise<boolean>;
   checkForUpdates: () => Promise<any>;
   quitAndInstall: () => Promise<void>;
+  getAppVersion: () => Promise<string>;
   onUpdateStatus: (callback: (status: any) => void) => () => void;
-}
-getPatientDirectories: () => Promise<any[]>;
-getVisitDirectories: (patientId: string) => Promise<any[]>;
-getVisitFiles: (patientId: string, visitDirName: string) => Promise<string[]>;
-getParsedXml: (filePath: string) => Promise<any>;
-removeListener: (channel: string, func: (...args: any[]) => void) => void;
+  getPatientDirectories: () => Promise<any[]>;
+  getVisitDirectories: (patientId: string) => Promise<any[]>;
+  getVisitFiles: (patientId: string, visitDirName: string) => Promise<string[]>;
+  getParsedXml: (filePath: string) => Promise<any>;
+  removeListener: (channel: string, func: (...args: any[]) => void) => void;
 }
 
 declare global {
