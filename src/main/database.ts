@@ -505,66 +505,97 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
       if (!vDir.isDirectory()) continue;
 
       const visitDir = path.join(patientDir, vDir.name);
-      const visitXmlPath = path.join(visitDir, 'visit.xml');
 
+      // DEEP SCAN: Look for Files and Structured Data
+      const visitFiles = await fs.promises.readdir(visitDir);
+
+      // Find the main report file (PDF, PKG, etc.) matching the visit ID suffix if possible, or just the largest file?
+      // Actually, we should just look for *any* valid report file.
+      // But typically there is one source file per visit directory in this structure (plus mapped files).
+      // Let's look for known extensions.
+      const rawFile = visitFiles.find(f =>
+        ['.pkg', '.xml', '.bnk', '.log'].includes(path.extname(f).toLowerCase()) &&
+        !f.startsWith('patient') && // Exclude metadata XMLs
+        !f.startsWith('visit')
+      ) || visitFiles.find(f => path.extname(f).toLowerCase() === '.pdf');
+
+      let reportData: any = {
+        id: vDir.name.split('_').pop(), // Extract ID from "YYYY_MM_DD_UUID"
+        patient_id: dir.name.split('_')[0],
+        manufacturer: 'Unknown',
+        interrogation_date: vDir.name.split('_').slice(0, 3).join('-'), // "YYYY-MM-DD" fallback
+        device: { type: 'Unknown', model: 'Unknown', serial_number: 'Unknown' },
+        leads: [],
+        battery: {}
+      };
+
+      // 1. Parse Source File to Enrich Data (Deep Scan ON THE FLY - No Persistence)
+      if (rawFile) {
+        console.log(`[rebuildDatabase] Deep scanning ${rawFile} for ${vDir.name}...`);
+        try {
+          // Dynamic import
+          const parserModule = await import('./parser');
+          const report = await parserModule.parseFile(path.join(visitDir, rawFile));
+
+          if (report) {
+            // Merge deep data into reportData
+            reportData = { ...reportData, ...report };
+            // Ensure IDs match the folder structure if parser returned something else (unlikely but safe)
+            reportData.id = vDir.name.split('_').pop();
+            reportData.patient_id = dir.name.split('_')[0];
+          }
+        } catch (e) {
+          console.error(`[rebuildDatabase] Failed to parse raw file ${rawFile}:`, e);
+          // Fallback to visit.xml data only if parse fails
+        }
+      }
+
+      // 2. Fallback / Baseline: Visit.xml
+      const visitXmlPath = path.join(visitDir, 'visit.xml');
       if (fs.existsSync(visitXmlPath)) {
         try {
           const xmlContent = await fs.promises.readFile(visitXmlPath, 'utf-8');
           const parsed = parser.parse(xmlContent);
           const v = parsed.visit;
+          if (v) {
+            // Merge XML data as fallback/baseline
+            if (!reportData.id) reportData.id = v.report_id;
+            if (reportData.interrogation_date === 'Invalid Date') reportData.interrogation_date = v.interrogation_date;
+            if (reportData.manufacturer === 'Unknown') reportData.manufacturer = v.manufacturer;
 
-          if (v && v.report_id && v.interrogation_date) {
-            // Reconstruct minimal report object for DB
-            // Note: We might not have the full raw text or JSON data here easily without re-parsing the PDF/PKG.
-            // For now, we store what we have in XML.
+            if (v.device_type && reportData.device.type === 'Unknown') reportData.device.type = v.device_type;
+            if (v.device_model && reportData.device.model === 'Unknown') reportData.device.model = v.device_model;
+            if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
+          }
+        } catch (e) { console.error('Error reading visit.xml', e); }
+      }
 
-            // Extract patient ID from directory name or parent context if not in visit.xml
-            // visit.xml doesn't strictly have patient_id, but we know it from the loop context.
-            // Wait, we need patient_id for the Reports table.
-            // The directory name is `ID_Name`.
-            const patientId = dir.name.split('_')[0];
-
-            const reportData = {
-              id: v.report_id,
-              patient_id: patientId,
-              manufacturer: v.manufacturer,
-              interrogation_date: v.interrogation_date,
-              device: {
-                type: v.device_type,
-                model: v.device_model,
-                serial_number: v.device_serial
-              },
-              // Battery/Leads could be reconstructed but let's stick to core metadata for indexing
-            };
-
-            await new Promise<void>((resolve, reject) => {
-              const db = getDb();
-              db.run(
-                `INSERT OR REPLACE INTO Reports (
+      // Upsert Report to DB
+      if (reportData.id) {
+        await new Promise<void>((resolve, reject) => {
+          const db = getDb();
+          db.run(
+            `INSERT OR REPLACE INTO Reports (
                    id, patient_id, manufacturer, interrogation_date, 
                    device_type, device_model, device_serial_number, data
                  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [
-                  reportData.id,
-                  reportData.patient_id,
-                  reportData.manufacturer,
-                  reportData.interrogation_date,
-                  reportData.device.type,
-                  reportData.device.model,
-                  reportData.device.serial_number,
-                  JSON.stringify(reportData) // Store minimal data JSON
-                ],
-                (err) => {
-                  if (err) reject(err);
-                  else resolve();
-                }
-              );
-            });
-            reportCount++;
-          }
-        } catch (e) {
-          console.error(`[rebuildDatabase] Failed to process visit XML for ${vDir.name}:`, e);
-        }
+            [
+              reportData.id,
+              reportData.patient_id,
+              reportData.manufacturer,
+              reportData.interrogation_date,
+              reportData.device?.type,
+              reportData.device?.model,
+              reportData.device?.serial_number,
+              JSON.stringify(reportData)
+            ],
+            (err) => {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+        reportCount++;
       }
     }
   }
