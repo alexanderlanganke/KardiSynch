@@ -5,9 +5,7 @@
         "requireCleanWorkingDir": false
     },
     "github": {
-        "release": true,
-        "draft": true,
-        "releaseName": "v${version}",
+        "release": false,
         "tokenRef": "GITHUB_TOKEN"
     },
     "npm": {
