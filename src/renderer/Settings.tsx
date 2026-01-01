@@ -15,6 +15,7 @@ const Settings: React.FC = () => {
     dbPath: string;
     usbSourceDirectories: string[];
     usbTargetDirectory: string;
+    updateChannel: string;
   }>({
     importDir: '',
     unmatchedDir: '',
@@ -35,11 +36,12 @@ const Settings: React.FC = () => {
         if (fetchedSettings) {
           setSettings({ ...settings, ...fetchedSettings });
         }
+        const version = await window.electronAPI.getAppVersion();
+        setAppVersion(version);
       } catch (error) {
-        console.error('Error fetching settings:', error);
+        console.error('Error fetching settings or version:', error);
       }
     };
-    fetchSettings();
     fetchSettings();
 
     // Listen for update status
@@ -281,7 +283,10 @@ const Settings: React.FC = () => {
           <TabsContent value="updates">
             <Card>
               <CardHeader>
-                <CardTitle>Software Updates</CardTitle>
+                <CardTitle className="flex justify-between items-center">
+                  Software Updates
+                  <span className="text-sm font-normal text-muted-foreground">v{appVersion}</span>
+                </CardTitle>
                 <CardDescription>
                   Manage application updates and preferences.
                 </CardDescription>
