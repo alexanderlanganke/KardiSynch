@@ -17,12 +17,12 @@ import { UnifiedReport, LeadData, BatteryData, Measurement } from '../reports';
 */
 function findTable(data: any, tableName: string): any[] | null {
     try {
-        const rawTables = data['carddas:InterfaceData']['carddas:Examination']['carddas:Measurements']['carddas:Table'];
+        const rawTables = data['InterfaceData']['Examination']['Measurements']['Table'];
         const tables = Array.isArray(rawTables) ? rawTables : [rawTables];
 
         for (const table of tables) {
-            if (table['carddas:TableName'] === tableName) {
-                return table['carddas:TableEntry'];
+            if (table['TableName'] === tableName) {
+                return table['TableEntry'];
             }
         }
     } catch (e) {
@@ -39,13 +39,13 @@ function findEntry(rawTableEntries: any[] | any | null, attributeName: string): 
     if (!rawTableEntries) return null;
     try {
         const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
-        const entry = tableEntries.find((e: any) => e['carddas:AttributeName'] === attributeName);
+        const entry = tableEntries.find((e: any) => e['AttributeName'] === attributeName);
         if (!entry) return null;
 
-        if (entry['carddas:CharValue']) return String(entry['carddas:CharValue']);
-        if (entry['carddas:DecimalValue']) return entry['carddas:DecimalValue'].toString();
-        if (entry['carddas:SmallIntValue']) return entry['carddas:SmallIntValue'].toString();
-        if (entry['carddas:DateValue']) return String(entry['carddas:DateValue']);
+        if (entry['CharValue']) return String(entry['CharValue']);
+        if (entry['DecimalValue']) return entry['DecimalValue'].toString();
+        if (entry['SmallIntValue']) return entry['SmallIntValue'].toString();
+        if (entry['DateValue']) return String(entry['DateValue']);
 
     } catch (e) {
         console.error(`Error finding attribute: ${attributeName}`, e);
@@ -60,7 +60,12 @@ function findEntry(rawTableEntries: any[] | any | null, attributeName: string): 
 */
 export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
     try {
-        const parser = new XMLParser();
+        const parser = new XMLParser({
+            transformTagName: (tagName) => {
+                const i = tagName.indexOf(':');
+                return i > -1 ? tagName.substring(i + 1) : tagName;
+            }
+        });
         const xml = parser.parse(xmlData);
 
         // Get the main data tables
@@ -71,20 +76,20 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         // Count 'nsT' episodes from the episode list (if it exists)
         let nsTCount = 0;
         try {
-            const rawTables = xml['carddas:InterfaceData']['carddas:Examination']['carddas:Measurements']['carddas:Table'];
+            const rawTables = xml['InterfaceData']['Examination']['Measurements']['Table'];
             const tables = Array.isArray(rawTables) ? rawTables : [rawTables];
-            const episodeTable = tables.find((t: any) => t['carddas:TableName'] === 'TBU_EPISODE_LIST');
+            const episodeTable = tables.find((t: any) => t['TableName'] === 'TBU_EPISODE_LIST');
 
-            if (episodeTable && episodeTable['carddas:ForeignKey']) {
-                const episodeList = Array.isArray(episodeTable['carddas:ForeignKey'])
-                    ? episodeTable['carddas:ForeignKey']
-                    : [episodeTable['carddas:ForeignKey']];
+            if (episodeTable && episodeTable['ForeignKey']) {
+                const episodeList = Array.isArray(episodeTable['ForeignKey'])
+                    ? episodeTable['ForeignKey']
+                    : [episodeTable['ForeignKey']];
 
                 nsTCount = episodeList.filter((ep: any) => {
-                    const entries = Array.isArray(ep['carddas:TableEntry'])
-                        ? ep['carddas:TableEntry']
-                        : [ep['carddas:TableEntry']];
-                    return entries.some((e: any) => e['carddas:CharValue'] === 'nsT');
+                    const entries = Array.isArray(ep['TableEntry'])
+                        ? ep['TableEntry']
+                        : [ep['TableEntry']];
+                    return entries.some((e: any) => e['CharValue'] === 'nsT');
                 }).length;
             }
         } catch (e) {
@@ -92,16 +97,16 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         }
 
         // --- Assemble the final standardized object ---
-        const personalData = xml['carddas:InterfaceData']?.['carddas:Patient']?.['carddas:PersonalData'];
+        const personalData = xml['InterfaceData']?.['Patient']?.['PersonalData'];
         console.log('PersonalData keys:', personalData ? Object.keys(personalData) : 'PersonalData is missing');
 
         const standardizedData: UnifiedReport = {
             manufacturer: findEntry(summaryTable, 'MANUFACTURERDESCR') || 'Biotronik',
-            interrogation_date: xml['carddas:InterfaceData']['carddas:Examination']['carddas:ExaminationDate'],
+            interrogation_date: xml['InterfaceData']['Examination']['ExaminationDate'],
             patient: {
-                first_name: personalData?.['carddas:FirstName'] || '',
-                last_name: personalData?.['carddas:Name'] || personalData?.['carddas:LastName'] || '',
-                dob: personalData?.['carddas:DOB'] || personalData?.['carddas:DateOfBirth'] || '',
+                first_name: personalData?.['FirstName'] || '',
+                last_name: personalData?.['Name'] || personalData?.['LastName'] || '',
+                dob: personalData?.['DOB'] || personalData?.['DateOfBirth'] || '',
             },
             device: {
                 type: 'Unknown',
