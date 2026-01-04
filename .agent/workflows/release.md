@@ -52,17 +52,10 @@ When you run `npm run release`, you will see these prompts. Here is what to sele
     - Type **Yes**. This sends the commit and tag to GitHub.
     - *Note: You need `GITHUB_TOKEN` set for this to work smoothly, otherwise it might ask for credentials or fail if using HTTPS.*
 5.  **Create a release on GitHub?**:
-    - Type **Yes**.
-    - *Critical: This requires `GITHUB_TOKEN` environment variable.*
-    - If this fails or you say No, you must create the release manually on GitHub.com and uploading assets will fail until you do.
+    - **SKIPPED / NO**. The configuration disables this.
+    - We let the CI (GitHub Actions) create the release using `electron-builder` to ensure artifacts are correct.
+    - *If asked (unexpectedly), answer NO.*
 
-### Setting the Token
-To fix the "Token not set" error, run this in your terminal before releasing:
-```bash
-export GITHUB_TOKEN="your_token_here"
-# OR for Windows PowerShell
-$env:GITHUB_TOKEN="your_token_here"
-```
 
 ## Troubleshooting
 
