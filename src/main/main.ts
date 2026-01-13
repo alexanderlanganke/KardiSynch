@@ -600,6 +600,75 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
+
+ipcMain.handle('manual-sorting-response', async (event, response) => {
+  try {
+    const { resolveManualSorting } = await import('./watcher');
+    resolveManualSorting(response);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to handle manual sorting response:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('device-selection-result', async (event, result) => {
+  try {
+    const { resolveDeviceSelection } = await import('./watcher');
+    resolveDeviceSelection(result);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to handle device selection result:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-import-history', async () => {
+  try {
+    const { getImportHistory } = await import('./database');
+    return await getImportHistory();
+  } catch (error) {
+    console.error('Failed to get import history', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-import-session-events', async (event, sessionId) => {
+  try {
+    const { getImportSessionEvents } = await import('./database');
+    return await getImportSessionEvents(sessionId);
+  } catch (error) {
+    console.error('Failed to get import session events', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('move-imported-file', async (event, eventId, newPatientId) => {
+  try {
+    const { getImportEvent, updateImportEvent } = await import('./database');
+    const { moveReport } = await import('./storage');
+
+    const importEvent = await getImportEvent(eventId);
+    if (!importEvent || !importEvent.report_id || !importEvent.patient_id) {
+      throw new Error('Event invalid or missing report/patient info');
+    }
+
+    await moveReport(importEvent.report_id, importEvent.patient_id, newPatientId);
+
+    await updateImportEvent(eventId, {
+      patient_id: newPatientId,
+      status: 'manually_sorted',
+      message: 'Moved by user'
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to move imported file', error);
+    throw error;
+  }
+});
+
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();

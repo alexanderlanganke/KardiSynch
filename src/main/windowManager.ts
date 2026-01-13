@@ -28,8 +28,27 @@ export function sendProcessStatus(status: { type: 'start' | 'progress' | 'comple
   }
 }
 
+
 export function sendPatientListUpdate() {
   if (mainWindow) {
     mainWindow.webContents.send('patient-list-update');
+  }
+}
+
+export function sendManualSortingRequest(fileInfo: any) {
+  if (mainWindow) {
+    mainWindow.webContents.send('request-manual-sorting', fileInfo);
+  }
+}
+
+export function sendImportSessionUpdate(session: any) {
+  if (mainWindow) {
+    mainWindow.webContents.send('import-session-update', session);
+  }
+}
+
+export function sendDeviceSelectionRequest(fileInfo: any) {
+  if (mainWindow) {
+    mainWindow.webContents.send('request-device-selection', fileInfo);
   }
 }

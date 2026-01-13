@@ -1,10 +1,10 @@
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sendUnmatchedFiles, sendNotification, sendProcessStatus } from './windowManager';
+import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendManualSortingRequest, sendImportSessionUpdate } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
-import { getDb, findPatient, findReportByDate, findPatientBySerial } from './database';
+import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient } from './database';
 import { storeReport, storeFile } from './storage';
 
 
@@ -13,6 +13,25 @@ let unmatchedDir: string;
 let dataDir: string;
 let watcherTimeout: NodeJS.Timeout | null = null;
 let currentWatcher: fs.FSWatcher | null = null;
+
+// interactive mode globals
+let pendingManualSortRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
+let pendingDeviceSelectionRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
+
+
+export const resolveManualSorting = (response: any) => {
+  if (pendingManualSortRequest) {
+    pendingManualSortRequest.resolve(response);
+    pendingManualSortRequest = null;
+  }
+};
+
+export const resolveDeviceSelection = (response: any) => {
+  if (pendingDeviceSelectionRequest) {
+    pendingDeviceSelectionRequest.resolve(response);
+    pendingDeviceSelectionRequest = null;
+  }
+};
 
 /**
  * Creates a temporary directory for processing a batch of files.
@@ -110,8 +129,22 @@ const getReportKey = (report: UnifiedReport): string | null => {
  */
 const processTempDirectory = async (tempDir: string) => {
   console.log(`Processing files in temporary directory: ${tempDir}`);
+  const sessionId = uuidv4();
+  await createImportSession(sessionId);
+
   const allFiles = fs.readdirSync(tempDir).map(f => path.join(tempDir, f));
   const unmatchedFiles: string[] = [];
+
+  // Stats for session summary
+  const sessionSummary = {
+    total: allFiles.length,
+    processed: 0,
+    imported: 0,
+    unmatched: 0,
+    errors: 0,
+    manuallySorted: 0,
+    warnings: [] as string[]
+  };
 
   sendProcessStatus({ type: 'start', message: `Processing ${allFiles.length} files...` });
 
@@ -121,6 +154,14 @@ const processTempDirectory = async (tempDir: string) => {
     if (['.docx', '.zip', '.jar', '.bat', '.bak'].includes(ext)) {
       console.log(`Skipping unsupported file type: ${ext} (${path.basename(file)})`);
       unmatchedFiles.push(file);
+      logImportEvent({
+        id: uuidv4(),
+        session_id: sessionId,
+        file_path: file,
+        status: 'skipped',
+        message: 'Unsupported file type'
+      });
+      sessionSummary.warnings.push(`Skipped ${path.basename(file)} (unsupported type)`);
       return false;
     }
     return true;
@@ -146,13 +187,148 @@ const processTempDirectory = async (tempDir: string) => {
   for (const file of structuredFiles) {
     console.log(`Processing structured file: ${path.basename(file)}`);
     sendProcessStatus({ type: 'progress', message: `Importing ${path.basename(file)}...`, file: path.basename(file) });
+    sessionSummary.processed++;
 
     try {
       const report = await parseFile(file);
       if (!report) {
         console.warn(`Failed to parse structured file ${path.basename(file)}`);
         unmatchedFiles.push(file);
+        logImportEvent({
+          id: uuidv4(),
+          session_id: sessionId,
+          file_path: file,
+          status: 'error',
+          message: 'Failed to parse structured file'
+        });
+        sessionSummary.errors++;
         continue;
+      }
+
+      // 1. CHECK FOR DEVICE AMBIGUITY (Autodetection Failure)
+      // If manufacturer is unknown or the device model is unknown, prompt the user.
+      if (
+        report.manufacturer === 'Unknown' ||
+        !report.device ||
+        report.device.model === 'Unknown' ||
+        (report.manufacturer === 'Biotronik' && report.device.type === 'Unknown')
+      ) {
+        console.log(`Device ambiguity detected for ${path.basename(file)}. Requesting manual device info...`);
+
+        const { sendDeviceSelectionRequest } = await import('./windowManager');
+
+        const userDeviceResult: any = await new Promise((resolve) => {
+          pendingDeviceSelectionRequest = { resolve, reject: () => resolve({ action: 'skip' }) };
+          sendDeviceSelectionRequest({
+            filename: path.basename(file),
+            previewData: {
+              manufacturer: report.manufacturer,
+              device: report.device
+            }
+          });
+        });
+
+        if (userDeviceResult.action === 'save' && userDeviceResult.deviceData) {
+          const d = userDeviceResult.deviceData;
+          report.manufacturer = d.manufacturer;
+          report.device = {
+            type: d.type,
+            model: d.model || 'Unknown',
+            serial_number: d.serial || 'Unknown'
+          };
+
+          if (d.leads && Array.isArray(d.leads)) {
+            report.leads = d.leads.map((l: any) => ({
+              name: l.name,
+              model: l.model,
+              serial: l.serial,
+              manufacturer: d.manufacturer
+            }));
+          }
+
+          console.log('Applied manual device details:', report.device);
+        } else {
+          console.log('User skipped device selection. proceeding with Unknowns.');
+        }
+      }
+
+      // CHECK FOR INCOMPLETE PATIENT DATA (Common in some Abbott logs)
+      if (!report.patient.last_name || !report.patient.dob || report.patient.last_name === 'Unknown') {
+        console.warn(`Structured file ${path.basename(file)} lacks patient identity. Attempting recovery...`);
+
+        let targetPatient = null;
+
+        // 1. Try matching by Serial Number
+        if (report.device && report.device.serial_number && report.device.serial_number !== 'Unknown') {
+          try {
+            const { findPatientBySerial } = await import('./database');
+            const existing = await findPatientBySerial(report.device.serial_number);
+            if (existing) {
+              console.log(`Recovered patient identity via Serial Number: ${existing.last_name}, ${existing.first_name}`);
+              targetPatient = existing;
+            }
+          } catch (e) {
+            console.error('Error lookup by serial:', e);
+          }
+        }
+
+        // 2. If still unknown, Manual Sort
+        if (!targetPatient) {
+          console.log(`No clear match for unnamed file ${path.basename(file)}. Requesting manual input...`);
+
+          // Ask user what to do
+          const userDecision: any = await new Promise((resolve) => {
+            pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
+            sendManualSortingRequest({
+              filename: path.basename(file),
+              tempPath: file,
+              previewData: {
+                patientName: "UNKNOWN (Missing in Log)",
+                dob: report.patient.dob || "Unknown",
+                date: report.interrogation_date,
+                serial: report.device?.serial_number || "Unknown"
+              }
+            });
+          });
+
+          if (userDecision.action === 'assign-patient') {
+            const { getPatientById } = await import('./database');
+            targetPatient = await getPatientById(userDecision.patientId);
+          } else if (userDecision.action === 'create-patient') {
+            const { createPatient, getPatientById } = await import('./database');
+            const newId = uuidv4();
+            await createPatient({
+              id: newId,
+              first_name: userDecision.patientData.first_name,
+              last_name: userDecision.patientData.last_name,
+              dob: userDecision.patientData.dob,
+              hospitalPatientId: userDecision.patientData.hospitalPatientId || null
+            });
+            targetPatient = await getPatientById(newId);
+          } else {
+            // Skipped
+            unmatchedFiles.push(file);
+            logImportEvent({
+              id: uuidv4(),
+              session_id: sessionId,
+              file_path: file,
+              status: 'unmatched',
+              message: 'User skipped unnamed logfile'
+            });
+            sessionSummary.unmatched++;
+            continue; // Skip processing this file
+          }
+        }
+
+        // Apply recovered identity to the report object
+        if (targetPatient) {
+          report.patient.first_name = targetPatient.first_name;
+          report.patient.last_name = targetPatient.last_name;
+          report.patient.dob = targetPatient.dob;
+          report.patient.hospitalPatientId = targetPatient.hospitalPatientId;
+          // IMPORTANT: If duplicate report text, checking might still happen in storeReport, 
+          // but at least we have a valid patient now.
+        }
       }
 
       // Store the report (creates patient/visit if needed)
@@ -160,6 +336,17 @@ const processTempDirectory = async (tempDir: string) => {
 
       // Store the structured file itself
       await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+
+      logImportEvent({
+        id: uuidv4(),
+        session_id: sessionId,
+        file_path: file,
+        status: 'imported',
+        patient_id: patient.id,
+        report_id: reportId
+      });
+      sessionSummary.imported++;
+
 
       // Generate a key for this visit
       const key = getReportKey(report);
@@ -179,12 +366,30 @@ const processTempDirectory = async (tempDir: string) => {
         console.log(`Processing ${report.generatedFiles.length} internal PDFs for ${path.basename(file)}`);
         for (const genFile of report.generatedFiles) {
           await storeFile(genFile, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: genFile,
+            status: 'imported',
+            patient_id: patient.id,
+            report_id: reportId,
+            message: 'Extracted from PKG'
+          });
         }
       }
 
     } catch (e) {
       console.error(`Error processing structured file ${path.basename(file)}:`, e);
       unmatchedFiles.push(file);
+      logImportEvent({
+        id: uuidv4(),
+        session_id: sessionId,
+        file_path: file,
+        status: 'error',
+        message: (e as Error).message
+      });
+      sessionSummary.errors++;
     }
   }
 
@@ -210,6 +415,18 @@ const processTempDirectory = async (tempDir: string) => {
           console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Serial Number`);
           // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
           await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'imported',
+            patient_id: visit.patientId,
+            report_id: visit.reportId,
+            message: 'Matched by Serial'
+          });
+          sessionSummary.imported++;
+          sessionSummary.processed++;
           matched = true;
           break;
         }
@@ -218,6 +435,19 @@ const processTempDirectory = async (tempDir: string) => {
         if (visit.sessionId && path.basename(file).includes(visit.sessionId)) {
           console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Session ID (${visit.sessionId})`);
           await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'imported',
+            patient_id: visit.patientId,
+            report_id: visit.reportId,
+            message: 'Matched by Session ID'
+          });
+          sessionSummary.imported++;
+          sessionSummary.processed++;
+
           matched = true;
           break;
         }
@@ -228,6 +458,19 @@ const processTempDirectory = async (tempDir: string) => {
           console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Name/DOB/Date`);
           // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
           await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'imported',
+            patient_id: visit.patientId,
+            report_id: visit.reportId,
+            message: 'Matched by Demographics'
+          });
+          sessionSummary.imported++;
+          sessionSummary.processed++;
+
           matched = true;
           break;
         }
@@ -248,12 +491,15 @@ const processTempDirectory = async (tempDir: string) => {
   for (const file of remainingPdfs) {
     console.log(`Processing standalone PDF: ${path.basename(file)}`);
     sendProcessStatus({ type: 'progress', message: `Analyzing ${path.basename(file)}...`, file: path.basename(file) });
+    sessionSummary.processed++;
 
     try {
-      const report = await parseFile(file);
+      const report = await parseFile(file); // This is just reading metadata
       if (!report) {
-        console.warn(`Could not parse PDF ${path.basename(file)}. Moving to unmatched.`);
+        // Should have been caught earlier, but safe fallback
         unmatchedFiles.push(file);
+        logImportEvent({ id: uuidv4(), session_id: sessionId, file_path: file, status: 'error', message: 'Parse failed' });
+        sessionSummary.errors++;
         continue;
       }
 
@@ -273,48 +519,234 @@ const processTempDirectory = async (tempDir: string) => {
       if (patient) {
         console.log(`Found existing patient for PDF ${path.basename(file)}: ${patient.last_name}, ${patient.first_name}`);
 
-        // Check for existing visit on this date
+        // AUTO MATCHED
         const datePrefix = report.interrogation_date.split('T')[0];
         const existingReport = await findReportByDate(patient.id, datePrefix);
 
         if (existingReport) {
-          console.log(`Merging PDF into existing visit for ${patient.last_name} on ${datePrefix}`);
-          // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
           await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, undefined);
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'imported',
+            patient_id: patient.id,
+            report_id: existingReport.id,
+            message: 'Auto-matched to existing visit'
+          });
         } else {
-          console.log(`Creating new visit for existing patient ${patient.last_name}`);
-          // Ensure patient_id is set
-          report.patient_id = patient.id;
-          const { reportId } = await storeReport(report);
-          await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
-        }
-      } else {
-        // Patient not found
-        if (report.device?.serial_number && report.device.serial_number !== 'Unknown') {
-          console.log(`Creating NEW patient from PDF ${path.basename(file)} (Serial: ${report.device.serial_number})`);
-          const { reportId, patient: newPatient } = await storeReport(report);
-          await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
-        } else {
-          // No match, no serial -> Unmatched
-          if (report.patient.last_name !== 'Unknown') {
-            console.warn(`No match and no serial for ${path.basename(file)}. Moving to unmatched.`);
-            unmatchedFiles.push(file);
+          // Patient found but NO visit found for this date. Trigger Manual Sorting.
+          console.log(`Patient found but no matching visit for ${path.basename(file)}. Requesting manual confirmation...`);
+
+          const userDecision: any = await new Promise((resolve) => {
+            pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
+            sendManualSortingRequest({
+              filename: path.basename(file),
+              tempPath: file,
+              previewData: {
+                patientName: `${patient.first_name} ${patient.last_name}`,
+                dob: patient.dob,
+                date: report.interrogation_date,
+                serial: report.device?.serial_number
+              }
+            });
+          });
+
+          console.log(`User decision for ${path.basename(file)}:`, userDecision);
+
+          if (userDecision.action === 'assign-patient') {
+            // Assign to existing patient
+            try {
+              const { getPatientById } = await import('./database');
+              const targetPatient = await getPatientById(userDecision.patientId);
+              const datePrefix = report.interrogation_date.split('T')[0];
+              const { findReportByDate } = await import('./database');
+              const existingReportByUser = await findReportByDate(targetPatient.id, datePrefix);
+
+              if (existingReportByUser) {
+                await storeFile(file, existingReportByUser.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
+              } else {
+                report.patient_id = targetPatient.id;
+                const { storeReport } = await import('./storage');
+                const { reportId } = await storeReport(report);
+                await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
+              }
+              logImportEvent({
+                id: uuidv4(),
+                session_id: sessionId,
+                file_path: file,
+                status: 'manually_sorted',
+                patient_id: targetPatient.id,
+                message: 'Manually assigned by user'
+              });
+              sessionSummary.manuallySorted++;
+              // sessionSummary.imported++ is handled outside
+            } catch (e) {
+              console.error('Error in manual assignment', e);
+              unmatchedFiles.push(file);
+            }
+
+          } else if (userDecision.action === 'create-patient') {
+            // Create brand new patient
+            try {
+              const { getPatientById, createPatient } = await import('./database');
+              const newPatientData = userDecision.patientData;
+              const newId = uuidv4();
+              await createPatient({
+                id: newId,
+                first_name: newPatientData.first_name,
+                last_name: newPatientData.last_name,
+                dob: newPatientData.dob,
+                hospitalPatientId: newPatientData.hospitalPatientId || null
+              });
+              const newPatient = await getPatientById(newId);
+
+              report.patient_id = newPatient.id;
+              const { storeReport } = await import('./storage');
+              const { reportId } = await storeReport(report);
+              await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
+
+              logImportEvent({
+                id: uuidv4(),
+                session_id: sessionId,
+                file_path: file,
+                status: 'manually_sorted',
+                patient_id: newPatient.id,
+                message: 'Manually created patient'
+              });
+              sessionSummary.manuallySorted++;
+              // sessionSummary.imported++ is handled outside
+            } catch (e) {
+              console.error('Error in manual creation', e);
+              unmatchedFiles.push(file);
+            }
           } else {
-            console.warn(`No identifiers for ${path.basename(file)}. Moving to unmatched.`);
+            unmatchedFiles.push(file);
+            logImportEvent({
+              id: uuidv4(),
+              session_id: sessionId,
+              file_path: file,
+              status: 'unmatched',
+              message: 'User skipped or sent to unmatched'
+            });
+            sessionSummary.unmatched++;
+            // Decrement imported because it will be incremented outside by default logic structure in previous code?
+            // Wait, previous code had `sessionSummary.imported++` valid for both branches of logic (auto-matched or new visit).
+            // Now "Unmatched" case should NOT count as imported.
+            sessionSummary.imported--;
+          }
+        }
+        sessionSummary.imported++;
+
+      } else {
+        // Patient not found - AMBIGUITY, TRY INTERACTIVE MODE
+        console.log(`No clear match for ${path.basename(file)}. Requesting manual input...`);
+
+        // Ask user what to do
+        const userDecision: any = await new Promise((resolve) => {
+          pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
+          sendManualSortingRequest({
+            filename: path.basename(file), // Only send filename, not full path which might be in temp
+            tempPath: file, // Keep track if needed by renderer for preview (might be tricky with temp) -> Actually renderer can't access temp easily if sandboxed? 
+            // Renderer is local file access allowed usually in Electron if webSecurity is managed? 
+            // KardiSynch seems to be open.
+            previewData: {
+              patientName: `${report.patient.first_name} ${report.patient.last_name}`,
+              dob: report.patient.dob,
+              date: report.interrogation_date,
+              serial: report.device?.serial_number
+            }
+          });
+        });
+
+        console.log(`User decision for ${path.basename(file)}:`, userDecision);
+
+        if (userDecision.action === 'assign-patient') {
+          // Assign to existing patient
+          try {
+            const targetPatient = await getPatientById(userDecision.patientId);
+            const datePrefix = report.interrogation_date.split('T')[0];
+            const existingReport = await findReportByDate(targetPatient.id, datePrefix);
+            if (existingReport) {
+              await storeFile(file, existingReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
+            } else {
+              report.patient_id = targetPatient.id;
+              const { reportId } = await storeReport(report);
+              await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
+            }
+            logImportEvent({
+              id: uuidv4(),
+              session_id: sessionId,
+              file_path: file,
+              status: 'manually_sorted',
+              patient_id: targetPatient.id,
+              message: 'Manually assigned by user'
+            });
+            sessionSummary.manuallySorted++;
+            sessionSummary.imported++;
+          } catch (e) {
+            console.error('Error in manual assignment', e);
             unmatchedFiles.push(file);
           }
+
+        } else if (userDecision.action === 'create-patient') {
+          // Create brand new patient
+          const newPatientData = userDecision.patientData; // expect { firstName, lastName, dob, id? }
+          const newId = uuidv4();
+          await createPatient({
+            id: newId,
+            first_name: newPatientData.first_name,
+            last_name: newPatientData.last_name,
+            dob: newPatientData.dob,
+            hospitalPatientId: newPatientData.hospitalPatientId || null
+          });
+          const newPatient = await getPatientById(newId);
+
+          report.patient_id = newPatient.id;
+          const { reportId } = await storeReport(report);
+          await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'manually_sorted',
+            patient_id: newPatient.id,
+            message: 'Manually created patient'
+          });
+          sessionSummary.manuallySorted++;
+          sessionSummary.imported++;
+
+        } else {
+          // Unmatched
+          unmatchedFiles.push(file);
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'unmatched',
+            message: 'User skipped or sent to unmatched'
+          });
+          sessionSummary.unmatched++;
         }
       }
 
     } catch (e) {
       console.error(`Error processing standalone PDF ${path.basename(file)}:`, e);
       unmatchedFiles.push(file);
+      logImportEvent({
+        id: uuidv4(),
+        session_id: sessionId,
+        file_path: file,
+        status: 'error',
+        message: (e as Error).message
+      });
+      sessionSummary.errors++;
     }
   }
 
   // Move unmatched files
   for (const file of unmatchedFiles) {
-    // Check if file still exists (it might have been moved if we messed up logic)
     if (fs.existsSync(file)) {
       const newPath = path.join(unmatchedDir, path.basename(file));
       try {
@@ -332,7 +764,11 @@ const processTempDirectory = async (tempDir: string) => {
   try {
     fs.rmSync(tempDir, { recursive: true, force: true });
     console.log(`Successfully removed temporary directory: ${tempDir}`);
+
+    await updateImportSessionStatus(sessionId, 'completed', sessionSummary);
+    sendImportSessionUpdate({ id: sessionId, ...sessionSummary });
     sendProcessStatus({ type: 'complete', message: 'Processing complete.' });
+
   } catch (error) {
     console.error(`Error removing temporary directory ${tempDir}:`, error);
     sendNotification(`Error cleaning up temp directory: ${(error as Error).message}`, 'error');
@@ -369,16 +805,19 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
         console.log(`POLLING: Found ${files.length} files in ${importDir}: ${files.join(', ')}`);
         // Trigger processing if files exist but watcher didn't fire
         if (!watcherTimeout) {
-          console.log('POLLING: Triggering processing fallback...');
-          watcherTimeout = setTimeout(() => {
-            const currentFiles = getFilesRecursively(importDir);
-            if (currentFiles.length > 0) {
-              const tempDir = createTempDirectory();
-              stageFilesToTempDir(tempDir);
-              processTempDirectory(tempDir);
-            }
-            watcherTimeout = null;
-          }, 1000);
+          // Also check if we are NOT waiting for user input
+          if (!pendingManualSortRequest) {
+            console.log('POLLING: Triggering processing fallback...');
+            watcherTimeout = setTimeout(() => {
+              const currentFiles = getFilesRecursively(importDir);
+              if (currentFiles.length > 0) {
+                const tempDir = createTempDirectory();
+                stageFilesToTempDir(tempDir);
+                processTempDirectory(tempDir);
+              }
+              watcherTimeout = null;
+            }, 1000);
+          }
         }
       }
     } catch (e) {
@@ -409,20 +848,22 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
         if (watcherTimeout) {
           clearTimeout(watcherTimeout);
         }
-        watcherTimeout = setTimeout(() => {
-          console.log('Watcher timeout triggered. Checking for files...');
-          const currentFiles = getFilesRecursively(importDir);
-          console.log(`Found ${currentFiles.length} files in import directory.`);
-          if (currentFiles.length === 0) {
-            console.log('No files found, skipping processing.');
-            return;
-          }
-          console.log('File changes stabilized. Starting processing...');
-          const tempDir = createTempDirectory();
-          stageFilesToTempDir(tempDir);
-          processTempDirectory(tempDir);
-          watcherTimeout = null;
-        }, 2000);
+        if (!pendingManualSortRequest) {
+          watcherTimeout = setTimeout(() => {
+            console.log('Watcher timeout triggered. Checking for files...');
+            const currentFiles = getFilesRecursively(importDir);
+            console.log(`Found ${currentFiles.length} files in import directory.`);
+            if (currentFiles.length === 0) {
+              console.log('No files found, skipping processing.');
+              return;
+            }
+            console.log('File changes stabilized. Starting processing...');
+            const tempDir = createTempDirectory();
+            stageFilesToTempDir(tempDir);
+            processTempDirectory(tempDir);
+            watcherTimeout = null;
+          }, 10000);
+        }
       }
     });
   } catch (error) {

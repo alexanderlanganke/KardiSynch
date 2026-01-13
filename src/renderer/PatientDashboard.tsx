@@ -12,6 +12,7 @@ import { Badge } from '@/components/ui/badge';
 interface Patient {
   id: string;
   patientId: string;
+  hospitalPatientId: string;
   name: string;
   dob: string;
   lastReportDate: string;
@@ -20,6 +21,7 @@ interface Patient {
   deviceModel?: string;
   leads?: string[];
 }
+
 
 interface FilterState {
   dob: string;
@@ -326,13 +328,8 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                         onClick={(e) => e.stopPropagation()}
                       />
                     </div>
-                    <Input
-                      className="h-5 text-[10px] px-1 font-mono"
-                      placeholder="ID"
-                      value={editFormData.hospitalPatientId}
-                      onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                    {/* Internal ID display only, or hidden if redundant */}
+                    <span className="text-[9px] font-mono text-muted-foreground opacity-50 px-1">{patient.patientId}</span>
                   </div>
 
                   {/* DOB Input */}

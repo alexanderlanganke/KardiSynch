@@ -6,9 +6,12 @@ import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
-import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import icon from './assets/icon.jpg';
+import ImportHistory from './ImportHistory';
+import ManualSortingModal from './ManualSortingModal';
+import DeviceSelectionModal from './components/DeviceSelectionModal';
 
 
 const ThemeToggle: React.FC = () => {
@@ -55,8 +58,53 @@ const NavItem: React.FC<{
   </Button>
 );
 
+
+
+// ... (ThemeToggle and NavItem remain the same if not touched by replacement, but we need to supply the imports)
+
+// Since I am replacing the whole file content via tool isn't ideal if I can just edit chunks, 
+// but the instruction says "Replace the App component return".
+// Let's try to be surgical to avoid re-pasting the ThemeToggle which is fine.
+
+// Actually I will assume the previous chunks are preserved if I target specific lines.
+// But to be safe and clean, I will replace the imports and the App component BODY.
+
 const App: React.FC = () => {
   const { currentView, setCurrentView, currentPatientId, setCurrentPatientId } = useAppContext();
+
+  // Manual Sorting State
+  const [manualSortingOpen, setManualSortingOpen] = React.useState(false);
+  const [manualSortingFile, setManualSortingFile] = React.useState<any>(null);
+
+  // Device Selection State
+  const [deviceSelectionOpen, setDeviceSelectionOpen] = React.useState(false);
+  const [deviceSelectionFile, setDeviceSelectionFile] = React.useState<any>(null);
+
+  React.useEffect(() => {
+    // Listen for manual sorting requests
+    window.electronAPI.onRequestManualSorting((fileInfo) => {
+      setManualSortingFile(fileInfo);
+      setManualSortingOpen(true);
+    });
+
+    // Listen for device selection requests
+    window.electronAPI.onDeviceSelectionRequest((fileInfo) => {
+      setDeviceSelectionFile(fileInfo);
+      setDeviceSelectionOpen(true);
+    });
+  }, []);
+
+  const handleManualSortingResolve = (decision: any) => {
+    window.electronAPI.manualSortingResponse(decision);
+    setManualSortingOpen(false);
+    setManualSortingFile(null);
+  };
+
+  const handleDeviceSelectionResolve = (result: any) => {
+    window.electronAPI.sendDeviceSelectionResult(result);
+    setDeviceSelectionOpen(false);
+    setDeviceSelectionFile(null);
+  };
 
   const handlePatientSelect = (patientId: string) => {
     setCurrentPatientId(patientId);
@@ -74,6 +122,8 @@ const App: React.FC = () => {
         return <PatientDashboard onPatientSelect={handlePatientSelect} />;
       case 'settings':
         return <Settings />;
+      case 'history':
+        return <ImportHistory />;
       case 'patientDetail':
         if (currentPatientId) {
           return (
@@ -103,9 +153,14 @@ const App: React.FC = () => {
 
           <nav className="flex flex-col space-y-4 w-full items-center">
             <NavItem
-              active={currentView === 'dashboard'}
+              active={currentView === 'dashboard' || currentView === 'patientDetail'}
               onClick={() => setCurrentView('dashboard')}
               icon={<LayoutDashboard className="h-6 w-6" />}
+            />
+            <NavItem
+              active={currentView === 'history'}
+              onClick={() => setCurrentView('history')}
+              icon={<History className="h-6 w-6" />}
             />
             <NavItem
               active={currentView === 'settings'}
@@ -127,11 +182,23 @@ const App: React.FC = () => {
           </div>
         </main>
 
-
-
         <div style={{ position: 'fixed', top: '0px', right: '0px', zIndex: 100, margin: '4px' }}>
           <NotificationCenter />
         </div>
+
+        {/* Global Modals */}
+        <ManualSortingModal
+          open={manualSortingOpen}
+          fileInfo={manualSortingFile}
+          onResolve={handleManualSortingResolve}
+        />
+
+        <DeviceSelectionModal
+          open={deviceSelectionOpen}
+          fileInfo={deviceSelectionFile}
+          onResolve={handleDeviceSelectionResolve}
+        />
+
       </div>
     </ThemeProvider>
   );

@@ -41,6 +41,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVisitFiles: (patientId: string, visitDirName: string) => ipcRenderer.invoke('get-visit-files', patientId, visitDirName),
   getParsedXml: (filePath: string) => ipcRenderer.invoke('get-parsed-xml', filePath),
 
+  // Import History & Manual Sorting
+  manualSortingResponse: (response: any) => ipcRenderer.invoke('manual-sorting-response', response),
+  getImportHistory: () => ipcRenderer.invoke('get-import-history'),
+  getImportSessionEvents: (sessionId: string) => ipcRenderer.invoke('get-import-session-events', sessionId),
+  moveImportedFile: (eventId: string, newPatientId: string) => ipcRenderer.invoke('move-imported-file', eventId, newPatientId),
+  onRequestManualSorting: (callback: (fileInfo: any) => void) => {
+    ipcRenderer.on('request-manual-sorting', (event, fileInfo) => callback(fileInfo));
+  },
+  onImportSessionUpdate: (callback: (session: any) => void) => {
+    ipcRenderer.on('import-session-update', (event, session) => callback(session));
+  },
+
+  // Device Selection (Autodetection Fallback)
+  sendDeviceSelectionResult: (result: any) => ipcRenderer.invoke('device-selection-result', result),
+  onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => {
+    ipcRenderer.on('request-device-selection', (event, fileInfo) => callback(fileInfo));
+  },
+
   // Updates
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),

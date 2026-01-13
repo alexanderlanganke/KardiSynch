@@ -365,3 +365,54 @@ export const updatePatientXML = async (
 
   fs.writeFileSync(patientXmlPath, newXml);
 };
+
+/**
+ * Moves a report (visit) to a different patient.
+ */
+export const moveReport = async (reportId: string, oldPatientId: string, newPatientId: string): Promise<void> => {
+  const { getPatientById, updateReportPatient } = await import('./database');
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  // Find old patient directory
+  const patientDirs = fs.readdirSync(reportsDir);
+  const oldPatientDirName = patientDirs.find(d => d.startsWith(oldPatientId));
+  if (!oldPatientDirName) throw new Error('Old patient directory not found');
+  const oldPatientPath = path.join(reportsDir, oldPatientDirName);
+
+  // Find visit directory
+  const visitDirs = fs.readdirSync(oldPatientPath);
+  const visitDirName = visitDirs.find(d => d.includes(reportId));
+  if (!visitDirName) throw new Error('Visit directory not found');
+  const visitPath = path.join(oldPatientPath, visitDirName);
+
+  // Get new patient details
+  const newPatient = await getPatientById(newPatientId);
+  if (!newPatient) throw new Error('New patient not found');
+
+  // Create/Get new patient directory
+  const safeName = `${newPatient.last_name}_${newPatient.first_name}`.replace(/[^a-zA-Z0-9]/g, '_');
+  const newPatientDirName = `${newPatient.id}_${safeName}`;
+  const newPatientPath = path.join(reportsDir, newPatientDirName);
+
+  if (!fs.existsSync(newPatientPath)) {
+    fs.mkdirSync(newPatientPath, { recursive: true });
+  }
+
+  // Move visit directory
+  const newVisitPath = path.join(newPatientPath, visitDirName);
+  try {
+    fs.renameSync(visitPath, newVisitPath);
+  } catch (error: any) {
+    if (error.code === 'EXDEV') {
+      fs.cpSync(visitPath, newVisitPath, { recursive: true });
+      fs.rmSync(visitPath, { recursive: true, force: true });
+    } else {
+      throw error;
+    }
+  }
+
+  // Update Database
+  await updateReportPatient(reportId, newPatientId);
+};
