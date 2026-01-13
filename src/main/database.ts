@@ -59,6 +59,29 @@ const createTables = (db: sqlite3.Database) => {
         value TEXT
       );
     `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS ImportSessions (
+        id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        status TEXT,
+        summary TEXT
+      );
+    `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS ImportEvents (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        status TEXT NOT NULL,
+        patient_id TEXT,
+        report_id TEXT,
+        message TEXT,
+        FOREIGN KEY (session_id) REFERENCES ImportSessions (id)
+      );
+    `);
   });
 };
 
@@ -350,6 +373,7 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
         p.first_name,
         p.last_name,
         p.dob,
+        p.hospitalPatientId,
         COUNT(r.id) as reportCount,
         MAX(r.interrogation_date) as lastReportDate
       FROM Patients p 
@@ -393,6 +417,7 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
         const patients = rows.map(row => ({
           id: row.id,
           patientId: `P-${row.id}`,
+          hospitalPatientId: row.hospitalPatientId || '',
           name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
           dob: row.dob || '',
           lastReportDate: row.lastReportDate || '',
@@ -604,3 +629,142 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
   if (onProgress) onProgress({ type: 'complete', message: 'Database rebuild complete.', progress: 100 });
   return { patients: patientCount, reports: reportCount };
 };
+
+// --- Import Session & Event Helpers ---
+
+export const createImportSession = (sessionId: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run(
+      'INSERT INTO ImportSessions (id, timestamp, status, summary) VALUES (?, ?, ?, ?)',
+      [sessionId, new Date().toISOString(), 'running', JSON.stringify({})],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+};
+
+export const updateImportSessionStatus = (sessionId: string, status: string, summary?: any): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    let query = 'UPDATE ImportSessions SET status = ?';
+    const params = [status];
+
+    if (summary) {
+      query += ', summary = ?';
+      params.push(JSON.stringify(summary));
+    }
+    query += ' WHERE id = ?';
+    params.push(sessionId);
+
+    db.run(query, params, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+export const logImportEvent = (event: {
+  id: string;
+  session_id: string;
+  file_path: string;
+  status: 'imported' | 'unmatched' | 'error' | 'manually_sorted' | 'skipped';
+  patient_id?: string;
+  report_id?: string;
+  message?: string;
+}): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run(
+      `INSERT INTO ImportEvents (
+        id, session_id, timestamp, file_path, status, patient_id, report_id, message
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        event.id,
+        event.session_id,
+        new Date().toISOString(),
+        event.file_path,
+        event.status,
+        event.patient_id || null,
+        event.report_id || null,
+        event.message || null
+      ],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
+  });
+};
+
+export const getImportHistory = (): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all(
+      `SELECT * FROM ImportSessions ORDER BY timestamp DESC LIMIT 50`,
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      }
+    );
+  });
+};
+
+export const getImportSessionEvents = (sessionId: string): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all(
+      `SELECT e.*, p.first_name, p.last_name 
+       FROM ImportEvents e
+       LEFT JOIN Patients p ON e.patient_id = p.id
+       WHERE session_id = ?
+       ORDER BY e.timestamp ASC`,
+      [sessionId],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows);
+      }
+    );
+  });
+};
+
+export const getImportEvent = async (eventId: string): Promise<any> => {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.get('SELECT * FROM ImportEvents WHERE id = ?', [eventId], (err, row) => {
+      if (err) reject(err);
+      else resolve(row);
+    });
+  });
+};
+
+export const updateImportEvent = async (eventId: string, updates: any): Promise<void> => {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    const sets: string[] = [];
+    const values: any[] = [];
+    for (const [key, value] of Object.entries(updates)) {
+      sets.push(`${key} = ?`);
+      values.push(value);
+    }
+    values.push(eventId);
+
+    db.run(`UPDATE ImportEvents SET ${sets.join(', ')} WHERE id = ?`, values, (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+
+export const updateReportPatient = async (reportId: string, newPatientId: string): Promise<void> => {
+  const db = getDb();
+  return new Promise((resolve, reject) => {
+    db.run('UPDATE Reports SET patient_id = ? WHERE id = ?', [newPatientId, reportId], (err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+};
+

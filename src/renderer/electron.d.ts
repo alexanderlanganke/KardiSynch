@@ -25,6 +25,19 @@ export interface IElectronAPI {
   getVisitFiles: (patientId: string, visitDirName: string) => Promise<string[]>;
   getParsedXml: (filePath: string) => Promise<any>;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
+  openPatientDirectory: (patientId: string) => Promise<void>;
+
+  // Import History & Manual Sorting
+  manualSortingResponse: (response: any) => Promise<void>;
+  getImportHistory: () => Promise<any[]>;
+  getImportSessionEvents: (sessionId: string) => Promise<any[]>;
+  moveImportedFile: (eventId: string, newPatientId: string) => Promise<void>;
+  onRequestManualSorting: (callback: (fileInfo: any) => void) => void;
+  onImportSessionUpdate: (callback: (session: any) => void) => void;
+
+  // Device Selection (Autodetection Fallback)
+  sendDeviceSelectionResult: (result: any) => Promise<void>;
+  onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => void;
 }
 
 declare global {

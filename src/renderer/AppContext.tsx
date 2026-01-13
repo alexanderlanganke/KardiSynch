@@ -1,6 +1,6 @@
 import React, { createContext, useState, useContext } from 'react';
 
-type View = 'dashboard' | 'settings' | 'patientDetail';
+type View = 'dashboard' | 'settings' | 'patientDetail' | 'history';
 
 export interface ViewerSlot {
   report: any;
