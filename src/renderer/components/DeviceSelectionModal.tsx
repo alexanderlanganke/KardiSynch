@@ -21,6 +21,11 @@ interface DeviceSelectionModalProps {
     onResolve: (result: { action: 'save' | 'skip'; deviceData?: DeviceData }) => void;
 }
 
+import PdfViewer from '../PdfViewer';
+import { Badge } from '@/components/ui/badge';
+import { FileText } from 'lucide-react';
+import { ScrollArea } from '@/components/ui/scroll-area';
+
 const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileInfo, onResolve }) => {
     const [manufacturer, setManufacturer] = useState('');
     const [type, setType] = useState('');
@@ -84,112 +89,158 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
 
     if (!open) return null;
 
+    const isPdf = fileInfo.filename?.toLowerCase().endsWith('.pdf');
+
     return (
         <Dialog open={open} onOpenChange={() => { }}>
-            <DialogContent className="sm:max-w-[700px] bg-background/95 backdrop-blur-xl border-primary/20">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2 text-xl">
-                        <Settings className="h-6 w-6 text-blue-500" />
-                        <span className="bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent">
-                            Device Autodetection Failed
-                        </span>
-                    </DialogTitle>
-                    <DialogDescription>
-                        The system could not identify the device details from file:
-                        <span className="font-mono text-xs ml-1 bg-muted px-1 rounded">{fileInfo?.filename}</span>.
-                        Please manually select the device parameters.
-                    </DialogDescription>
-                </DialogHeader>
-
-                <div className="grid gap-6 py-4">
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label>Manufacturer *</Label>
-                            <Select value={manufacturer} onValueChange={setManufacturer}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Manufacturer" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="Biotronik">Biotronik</SelectItem>
-                                    <SelectItem value="Medtronic">Medtronic</SelectItem>
-                                    <SelectItem value="Boston Scientific">Boston Scientific</SelectItem>
-                                    <SelectItem value="Abbott">Abbott</SelectItem>
-                                    <SelectItem value="Microport">Microport</SelectItem>
-                                    <SelectItem value="Sorin">Sorin</SelectItem>
-                                    <SelectItem value="Impulse Dynamics">Impulse Dynamics</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                            <Label>Device Type *</Label>
-                            <Select value={type} onValueChange={setType}>
-                                <SelectTrigger>
-                                    <SelectValue placeholder="Select Type" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="Pacemaker">Pacemaker</SelectItem>
-                                    <SelectItem value="ICD">ICD</SelectItem>
-                                    <SelectItem value="CRT-P">CRT-P</SelectItem>
-                                    <SelectItem value="CRT-D">CRT-D</SelectItem>
-                                    <SelectItem value="ICM">ICM / Loop Recorder</SelectItem>
-                                </SelectContent>
-                            </Select>
-                        </div>
+            <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden">
+                <div className="flex flex-col h-full">
+                    {/* Header */}
+                    <div className="px-6 py-4 border-b shrink-0">
+                        <DialogTitle className="flex items-center gap-2 text-xl">
+                            <Settings className="h-6 w-6 text-blue-500" />
+                            <span className="bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent">
+                                Device Autodetection Failed
+                            </span>
+                        </DialogTitle>
+                        <DialogDescription className="mt-1">
+                            The system could not identify device details. Please transcribe them from the document.
+                        </DialogDescription>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div className="space-y-2">
-                            <Label>Device Model</Label>
-                            <Input
-                                placeholder="e.g. Edora 8"
-                                value={model}
-                                onChange={e => setModel(e.target.value)}
-                            />
-                        </div>
-                        <div className="space-y-2">
-                            <Label>Serial Number</Label>
-                            <Input
-                                placeholder="e.g. 12345678"
-                                value={serial}
-                                onChange={e => setSerial(e.target.value)}
-                            />
-                        </div>
-                    </div>
+                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0">
+                        {/* LEFT PANE: Inputs (4 columns) */}
+                        <div className="col-span-4 border-r flex flex-col bg-muted/10 h-full overflow-hidden">
+                            <ScrollArea className="flex-1">
+                                <div className="p-6 space-y-6">
+                                    <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                                        <FileText className="h-8 w-8 text-primary/70" />
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-medium truncate" title={fileInfo.filename}>{fileInfo.filename}</p>
+                                            <Badge variant="outline" className="text-[10px] h-5 px-1 mt-1">
+                                                {isPdf ? 'PDF Document' : 'Unknown Type'}
+                                            </Badge>
+                                        </div>
+                                    </div>
 
-                    <div className="space-y-2">
-                        <Label className="text-muted-foreground text-xs uppercase tracking-wider">Lead Information (Optional)</Label>
-                        <div className="space-y-3 border rounded-lg p-3 bg-muted/20">
-                            {leads.map((lead, idx) => (
-                                <div key={lead.name} className="flex gap-2 items-center">
-                                    <div className="w-12 font-medium text-sm text-center bg-muted/50 rounded py-1">{lead.name}</div>
-                                    <Input
-                                        placeholder="Model"
-                                        className="h-8 text-xs"
-                                        value={lead.model}
-                                        onChange={e => handleLeadChange(idx, 'model', e.target.value)}
-                                    />
-                                    <Input
-                                        placeholder="Serial"
-                                        className="h-8 text-xs"
-                                        value={lead.serial}
-                                        onChange={e => handleLeadChange(idx, 'serial', e.target.value)}
-                                    />
+                                    <div className="space-y-4">
+                                        <div className="grid grid-cols-1 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Manufacturer *</Label>
+                                                <Select value={manufacturer} onValueChange={setManufacturer}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select Manufacturer" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Biotronik">Biotronik</SelectItem>
+                                                        <SelectItem value="Medtronic">Medtronic</SelectItem>
+                                                        <SelectItem value="Boston Scientific">Boston Scientific</SelectItem>
+                                                        <SelectItem value="Abbott">Abbott</SelectItem>
+                                                        <SelectItem value="Microport">Microport</SelectItem>
+                                                        <SelectItem value="Sorin">Sorin</SelectItem>
+                                                        <SelectItem value="Impulse Dynamics">Impulse Dynamics</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label>Device Type *</Label>
+                                                <Select value={type} onValueChange={setType}>
+                                                    <SelectTrigger>
+                                                        <SelectValue placeholder="Select Type" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="Pacemaker">Pacemaker</SelectItem>
+                                                        <SelectItem value="ICD">ICD</SelectItem>
+                                                        <SelectItem value="CRT-P">CRT-P</SelectItem>
+                                                        <SelectItem value="CRT-D">CRT-D</SelectItem>
+                                                        <SelectItem value="ICM">ICM / Loop Recorder</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 gap-4">
+                                            <div className="space-y-2">
+                                                <Label>Device Model</Label>
+                                                <Input
+                                                    placeholder="e.g. Edora 8"
+                                                    value={model}
+                                                    onChange={e => setModel(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Serial Number</Label>
+                                                <Input
+                                                    placeholder="e.g. 12345678"
+                                                    value={serial}
+                                                    onChange={e => setSerial(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2 pt-2 border-t">
+                                            <Label className="text-muted-foreground text-xs uppercase tracking-wider">Leads</Label>
+                                            <div className="space-y-3">
+                                                {leads.map((lead, idx) => (
+                                                    <div key={lead.name} className="flex gap-2 items-center">
+                                                        <div className="w-8 shrink-0 font-medium text-xs text-center bg-muted/50 rounded py-1">{lead.name}</div>
+                                                        <Input
+                                                            placeholder="Model"
+                                                            className="h-8 text-xs flex-1"
+                                                            value={lead.model}
+                                                            onChange={e => handleLeadChange(idx, 'model', e.target.value)}
+                                                        />
+                                                        <Input
+                                                            placeholder="Serial"
+                                                            className="h-8 text-xs flex-1"
+                                                            value={lead.serial}
+                                                            onChange={e => handleLeadChange(idx, 'serial', e.target.value)}
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
-                            ))}
+                            </ScrollArea>
+
+                            <div className="p-4 border-t bg-background shrink-0 flex flex-col gap-3">
+                                <Button onClick={handleSave} disabled={!manufacturer || !type} className="w-full">
+                                    <Check className="mr-2 h-4 w-4" /> Save Details
+                                </Button>
+                                <Button variant="ghost" onClick={handleSkip} className="w-full text-muted-foreground hover:text-destructive text-xs">
+                                    Skip (Import as Unknown)
+                                </Button>
+                            </div>
+                        </div>
+
+                        {/* RIGHT PANE: Preview (8 columns) */}
+                        <div className="col-span-8 h-full bg-muted/20 flex flex-col relative overflow-hidden">
+                            <div className="absolute inset-0 p-4">
+                                <div className="h-full w-full rounded-lg border bg-background shadow-sm overflow-hidden flex flex-col">
+                                    <div className="px-4 py-2 border-b bg-muted/40 text-xs font-medium text-muted-foreground flex justify-between items-center">
+                                        <span>Document Preview</span>
+                                        {isPdf && <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px]">PDF Viewer</span>}
+                                    </div>
+                                    <div className="flex-1 bg-gray-50 overflow-auto relative flex items-center justify-center">
+                                        {isPdf && fileInfo.tempPath ? (
+                                            <div className="min-h-full w-full flex justify-center p-4">
+                                                <PdfViewer pdfPath={fileInfo.tempPath} />
+                                            </div>
+                                        ) : (
+                                            <div className="text-center p-8 text-muted-foreground">
+                                                <FileText className="h-16 w-16 mx-auto mb-4 opacity-20" />
+                                                <p>Preview not available for this file type</p>
+                                                <p className="text-xs mt-2 opacity-60">({fileInfo.filename})</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
-
                 </div>
-
-                <DialogFooter className="flex sm:justify-between items-center gap-4">
-                    <Button variant="ghost" onClick={handleSkip} className="text-muted-foreground hover:text-destructive">
-                        Skip (Import as Unknown)
-                    </Button>
-                    <Button onClick={handleSave} disabled={!manufacturer || !type}>
-                        <Check className="mr-2 h-4 w-4" /> Save Details
-                    </Button>
-                </DialogFooter>
             </DialogContent>
         </Dialog>
     );

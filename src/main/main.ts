@@ -643,23 +643,159 @@ ipcMain.handle('get-import-session-events', async (event, sessionId) => {
   }
 });
 
-ipcMain.handle('move-imported-file', async (event, eventId, newPatientId) => {
+ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, targetVisitId?: string, newVisitDate?: string) => {
   try {
-    const { getImportEvent, updateImportEvent } = await import('./database');
-    const { moveReport } = await import('./storage');
+    const { getImportEvent, updateImportEvent, getPatientById, getReportById, createReport, updateReportPatient } = await import('./database');
+    const { moveReport, storeFile } = await import('./storage');
+    const { v4: uuidv4 } = await import('uuid');
 
     const importEvent = await getImportEvent(eventId);
-    if (!importEvent || !importEvent.report_id || !importEvent.patient_id) {
-      throw new Error('Event invalid or missing report/patient info');
+    if (!importEvent) {
+      throw new Error('Event not found');
     }
 
-    await moveReport(importEvent.report_id, importEvent.patient_id, newPatientId);
+    const targetPatient = await getPatientById(newPatientId);
+    if (!targetPatient) throw new Error('Target patient not found');
 
-    await updateImportEvent(eventId, {
-      patient_id: newPatientId,
-      status: 'manually_sorted',
-      message: 'Moved by user'
-    });
+    // Helper to determine target report
+    const determineTargetReport = async (dateForNew: string, templateReport?: any) => {
+      if (targetVisitId) {
+        const r = await getReportById(targetVisitId);
+        if (r) return { id: r.id, date: r.interrogation_date, isNew: false, reportObj: undefined }; // Don't overwrite existing visit.xml
+      }
+      // New Visit
+      const newReportId = uuidv4();
+
+      const base = templateReport || { manufacturer: 'Unknown' };
+      // Create skeleton report for new visit, copying metadata if available
+      const newReport = {
+        ...base,
+        id: newReportId,
+        patient_id: targetPatient.id,
+        interrogation_date: newVisitDate || dateForNew,
+        raw_text: base.raw_text || 'Manually created visit',
+        data: base.data || JSON.stringify({ note: 'Created via move file' })
+      };
+
+      // Remove DB specific fields that shouldn't be copied
+      delete newReport.rowid;
+      delete newReport.created_at;
+      delete newReport.updated_at;
+
+      await createReport(newReport);
+      return { id: newReportId, date: newVisitDate || dateForNew, isNew: true, reportObj: newReport };
+    };
+
+    if (importEvent.status === 'unmatched') {
+      // 1. Handle Unmatched File Move
+      const filePath = importEvent.file_path;
+      if (!filePath) throw new Error('File path missing');
+
+      let parsedReport = null;
+      let date = 'Unknown';
+
+      try {
+        const { parseFile } = await import('./parser');
+        parsedReport = await parseFile(filePath);
+        if (parsedReport) {
+          date = parsedReport.interrogation_date || 'Unknown';
+        }
+      } catch (e) {
+        console.warn('Failed to parse file during move:', e);
+      }
+
+      // Determine Target Report 
+      const targetReport = await determineTargetReport(date, parsedReport);
+
+      // Store file
+      // If we created a new report, passing targetReport.reportObj allows storeFile to create visit.xml
+      await storeFile(filePath, targetReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetReport.date, targetPatient, targetReport.reportObj || parsedReport || undefined);
+
+      // Update Import Event
+      await updateImportEvent(eventId, {
+        patient_id: newPatientId,
+        status: 'manually_sorted',
+        message: targetVisitId ? 'Assigned to existing visit' : 'Assigned to new visit',
+        report_id: targetReport.id
+      });
+
+    } else {
+      // 2. Handle Existing Report Move
+      if (!importEvent.report_id || !importEvent.patient_id) {
+        throw new Error('Event invalid');
+      }
+
+      // If specific visit logic is requested
+      if (targetVisitId || newVisitDate) {
+        // SPLIT/MOVE SINGLE FILE
+
+        // 1. Find Current File Path
+        const oldReport = await getReportById(importEvent.report_id);
+        const oldPatient = await getPatientById(importEvent.patient_id);
+        if (!oldReport || !oldPatient) throw new Error('Source context not found');
+
+        // Construct old path
+        const settings = await import('./database').then(m => m.getSettings()); // Need settings for data path
+        // Actually importing storage handles settings, but we need the path here to find the file.
+        // Use a helper or import 'app' and construct?
+        // Storage exports initializeStorage, but dataDir is private.
+        // Let's assume standard structure or use `get-visit-files` logic?
+        // It's cleaner to use `storage.ts` logic if exposed.
+        // But we can just use the same logic as `storeFile`.
+        const { app } = await import('electron');
+        const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+
+        const safeName = `${oldPatient.last_name}_${oldPatient.first_name}`.replace(/[^a-zA-Z0-9]/g, '_');
+
+        // Date formatting for folder
+        let dateString = 'Unknown';
+        if (oldReport.interrogation_date) {
+          const d = new Date(oldReport.interrogation_date);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            dateString = `${y}_${m}_${day}`;
+          }
+        }
+
+        const visitDir = path.join(dataDir, 'Reports', `${oldPatient.id}_${safeName}`, `${dateString}_${oldReport.id}`);
+        const filename = path.basename(importEvent.file_path); // Assume this is correct filename
+        const currentPath = path.join(visitDir, filename);
+
+        if (!require('fs').existsSync(currentPath)) {
+          console.warn(`File not found at ${currentPath}, trying broad search in visit dir`);
+          // Fallback: search for file with same name?
+        }
+
+        // 2. Determine Target Report/Visit (Use oldReport as template)
+        const targetReport = await determineTargetReport(oldReport.interrogation_date, oldReport);
+
+        // 3. Move File using storeFile
+        // storeFile will move it from currentPath -> New Path
+        // We pass 'undefined' for reportObj to avoid overwriting visit metadata unless necessary
+        await storeFile(currentPath, targetReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetReport.date, targetPatient, targetReport.reportObj);
+
+        // 4. Update Import Event
+        await updateImportEvent(eventId, {
+          patient_id: newPatientId,
+          status: 'manually_sorted',
+          report_id: targetReport.id,
+          message: targetVisitId ? 'Moved to existing visit' : 'Moved to new visit'
+        });
+
+        // 5. Cleanup? (Check if old visit empty) - Optional for now.
+
+      } else {
+        // FULL REPORT MOVE (Legacy/Default behavior for "Move to Patient")
+        await moveReport(importEvent.report_id, importEvent.patient_id, newPatientId);
+        await updateImportEvent(eventId, {
+          patient_id: newPatientId,
+          status: 'manually_sorted',
+          message: 'Moved by user'
+        });
+      }
+    }
 
     return { success: true };
   } catch (error) {

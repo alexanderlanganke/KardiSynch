@@ -345,7 +345,7 @@ const Settings: React.FC = () => {
                   </div>
                 </div>
 
-                {updateStatus.includes('Downloaded') && (
+                {updateStatus.toLowerCase().includes('downloaded') && (
                   <div className="pt-4 border-t">
                     <Button
                       type="button"
