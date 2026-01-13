@@ -202,6 +202,20 @@ export const updatePatient = (patient: {
   });
 };
 
+export const getReportById = (id: string): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.get('SELECT * FROM Reports WHERE id = ?', [id], (err, row) => {
+      if (err) {
+        console.error('[getReportById] Error:', err);
+        reject(err);
+      } else {
+        resolve(row);
+      }
+    });
+  });
+};
+
 export const getPatientById = (patientId: string): Promise<any> => {
   console.log('[getPatientById] Looking for patient with ID:', patientId);
   return new Promise((resolve, reject) => {

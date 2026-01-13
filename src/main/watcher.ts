@@ -4,9 +4,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendManualSortingRequest, sendImportSessionUpdate } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
-import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient } from './database';
+import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
 import { storeReport, storeFile } from './storage';
-
 
 let importDir: string;
 let unmatchedDir: string;
@@ -665,12 +664,37 @@ const processTempDirectory = async (tempDir: string) => {
           // Assign to existing patient
           try {
             const targetPatient = await getPatientById(userDecision.patientId);
-            const datePrefix = report.interrogation_date.split('T')[0];
-            const existingReport = await findReportByDate(targetPatient.id, datePrefix);
-            if (existingReport) {
-              await storeFile(file, existingReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
+
+            let targetReportId = null;
+            let targetDate = report.interrogation_date;
+
+            // Check if user selected a specific visit or date
+            if (userDecision.visitMode === 'existing' && userDecision.visitId) {
+              const r = await getReportById(userDecision.visitId);
+              if (r) {
+                targetReportId = r.id;
+                targetDate = r.interrogation_date;
+              }
+            } else if (userDecision.visitMode === 'new' && userDecision.visitDate) {
+              targetDate = userDecision.visitDate;
+              // Force report date update
+              report.interrogation_date = userDecision.visitDate;
+              // targetReportId is null -> Create New
+            } else {
+              // Fallback: match by date
+              const datePrefix = report.interrogation_date.split('T')[0];
+              const existingReport = await findReportByDate(targetPatient.id, datePrefix);
+              if (existingReport) {
+                targetReportId = existingReport.id;
+                targetDate = existingReport.interrogation_date;
+              }
+            }
+
+            if (targetReportId) {
+              await storeFile(file, targetReportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetDate, targetPatient, undefined);
             } else {
               report.patient_id = targetPatient.id;
+              const { storeReport } = await import('./storage');
               const { reportId } = await storeReport(report);
               await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
             }
@@ -680,7 +704,7 @@ const processTempDirectory = async (tempDir: string) => {
               file_path: file,
               status: 'manually_sorted',
               patient_id: targetPatient.id,
-              message: 'Manually assigned by user'
+              message: targetReportId ? 'Manually assigned to existing visit' : 'Manually assigned to new visit'
             });
             sessionSummary.manuallySorted++;
             sessionSummary.imported++;
@@ -702,7 +726,13 @@ const processTempDirectory = async (tempDir: string) => {
           });
           const newPatient = await getPatientById(newId);
 
+          // Update report date if provided by user
+          if (userDecision.visitDate) {
+            report.interrogation_date = userDecision.visitDate;
+          }
+
           report.patient_id = newPatient.id;
+          const { storeReport } = await import('./storage');
           const { reportId } = await storeReport(report);
           await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
 

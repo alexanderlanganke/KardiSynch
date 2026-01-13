@@ -65,13 +65,43 @@ const ImportHistory: React.FC = () => {
         }
     };
 
+    const [visits, setVisits] = useState<any[]>([]);
+    const [visitMode, setVisitMode] = useState<'existing' | 'new'>('existing');
+    const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
+    const [newVisitDate, setNewVisitDate] = useState('');
+
+    useEffect(() => {
+        if (selectedTargetPatient) {
+            // Fetch visits for the selected patient
+            window.electronAPI.getPatientReports(selectedTargetPatient).then(setVisits);
+            setSelectedVisitId(null);
+            setVisitMode('existing');
+            setNewVisitDate('');
+        } else {
+            setVisits([]);
+        }
+    }, [selectedTargetPatient]);
+
     const confirmMove = async () => {
         if (!fileToMove || !selectedTargetPatient) return;
+
+        // Validation
+        if (visitMode === 'existing' && !selectedVisitId && visits.length > 0) return;
+        if (visitMode === 'new' && !newVisitDate) return;
+
         try {
-            await window.electronAPI.moveImportedFile(fileToMove.id, selectedTargetPatient);
+            await window.electronAPI.moveImportedFile(
+                fileToMove.id,
+                selectedTargetPatient,
+                visitMode === 'existing' ? selectedVisitId || undefined : undefined,
+                visitMode === 'new' ? newVisitDate : undefined
+            );
             setMoveFileModalOpen(false);
             setFileToMove(null);
             setSelectedTargetPatient(null);
+            setSelectedVisitId(null);
+            setNewVisitDate('');
+            setVisits([]);
             // Refresh events
             handleSessionClick(selectedSession);
         } catch (e) {
@@ -197,7 +227,7 @@ const ImportHistory: React.FC = () => {
                                                     )}
                                                 </TableCell>
                                                 <TableCell className="text-right">
-                                                    {(event.status === 'imported' || event.status === 'manually_sorted') && (
+                                                    {(event.status === 'imported' || event.status === 'manually_sorted' || event.status === 'unmatched') && (
                                                         <Button variant="ghost" size="sm" onClick={() => handleMoveClick(event)}>
                                                             Move
                                                         </Button>
@@ -215,48 +245,112 @@ const ImportHistory: React.FC = () => {
 
             {/* Move File Modal */}
             <Dialog open={moveFileModalOpen} onOpenChange={setMoveFileModalOpen}>
-                <DialogContent>
+                <DialogContent className="max-w-xl">
                     <DialogHeader>
                         <DialogTitle>Move File to Another Patient</DialogTitle>
                     </DialogHeader>
-                    <div className="space-y-4">
+                    <div className="space-y-6">
                         <p className="text-sm text-muted-foreground">
-                            Select the correct patient for <strong>{fileToMove?.file_path?.split(/[\\/]/).pop()}</strong>.
+                            Assignment for <strong>{fileToMove?.file_path?.split(/[\\/]/).pop()}</strong>.
                         </p>
 
-                        <div className="relative">
-                            <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                            <Input
-                                placeholder="Search patients..."
-                                className="pl-8"
-                                value={searchTerm}
-                                onChange={e => setSearchTerm(e.target.value)}
-                            />
+                        <div className="space-y-4">
+                            <h3 className="text-sm font-medium border-b pb-2">Step 1: Select Patient</h3>
+                            <div className="relative">
+                                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                <Input
+                                    placeholder="Search patients..."
+                                    className="pl-8"
+                                    value={searchTerm}
+                                    onChange={e => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+
+                            <ScrollArea className="h-[200px] rounded-md border p-2">
+                                {filteredPatients.length === 0 ? (
+                                    <p className="text-center text-muted-foreground py-8">No matching patients found</p>
+                                ) : (
+                                    filteredPatients.map(p => (
+                                        <div
+                                            key={p.id}
+                                            onClick={() => setSelectedTargetPatient(p.id)}
+                                            className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${selectedTargetPatient === p.id ? 'bg-primary/20 border border-primary/50' : 'hover:bg-muted'}`}
+                                        >
+                                            <div>
+                                                <p className="font-medium text-sm">{p.name}</p>
+                                                <p className="text-xs text-muted-foreground">{p.dob} • {p.patientId}</p>
+                                            </div>
+                                            {selectedTargetPatient === p.id && <Badge variant="default" className="h-5">Selected</Badge>}
+                                        </div>
+                                    ))
+                                )}
+                            </ScrollArea>
                         </div>
 
-                        <ScrollArea className="h-[200px] rounded-md border p-2">
-                            {filteredPatients.length === 0 ? (
-                                <p className="text-center text-muted-foreground py-8">No matching patients found</p>
-                            ) : (
-                                filteredPatients.map(p => (
-                                    <div
-                                        key={p.id}
-                                        onClick={() => setSelectedTargetPatient(p.id)}
-                                        className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${selectedTargetPatient === p.id ? 'bg-primary/20 border border-primary/50' : 'hover:bg-muted'}`}
-                                    >
-                                        <div>
-                                            <p className="font-medium text-sm">{p.name}</p>
-                                            <p className="text-xs text-muted-foreground">{p.dob} • {p.patientId}</p>
+                        {selectedTargetPatient && (
+                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                <h3 className="text-sm font-medium border-b pb-2">Step 2: Assign Visit</h3>
+                                <div className="space-y-3">
+                                    {visits.length > 0 && (
+                                        <div
+                                            className={`p-3 rounded-lg border cursor-pointer ${visitMode === 'existing' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
+                                            onClick={() => setVisitMode('existing')}
+                                        >
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'existing' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                    {visitMode === 'existing' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                                                </div>
+                                                <span className="font-medium text-sm">Add to existing visit</span>
+                                            </div>
+                                            {visitMode === 'existing' && (
+                                                <ScrollArea className="h-[100px]">
+                                                    <div className="space-y-1 ml-6">
+                                                        {visits.map(v => (
+                                                            <div
+                                                                key={v.id}
+                                                                className={`p-2 rounded text-xs border cursor-pointer ${selectedVisitId === v.id ? 'bg-primary text-primary-foreground' : 'bg-muted/50 hover:bg-muted'}`}
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setSelectedVisitId(v.id);
+                                                                }}
+                                                            >
+                                                                <div className="font-medium">{v.interrogation_date}</div>
+                                                                <div className="opacity-80">{v.manufacturer} {v.device?.type || 'Device'}</div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </ScrollArea>
+                                            )}
                                         </div>
-                                        {selectedTargetPatient === p.id && <Badge variant="default" className="h-5">Selected</Badge>}
+                                    )}
+
+                                    <div
+                                        className={`p-3 rounded-lg border cursor-pointer ${visitMode === 'new' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
+                                        onClick={() => setVisitMode('new')}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'new' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                {visitMode === 'new' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                                            </div>
+                                            <span className="font-medium text-sm">Create new visit from date</span>
+                                        </div>
+                                        {visitMode === 'new' && (
+                                            <div className="ml-6 mt-3 max-w-xs" onClick={e => e.stopPropagation()}>
+                                                <Input
+                                                    type="date"
+                                                    value={newVisitDate}
+                                                    onChange={e => setNewVisitDate(e.target.value)}
+                                                />
+                                            </div>
+                                        )}
                                     </div>
-                                ))
-                            )}
-                        </ScrollArea>
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setMoveFileModalOpen(false)}>Cancel</Button>
-                        <Button onClick={confirmMove} disabled={!selectedTargetPatient}>
+                        <Button onClick={confirmMove} disabled={!selectedTargetPatient || (visitMode === 'existing' && !selectedVisitId) || (visitMode === 'new' && !newVisitDate)}>
                             Confirm Move
                         </Button>
                     </DialogFooter>

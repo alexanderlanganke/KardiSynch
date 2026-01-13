@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   manualSortingResponse: (response: any) => ipcRenderer.invoke('manual-sorting-response', response),
   getImportHistory: () => ipcRenderer.invoke('get-import-history'),
   getImportSessionEvents: (sessionId: string) => ipcRenderer.invoke('get-import-session-events', sessionId),
-  moveImportedFile: (eventId: string, newPatientId: string) => ipcRenderer.invoke('move-imported-file', eventId, newPatientId),
+  moveImportedFile: (eventId: string, newPatientId: string, targetVisitId?: string, newVisitDate?: string) => ipcRenderer.invoke('move-imported-file', eventId, newPatientId, targetVisitId, newVisitDate),
   onRequestManualSorting: (callback: (fileInfo: any) => void) => {
     ipcRenderer.on('request-manual-sorting', (event, fileInfo) => callback(fileInfo));
   },
