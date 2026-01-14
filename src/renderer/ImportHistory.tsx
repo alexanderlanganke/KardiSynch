@@ -279,7 +279,7 @@ const ImportHistory: React.FC = () => {
                                                     )}
                                                 </TableCell>
                                                 <TableCell className="text-right">
-                                                    {(event.status === 'imported' || event.status === 'manually_sorted' || event.status === 'unmatched') && (
+                                                    {['imported', 'manually_sorted', 'unmatched', 'error'].includes((event.status || '').toLowerCase().trim()) && (
                                                         <Button variant="ghost" size="sm" onClick={() => handleMoveClick(event)}>
                                                             Move
                                                         </Button>
