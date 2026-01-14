@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPatientReports: (patientId: string) => ipcRenderer.invoke('get-patient-reports', patientId),
   getPdfData: (filePath: string) => ipcRenderer.invoke('get-pdf-data', filePath),
   readFileText: (filePath: string) => ipcRenderer.invoke('read-file-text', filePath),
+  getPreviewPath: (originalPath: string) => ipcRenderer.invoke('get-preview-path', originalPath),
   findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) =>
     ipcRenderer.send('find-in-page', text, options),
   stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') =>

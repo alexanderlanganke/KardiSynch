@@ -32,6 +32,11 @@ export const resolveDeviceSelection = (response: any) => {
   }
 };
 
+export const getUnmatchedFilePath = (filename: string) => {
+  if (!unmatchedDir) return null;
+  return path.join(unmatchedDir, filename);
+};
+
 /**
  * Creates a temporary directory for processing a batch of files.
  * @returns The path to the newly created temporary directory.
