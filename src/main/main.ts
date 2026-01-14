@@ -381,6 +381,17 @@ ipcMain.handle('get-pdf-data', async (event, filePath) => {
   }
 });
 
+ipcMain.handle('read-file-text', async (event, filePath) => {
+  try {
+    console.log('[read-file-text] Requesting file:', filePath);
+    const data = await fs.readFile(filePath, 'utf-8');
+    return data;
+  } catch (error) {
+    console.error('[read-file-text] Failed to read text file:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('open-patient-directory', async (event, patientId: string) => {
   try {
     const settings = await getAllSettings();

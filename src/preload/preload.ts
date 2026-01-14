@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   rebuildDatabase: () => ipcRenderer.invoke('rebuild-database'),
   getPatientReports: (patientId: string) => ipcRenderer.invoke('get-patient-reports', patientId),
   getPdfData: (filePath: string) => ipcRenderer.invoke('get-pdf-data', filePath),
+  readFileText: (filePath: string) => ipcRenderer.invoke('read-file-text', filePath),
   findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) =>
     ipcRenderer.send('find-in-page', text, options),
   stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') =>
