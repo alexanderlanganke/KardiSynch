@@ -100,19 +100,29 @@ const ImportHistory: React.FC = () => {
 
         if (activeMoveTab === 'new') {
             // Create Patient First
-            if (!newPatient.last_name || !newPatient.dob) return;
+            if (!newPatient.last_name || !newPatient.dob) {
+                alert('Please fill in required patient fields.');
+                return;
+            }
             try {
                 const res = await window.electronAPI.createPatient(newPatient);
                 if (res && res.id) {
                     finalPatientId = res.id;
+                } else {
+                    alert('Failed to create patient: No ID returned.');
+                    return;
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error('Failed to create patient', e);
+                alert(`Failed to create patient: ${e.message || e}`);
                 return;
             }
         }
 
-        if (!finalPatientId) return;
+        if (!finalPatientId) {
+            alert('No target patient selected or created.');
+            return;
+        }
 
         // Validation
         if (activeMoveTab === 'existing') {
@@ -121,7 +131,10 @@ const ImportHistory: React.FC = () => {
         } else {
             // For new patient, we MUST have a visit date (to create the report)
             // We reuse newVisitDate state for this
-            if (!newVisitDate) return;
+            if (!newVisitDate) {
+                alert('Visit Date is required when creating a new patient.');
+                return;
+            }
         }
 
         try {
@@ -141,8 +154,10 @@ const ImportHistory: React.FC = () => {
             setActiveMoveTab('existing');
             // Refresh events
             handleSessionClick(selectedSession);
-        } catch (e) {
+            // alert('File moved successfully.'); // Optional
+        } catch (e: any) {
             console.error('Failed to move file', e);
+            alert(`Failed to move file: ${e.message || e}`);
         }
     };
 
