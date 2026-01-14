@@ -447,6 +447,41 @@ ipcMain.handle('open-patient-directory', async (event, patientId: string) => {
   }
 });
 
+ipcMain.handle('reprocess-unmatched', async () => {
+  try {
+    const settings = await getAllSettings();
+    const importDir = settings.importDir || path.join(app.getPath('userData'), '_IMPORT');
+    const unmatchedDir = settings.unmatchedDir || path.join(app.getPath('userData'), '_UNMATCHED');
+
+    if (!await fs.access(unmatchedDir).then(() => true).catch(() => false)) {
+      return { count: 0, message: 'No unmatched directory found.' };
+    }
+
+    const files = await fs.readdir(unmatchedDir);
+    let movedCount = 0;
+
+    for (const file of files) {
+      const srcPath = path.join(unmatchedDir, file);
+      const destPath = path.join(importDir, file);
+
+      try {
+        const stats = await fs.stat(srcPath);
+        if (stats.isFile()) {
+          await fs.rename(srcPath, destPath);
+          movedCount++;
+        }
+      } catch (err) {
+        console.error(`Failed to move file ${file}:`, err);
+      }
+    }
+
+    return { count: movedCount, success: true };
+  } catch (error) {
+    console.error('Failed to reprocess unmatched:', error);
+    throw error;
+  }
+});
+
 // Filesystem-based IPC handlers
 ipcMain.handle('get-patient-directories', async () => {
   try {

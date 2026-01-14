@@ -38,6 +38,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onPatientListUpdate: (callback: () => void) => {
     ipcRenderer.on('patient-list-update', () => callback());
   },
+  reprocessUnmatched: () => ipcRenderer.invoke('reprocess-unmatched'),
   openPatientDirectory: (patientId: string) => ipcRenderer.invoke('open-patient-directory', patientId),
   getPatientDirectories: () => ipcRenderer.invoke('get-patient-directories'),
   getVisitDirectories: (patientId: string) => ipcRenderer.invoke('get-visit-directories', patientId),

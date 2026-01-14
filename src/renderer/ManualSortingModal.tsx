@@ -245,8 +245,8 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
                                                                         key={p.id}
                                                                         onClick={() => setSelectedPatientId(p.id)}
                                                                         className={`flex items-center justify-between p-3 rounded-md cursor-pointer transition-all border ${selectedPatientId === p.id
-                                                                                ? 'bg-primary/10 border-primary/30 shadow-sm relative z-10'
-                                                                                : 'hover:bg-muted/50 border-transparent text-muted-foreground hover:text-foreground'
+                                                                            ? 'bg-primary/10 border-primary/30 shadow-sm relative z-10'
+                                                                            : 'hover:bg-muted/50 border-transparent text-muted-foreground hover:text-foreground'
                                                                             }`}
                                                                     >
                                                                         <div className="min-w-0 pr-2">
@@ -446,9 +446,9 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
                                 </div>
 
                                 {/* Preview Content Area */}
-                                <div className="flex-1 bg-gray-50/50 overflow-auto relative flex items-center justify-center p-1">
+                                <div className="flex-1 bg-gray-50/50 overflow-auto relative p-1">
                                     {isPdf && fileInfo.tempPath ? (
-                                        <div className="min-h-full w-full flex justify-center p-4">
+                                        <div className="min-h-full w-full flex flex-col items-center justify-center p-4">
                                             <PdfViewer pdfPath={fileInfo.tempPath} />
                                         </div>
                                     ) : (fileInfo.filename?.toLowerCase().endsWith('.xml') || fileInfo.filename?.toLowerCase().endsWith('.log') || fileInfo.filename?.toLowerCase().endsWith('.txt')) ? (
