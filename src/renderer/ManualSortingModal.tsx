@@ -34,6 +34,7 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
     const [visitMode, setVisitMode] = useState<'existing' | 'new'>('existing');
     const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
     const [newVisitDate, setNewVisitDate] = useState('');
+    const [textContent, setTextContent] = useState<string | null>(null);
 
     // New Patient Form
     const [newPatient, setNewPatient] = useState({
@@ -44,7 +45,17 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
     });
 
     useEffect(() => {
-        if (open) {
+        if (open && fileInfo) {
+            setTextContent(null);
+
+            // Check for XML/Text files
+            const ext = fileInfo.filename?.toLowerCase().split('.').pop();
+            if (['xml', 'log', 'txt'].includes(ext) && fileInfo.tempPath) {
+                window.electronAPI.readFileText(fileInfo.tempPath)
+                    .then(setTextContent)
+                    .catch(e => console.error('Failed to read file text', e));
+            }
+
             // Load patients for search
             window.electronAPI.getPatientDirectories().then((data: any[]) => {
                 setPatients(data);
@@ -130,208 +141,255 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
 
     return (
         <Dialog open={open} onOpenChange={() => { }}>
-            <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden">
+            <DialogContent className="max-w-[95vw] w-[1400px] h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl">
                 <div className="flex flex-col h-full">
-                    {/* Header */}
-                    <div className="px-6 py-4 border-b shrink-0">
-                        <DialogTitle className="flex items-center gap-2 text-xl">
-                            <AlertCircle className="h-6 w-6 text-yellow-500" />
-                            <span className="bg-gradient-to-r from-yellow-500 to-orange-500 bg-clip-text text-transparent">
-                                Ambiguous File Detected <span className="text-xs opacity-50 ml-2">(v2)</span>
-                            </span>
+                    {/* Header with modern gradient border bottom */}
+                    <div className="px-6 py-5 border-b bg-background/50 relative shrink-0">
+                        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+                        <DialogTitle className="flex items-center gap-3 text-2xl font-light tracking-tight">
+                            <div className="bg-orange-500/10 p-2 rounded-full ring-1 ring-orange-500/20">
+                                <AlertCircle className="h-6 w-6 text-orange-500" />
+                            </div>
+                            <div className="flex flex-col">
+                                <span className="flex items-center gap-2">
+                                    Manual Sorting Required
+                                    <Badge variant="outline" className="text-[10px] font-mono opacity-50 ml-2">v2.1</Badge>
+                                </span>
+                                <span className="text-sm font-normal text-muted-foreground mt-0.5">
+                                    Please identify the patient for this document to complete the import.
+                                </span>
+                            </div>
                         </DialogTitle>
-                        <DialogDescription className="mt-1">
-                            Please verify the document content and match it to a patient.
-                        </DialogDescription>
                     </div>
 
                     {/* Main Content - 2 Pane Layout */}
-                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0">
+                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0 bg-muted/5">
 
-                        {/* LEFT PANE: Metadata & Actions (4 columns) */}
-                        <div className="col-span-4 border-r flex flex-col bg-muted/10 h-full overflow-hidden">
+                        {/* LEFT PANE: Controls (4 columns) - Increased visual separation */}
+                        <div className="col-span-4 border-r bg-background flex flex-col h-full overflow-hidden shadow-[4px_0_24px_-12px_rgba(0,0,0,0.1)] z-10">
                             <ScrollArea className="flex-1">
-                                <div className="p-6 space-y-6">
-                                    {/* File Metadata Card */}
-                                    <Card className="bg-background/50 border-dashed">
-                                        <CardContent className="p-4 space-y-4">
-                                            <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
-                                                <FileText className="h-8 w-8 text-primary/70" />
-                                                <div className="min-w-0">
-                                                    <p className="text-sm font-medium truncate" title={fileInfo.filename}>{fileInfo.filename}</p>
-                                                    <Badge variant="outline" className="text-[10px] h-5 px-1 mt-1">
-                                                        {isPdf ? 'PDF Document' : 'Unknown Type'}
+                                <div className="p-6 space-y-8">
+                                    {/* File Metadata Card - Sleek Design */}
+                                    <div className="bg-card rounded-xl border p-4 shadow-sm relative overflow-hidden group">
+                                        <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
+                                            <FileText className="w-24 h-24 -mr-8 -mt-8 rotate-12" />
+                                        </div>
+
+                                        <div className="relative z-10 space-y-4">
+                                            <div className="flex items-start justify-between">
+                                                <div>
+                                                    <h3 className="font-semibold text-lg leading-tight break-all pr-4">{fileInfo.filename}</h3>
+                                                    <Badge variant="secondary" className="mt-2">
+                                                        {isPdf ? 'PDF Document' : 'Log / Text File'}
                                                     </Badge>
                                                 </div>
                                             </div>
 
-                                            <div className="grid grid-cols-2 gap-3 text-sm">
+                                            <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted/30 -mx-4 -mb-4 p-4 border-t">
                                                 <div>
-                                                    <span className="text-muted-foreground text-xs block mb-1">Extracted Name</span>
-                                                    <p className="font-medium truncate" title={fileInfo.previewData?.patientName}>{fileInfo.previewData?.patientName || 'Unknown'}</p>
+                                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block mb-1">Extracted Name</span>
+                                                    <p className="font-medium truncate">{fileInfo.previewData?.patientName || 'Unknown'}</p>
                                                 </div>
                                                 <div>
-                                                    <span className="text-muted-foreground text-xs block mb-1">Extracted DOB</span>
+                                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block mb-1">Serial Number</span>
+                                                    <p className="font-mono text-xs bg-background/50 py-0.5 px-1.5 rounded inline-block border">
+                                                        {fileInfo.previewData?.serial || 'Unknown'}
+                                                    </p>
+                                                </div>
+                                                <div>
+                                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block mb-1">Extracted DOB</span>
                                                     <p className="font-medium">{fileInfo.previewData?.dob || 'Unknown'}</p>
                                                 </div>
                                                 <div>
-                                                    <span className="text-muted-foreground text-xs block mb-1">Serial Number</span>
-                                                    <p className="font-medium font-mono">{fileInfo.previewData?.serial || 'Unknown'}</p>
-                                                </div>
-                                                <div>
-                                                    <span className="text-muted-foreground text-xs block mb-1">Date</span>
+                                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold block mb-1">Date</span>
                                                     <p className="font-medium">{fileInfo.previewData?.date ? fileInfo.previewData.date.split('T')[0] : 'Unknown'}</p>
                                                 </div>
                                             </div>
-                                        </CardContent>
-                                    </Card>
+                                        </div>
+                                    </div>
 
-                                    {/* Action Tabs */}
+                                    {/* Action Area */}
                                     <div className="space-y-4">
-                                        <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Action Required</h3>
                                         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                            <TabsList className="grid w-full grid-cols-2">
-                                                <TabsTrigger value="existing">Match Existing</TabsTrigger>
-                                                <TabsTrigger value="new">Create New</TabsTrigger>
+                                            <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-muted/50">
+                                                <TabsTrigger value="existing" className="data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-sm">Match Existing</TabsTrigger>
+                                                <TabsTrigger value="new" className="data-[state=active]:bg-background data-[state=active]:shadow-sm transition-all text-sm">Create New</TabsTrigger>
                                             </TabsList>
 
-                                            <TabsContent value="existing" className="space-y-4 pt-4">
-                                                <div className="relative">
-                                                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                                                    <Input
-                                                        placeholder="Search patients..."
-                                                        className="pl-8"
-                                                        value={searchTerm}
-                                                        onChange={e => setSearchTerm(e.target.value)}
-                                                    />
-                                                </div>
+                                            <TabsContent value="existing" className="space-y-4 pt-4 animate-in slide-in-from-left-2 duration-300">
+                                                <div className="space-y-3">
+                                                    <div className="relative">
+                                                        <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                                                        <Input
+                                                            placeholder="Search by name or ID..."
+                                                            className="pl-9 bg-muted/20 border-border/60 focus-visible:bg-background h-10 transition-colors"
+                                                            value={searchTerm}
+                                                            onChange={e => setSearchTerm(e.target.value)}
+                                                        />
+                                                    </div>
 
-                                                <div className="max-h-[200px] overflow-y-auto rounded-md border bg-background p-2">
-                                                    {filteredPatients.length === 0 ? (
-                                                        <div className="flex flex-col items-center justify-center py-6 text-muted-foreground space-y-2">
-                                                            <UserPlus className="h-8 w-8 opacity-20" />
-                                                            <p className="text-sm">No patients found</p>
+                                                    {/* Patient List - Visually Distinct */}
+                                                    <div className="border rounded-lg bg-card shadow-inner overflow-hidden flex flex-col h-[280px]">
+                                                        <div className="p-2 border-b bg-muted/10 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                                                            Select Patient
                                                         </div>
-                                                    ) : (
-                                                        <div className="space-y-1">
-                                                            {filteredPatients.map(p => (
-                                                                <div
-                                                                    key={p.id}
-                                                                    onClick={() => setSelectedPatientId(p.id)}
-                                                                    className={`flex items-center justify-between p-2.5 rounded-md cursor-pointer transition-all ${selectedPatientId === p.id ? 'bg-primary/10 border-primary/40 shadow-sm' : 'hover:bg-muted/50 border border-transparent'}`}
-                                                                >
-                                                                    <div className="min-w-0 pr-2">
-                                                                        <p className="font-medium text-sm truncate">{p.name}</p>
-                                                                        <p className="text-xs text-muted-foreground truncate">{p.dob} • <span className="font-mono">{p.patientId}</span></p>
-                                                                    </div>
-                                                                    {selectedPatientId === p.id && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+                                                        <div className="flex-1 overflow-y-auto p-1 space-y-1">
+                                                            {filteredPatients.length === 0 ? (
+                                                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground space-y-3 opacity-60">
+                                                                    <UserPlus className="h-10 w-10 stroke-1" />
+                                                                    <p className="text-sm">No patients found</p>
                                                                 </div>
-                                                            ))}
+                                                            ) : (
+                                                                filteredPatients.map(p => (
+                                                                    <div
+                                                                        key={p.id}
+                                                                        onClick={() => setSelectedPatientId(p.id)}
+                                                                        className={`flex items-center justify-between p-3 rounded-md cursor-pointer transition-all border ${selectedPatientId === p.id
+                                                                                ? 'bg-primary/10 border-primary/30 shadow-sm relative z-10'
+                                                                                : 'hover:bg-muted/50 border-transparent text-muted-foreground hover:text-foreground'
+                                                                            }`}
+                                                                    >
+                                                                        <div className="min-w-0 pr-2">
+                                                                            <p className={`font-medium text-sm truncate ${selectedPatientId === p.id ? 'text-primary' : ''}`}>{p.name}</p>
+                                                                            <p className="text-xs opacity-70 truncate flex items-center gap-1.5 mt-0.5">
+                                                                                <span>{p.dob}</span>
+                                                                                <span className="w-1 h-1 rounded-full bg-current opacity-30" />
+                                                                                <span className="font-mono opacity-80">{p.patientId}</span>
+                                                                            </p>
+                                                                        </div>
+                                                                        {selectedPatientId === p.id && (
+                                                                            <div className="h-2.5 w-2.5 rounded-full bg-primary shadow-sm ring-2 ring-primary/20 shrink-0" />
+                                                                        )}
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Visit Selection - Conditional */}
+                                                    {selectedPatientId && (
+                                                        <div className="animate-in fade-in slide-in-from-top-2 pt-2">
+                                                            <div className="p-3 bg-muted/20 border rounded-lg space-y-3">
+                                                                <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-1">Assign to Visit</Label>
+
+                                                                {visits.length > 0 && (
+                                                                    <div
+                                                                        className={`p-3 rounded-md border cursor-pointer text-sm flex items-center justify-between transition-all ${visitMode === 'existing' ? 'bg-background border-primary shadow-sm' : 'bg-transparent border-transparent hover:bg-background/50 hover:border-border/50'}`}
+                                                                        onClick={() => setVisitMode('existing')}
+                                                                    >
+                                                                        <span className="font-medium">Existing Visit</span>
+                                                                        <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'existing' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                                            {visitMode === 'existing' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+
+                                                                {visitMode === 'existing' && visits.length > 0 && (
+                                                                    <div className="ml-1 pl-3 border-l-2 border-primary/20 space-y-1 mb-2">
+                                                                        {visits.map(v => (
+                                                                            <div
+                                                                                key={v.id}
+                                                                                className={`p-2 rounded text-xs border cursor-pointer transition-colors ${selectedVisitId === v.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border/50 hover:border-primary/30'}`}
+                                                                                onClick={() => setSelectedVisitId(v.id)}
+                                                                            >
+                                                                                <div className="flex justify-between items-center mb-0.5">
+                                                                                    <span className="font-semibold">{v.interrogation_date}</span>
+                                                                                </div>
+                                                                                <div className="opacity-80 text-[10px] truncate">{v.manufacturer} {v.device?.type}</div>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                )}
+
+                                                                <div
+                                                                    className={`p-3 rounded-md border cursor-pointer text-sm flex flex-col gap-3 transition-all ${visitMode === 'new' ? 'bg-background border-primary shadow-sm' : 'bg-transparent border-transparent hover:bg-background/50 hover:border-border/50'}`}
+                                                                    onClick={() => setVisitMode('new')}
+                                                                >
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="font-medium">Create New Visit</span>
+                                                                        <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'new' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                                            {visitMode === 'new' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                                                                        </div>
+                                                                    </div>
+                                                                    {visitMode === 'new' && (
+                                                                        <div className="animate-in slide-in-from-top-1">
+                                                                            <Label className="text-[10px] text-muted-foreground mb-1.5 block">Visit Date</Label>
+                                                                            <Input
+                                                                                type="date"
+                                                                                className="h-9 bg-background focus-visible:ring-1"
+                                                                                value={newVisitDate}
+                                                                                onChange={e => setNewVisitDate(e.target.value)}
+                                                                            />
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
-
-                                                {selectedPatientId && (
-                                                    <div className="space-y-3 animate-in fade-in slide-in-from-top-1 pt-2 border-t">
-                                                        <Label className="text-xs font-semibold text-muted-foreground">Select Visit</Label>
-
-                                                        <div className="space-y-2">
-                                                            {visits.length > 0 && (
-                                                                <div
-                                                                    className={`p-2 rounded border cursor-pointer text-sm flex items-center gap-2 ${visitMode === 'existing' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
-                                                                    onClick={() => setVisitMode('existing')}
-                                                                >
-                                                                    <div className={`h-3 w-3 rounded-full border flex items-center justify-center ${visitMode === 'existing' ? 'border-primary' : 'border-muted-foreground'}`}>
-                                                                        {visitMode === 'existing' && <div className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                                                                    </div>
-                                                                    <span>Existing Visit</span>
-                                                                </div>
-                                                            )}
-
-                                                            {visitMode === 'existing' && visits.length > 0 && (
-                                                                <div className="ml-5 max-h-[120px] overflow-y-auto space-y-1 border-l-2 pl-2 border-muted">
-                                                                    {visits.map(v => (
-                                                                        <div
-                                                                            key={v.id}
-                                                                            className={`p-2 rounded text-xs border cursor-pointer ${selectedVisitId === v.id ? 'bg-primary text-primary-foreground' : 'bg-muted/30 hover:bg-muted'}`}
-                                                                            onClick={() => setSelectedVisitId(v.id)}
-                                                                        >
-                                                                            <div className="font-medium">{v.interrogation_date}</div>
-                                                                            <div className="opacity-80 scale-90 origin-left">{v.manufacturer} {v.device?.type || 'Device'}</div>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-
-                                                            <div
-                                                                className={`p-2 rounded border cursor-pointer text-sm flex flex-col gap-2 ${visitMode === 'new' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
-                                                                onClick={() => setVisitMode('new')}
-                                                            >
-                                                                <div className="flex items-center gap-2">
-                                                                    <div className={`h-3 w-3 rounded-full border flex items-center justify-center ${visitMode === 'new' ? 'border-primary' : 'border-muted-foreground'}`}>
-                                                                        {visitMode === 'new' && <div className="h-1.5 w-1.5 rounded-full bg-primary" />}
-                                                                    </div>
-                                                                    <span>Create New Visit</span>
-                                                                </div>
-                                                                {visitMode === 'new' && (
-                                                                    <Input
-                                                                        type="date"
-                                                                        className="h-8 text-xs ml-5 w-[calc(100%-1.25rem)]"
-                                                                        value={newVisitDate}
-                                                                        onChange={e => setNewVisitDate(e.target.value)}
-                                                                    />
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                )}
                                             </TabsContent>
 
-                                            <TabsContent value="new" className="space-y-4 pt-4">
-                                                <div className="space-y-3">
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <div className="space-y-1.5">
-                                                            <Label className="text-xs">First Name</Label>
+                                            <TabsContent value="new" className="pt-4 animate-in slide-in-from-right-2 duration-300">
+                                                <div className="bg-card border rounded-xl p-5 shadow-sm space-y-5">
+                                                    <div className="flex items-center gap-3 pb-2 border-b">
+                                                        <div className="bg-primary/10 p-2 rounded-lg">
+                                                            <UserPlus className="h-5 w-5 text-primary" />
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-medium text-sm">New Patient Profile</h4>
+                                                            <p className="text-xs text-muted-foreground">Enter details to create a new record</p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-2 gap-4">
+                                                        <div className="space-y-2">
+                                                            <Label>First Name <span className="text-destructive">*</span></Label>
                                                             <Input
                                                                 value={newPatient.first_name}
                                                                 onChange={e => setNewPatient({ ...newPatient, first_name: e.target.value })}
-                                                                className="h-8"
+                                                                className="bg-background"
+                                                                placeholder="e.g. John"
                                                             />
                                                         </div>
-                                                        <div className="space-y-1.5">
-                                                            <Label className="text-xs">Last Name</Label>
+                                                        <div className="space-y-2">
+                                                            <Label>Last Name <span className="text-destructive">*</span></Label>
                                                             <Input
                                                                 value={newPatient.last_name}
                                                                 onChange={e => setNewPatient({ ...newPatient, last_name: e.target.value })}
-                                                                className="h-8"
+                                                                className="bg-background"
+                                                                placeholder="e.g. Doe"
                                                             />
                                                         </div>
                                                     </div>
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs">Date of Birth</Label>
+                                                    <div className="space-y-2">
+                                                        <Label>Date of Birth <span className="text-destructive">*</span></Label>
                                                         <Input
                                                             type="date"
                                                             value={newPatient.dob}
                                                             onChange={e => setNewPatient({ ...newPatient, dob: e.target.value })}
-                                                            className="h-8"
+                                                            className="bg-background"
                                                         />
                                                     </div>
-                                                    <div className="space-y-1.5">
-                                                        <Label className="text-xs">Hospital MRN</Label>
+                                                    <div className="space-y-2">
+                                                        <Label>Hospital MRN <span className="text-muted-foreground font-normal ml-1">(Optional)</span></Label>
                                                         <Input
                                                             value={newPatient.hospitalPatientId}
                                                             onChange={e => setNewPatient({ ...newPatient, hospitalPatientId: e.target.value })}
-                                                            className="h-8"
-                                                            placeholder="Optional"
+                                                            className="bg-background"
+                                                            placeholder="Patient ID Number"
                                                         />
                                                     </div>
-                                                    <div className="space-y-1.5 pt-2 border-t">
-                                                        <Label className="text-xs font-semibold">Visit Date</Label>
+
+                                                    <div className="pt-4 mt-2 border-t space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <Label>Visit Date <span className="text-destructive">*</span></Label>
+                                                            <Badge variant="outline" className="font-normal text-[10px]">Required for Report</Badge>
+                                                        </div>
                                                         <Input
                                                             type="date"
                                                             value={newVisitDate}
                                                             onChange={e => setNewVisitDate(e.target.value)}
-                                                            className="h-8"
+                                                            className="bg-background"
                                                         />
                                                     </div>
                                                 </div>
@@ -341,46 +399,72 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
                                 </div>
                             </ScrollArea>
 
-                            {/* Actions Footer (Inside Left Pane) */}
-                            <div className="p-4 border-t bg-background shrink-0 flex flex-col gap-3">
-                                <div className="flex gap-2 w-full">
+                            {/* Actions Footer - Fixed at bottom of Left Pane */}
+                            <div className="p-5 border-t bg-background shrink-0 flex flex-col gap-3 shadow-[0_-4px_16px_rgba(0,0,0,0.05)] z-20">
+                                <div className="flex gap-3 w-full">
                                     {activeTab === 'existing' ? (
-                                        <Button className="flex-1" onClick={handleAssign} disabled={!selectedPatientId || (visitMode === 'existing' && !selectedVisitId) || (visitMode === 'new' && !newVisitDate)}>
-                                            Assign to Selected
+                                        <Button
+                                            size="lg"
+                                            className="flex-1 font-medium shadow-lg hover:shadow-xl transition-all"
+                                            onClick={handleAssign}
+                                            disabled={!selectedPatientId || (visitMode === 'existing' && !selectedVisitId) || (visitMode === 'new' && !newVisitDate)}
+                                        >
+                                            Confirm Assignment
                                         </Button>
                                     ) : (
-                                        <Button className="flex-1" onClick={handleCreate} disabled={!newPatient.last_name || !newPatient.dob || !newVisitDate}>
-                                            <UserPlus className="mr-2 h-4 w-4" /> Create & Assign
+                                        <Button
+                                            size="lg"
+                                            className="flex-1 font-medium shadow-lg hover:shadow-xl transition-all"
+                                            onClick={handleCreate}
+                                            disabled={!newPatient.last_name || !newPatient.dob || !newVisitDate}
+                                        >
+                                            <UserPlus className="mr-2 h-5 w-5" /> Create & Assign
                                         </Button>
                                     )}
                                 </div>
-                                <Button variant="ghost" onClick={handleUnmatched} className="w-full text-muted-foreground hover:text-destructive text-xs">
-                                    Skip (I don't know)
+                                <Button
+                                    variant="ghost"
+                                    onClick={handleUnmatched}
+                                    className="w-full text-muted-foreground hover:text-destructive hover:bg-destructive/5 text-xs h-8"
+                                >
+                                    Skip this file (Move to Unmatched)
                                 </Button>
                             </div>
                         </div>
 
-                        {/* RIGHT PANE: Preview (8 columns) */}
-                        <div className="col-span-8 h-full bg-muted/20 flex flex-col relative overflow-hidden">
-                            <div className="absolute inset-0 p-4">
-                                <div className="h-full w-full rounded-lg border bg-background shadow-sm overflow-hidden flex flex-col">
-                                    <div className="px-4 py-2 border-b bg-muted/40 text-xs font-medium text-muted-foreground flex justify-between items-center">
-                                        <span>Document Preview</span>
-                                        {isPdf && <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px]">PDF Viewer</span>}
+                        {/* RIGHT PANE: Preview (8 columns) - Modern Frame */}
+                        <div className="col-span-8 h-full bg-muted/10 flex flex-col relative overflow-hidden p-6">
+                            <div className="h-full w-full rounded-xl border bg-background shadow-xl overflow-hidden flex flex-col ring-1 ring-border/50">
+                                {/* Preview Header */}
+                                <div className="px-4 py-3 border-b bg-muted/30 text-xs font-semibold text-muted-foreground flex justify-between items-center shrink-0 backdrop-blur-sm">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                        <span>File Preview</span>
                                     </div>
-                                    <div className="flex-1 bg-gray-50 overflow-auto relative flex items-center justify-center">
-                                        {isPdf && fileInfo.tempPath ? (
-                                            <div className="min-h-full w-full flex justify-center p-4">
-                                                <PdfViewer pdfPath={fileInfo.tempPath} />
+                                    {isPdf && <span className="bg-blue-500/10 text-blue-600 border border-blue-200/50 px-2 py-0.5 rounded text-[10px] font-medium">PDF Viewer Active</span>}
+                                    {['xml', 'log', 'txt'].includes(fileInfo.filename?.toLowerCase().split('.').pop() || '') && <span className="bg-orange-500/10 text-orange-600 border border-orange-200/50 px-2 py-0.5 rounded text-[10px] font-medium">Text Viewer Active</span>}
+                                </div>
+
+                                {/* Preview Content Area */}
+                                <div className="flex-1 bg-gray-50/50 overflow-auto relative flex items-center justify-center p-1">
+                                    {isPdf && fileInfo.tempPath ? (
+                                        <div className="min-h-full w-full flex justify-center p-4">
+                                            <PdfViewer pdfPath={fileInfo.tempPath} />
+                                        </div>
+                                    ) : (fileInfo.filename?.toLowerCase().endsWith('.xml') || fileInfo.filename?.toLowerCase().endsWith('.log') || fileInfo.filename?.toLowerCase().endsWith('.txt')) ? (
+                                        <div className="w-full h-full p-6 overflow-auto bg-white shadow-sm border rounded m-4 font-mono text-xs whitespace-pre-wrap text-slate-700 leading-relaxed selection:bg-yellow-200 selection:text-black">
+                                            {textContent || <div className="flex flex-col items-center justify-center h-full opacity-50"><div className="animate-spin h-6 w-6 border-2 border-primary rounded-full border-t-transparent mb-2"></div>Loading content...</div>}
+                                        </div>
+                                    ) : (
+                                        <div className="text-center p-12 text-muted-foreground">
+                                            <div className="bg-muted/30 p-6 rounded-full inline-block mb-6">
+                                                <FileText className="h-16 w-16 opacity-20" />
                                             </div>
-                                        ) : (
-                                            <div className="text-center p-8 text-muted-foreground">
-                                                <FileText className="h-16 w-16 mx-auto mb-4 opacity-20" />
-                                                <p>Preview not available for this file type</p>
-                                                <p className="text-xs mt-2 opacity-60">({fileInfo.filename})</p>
-                                            </div>
-                                        )}
-                                    </div>
+                                            <h3 className="text-lg font-medium mb-1">Preview Unavailable</h3>
+                                            <p className="max-w-xs mx-auto opacity-70">This file type cannot be previewed directly. Please rely on the extracted metadata.</p>
+                                            <p className="text-xs mt-4 px-3 py-1 bg-muted rounded-full inline-block font-mono opacity-60">{fileInfo.filename}</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
