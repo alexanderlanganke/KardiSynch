@@ -1,5 +1,6 @@
 export interface IElectronAPI {
   readFileText(filePath: string): Promise<string>;
+  getPreviewPath: (originalPath: string) => Promise<string | null>;
   getAllPatients: (filters: any) => Promise<any[]>;
   createPatient: (patient: any) => Promise<any>;
   getPatientById: (patientId: string) => Promise<any>;

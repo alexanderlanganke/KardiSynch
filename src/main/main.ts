@@ -132,6 +132,45 @@ app.whenReady().then(async () => {
   });
 });
 
+ipcMain.handle('read-file-text', async (event, filePath) => {
+  try {
+    const content = await fs.readFile(filePath, 'utf-8');
+    return content;
+  } catch (error) {
+    console.warn(`Failed to read text file ${filePath}:`, error);
+    throw error;
+  }
+});
+
+ipcMain.handle('get-preview-path', async (event, originalPath) => {
+  try {
+    // 1. Try original path
+    try {
+      await fs.access(originalPath);
+      return originalPath;
+    } catch {
+      // 2. Try unmatched folder
+      const { getUnmatchedFilePath } = await import('./watcher');
+      const basename = path.basename(originalPath);
+      const unmatchedPath = getUnmatchedFilePath(basename);
+
+      if (unmatchedPath) {
+        try {
+          await fs.access(unmatchedPath);
+          return unmatchedPath;
+        } catch {
+          // Both failed
+          return null;
+        }
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error('Failed to resolve preview path:', error);
+    return null;
+  }
+});
+
 ipcMain.handle('get-all-patients', async (event, filters) => {
   try {
     const patients = await getAllPatients(filters);
@@ -381,16 +420,7 @@ ipcMain.handle('get-pdf-data', async (event, filePath) => {
   }
 });
 
-ipcMain.handle('read-file-text', async (event, filePath) => {
-  try {
-    console.log('[read-file-text] Requesting file:', filePath);
-    const data = await fs.readFile(filePath, 'utf-8');
-    return data;
-  } catch (error) {
-    console.error('[read-file-text] Failed to read text file:', error);
-    throw error;
-  }
-});
+
 
 ipcMain.handle('open-patient-directory', async (event, patientId: string) => {
   try {

@@ -4,10 +4,25 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, User, Calendar, Clock, MoreVertical, X, Check } from 'lucide-react';
+import { Search, Filter, User, Calendar, Clock, MoreVertical, X, Check, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
+// Manufacturer Logos
+import medtronicLogo from './assets/logos/medtronic.svg';
+import biotronikLogo from './assets/logos/biotronik.svg';
+import abbottLogo from './assets/logos/abbott.svg';
+import bostonLogo from './assets/logos/boston_scientific.svg';
+import impulseLogo from './assets/logos/impulse_dynamics.svg';
+import microportLogo from './assets/logos/microport.svg';
 
+const MANUFACTURER_LOGOS: Record<string, string> = {
+  'Medtronic': medtronicLogo,
+  'Biotronik': biotronikLogo,
+  'Abbott': abbottLogo,
+  'Boston Scientific': bostonLogo,
+  'Impulse Dynamics': impulseLogo,
+  'Microport': microportLogo,
+};
 
 interface Patient {
   id: string;
@@ -31,11 +46,18 @@ interface FilterState {
   deviceManufacturer: string;
 }
 
+type SortField = 'name' | 'dob' | 'hospitalPatientId' | 'deviceManufacturer' | 'deviceModel' | 'lastReportDate';
+type SortDirection = 'asc' | 'desc';
+
 const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void }> = ({ onPatientSelect }) => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Sorting
+  const [sortField, setSortField] = useState<SortField>('name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   const [filters, setFilters] = useState<FilterState>({
     dob: '',
@@ -58,7 +80,8 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         const search = searchTerm.toLowerCase();
         filtered = filtered.filter(p =>
           p.name.toLowerCase().includes(search) ||
-          p.patientId.toLowerCase().includes(search)
+          p.patientId.toLowerCase().includes(search) ||
+          (p.hospitalPatientId && p.hospitalPatientId.toLowerCase().includes(search))
         );
       }
 
@@ -68,6 +91,14 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
       if (filters.patientId) {
         filtered = filtered.filter(p => p.patientId.includes(filters.patientId));
+      }
+
+      if (filters.hospitalPatientId) {
+        filtered = filtered.filter(p => p.hospitalPatientId && p.hospitalPatientId.includes(filters.hospitalPatientId));
+      }
+
+      if (filters.deviceManufacturer) {
+        filtered = filtered.filter(p => p.deviceManufacturer === filters.deviceManufacturer);
       }
 
       setPatients(filtered);
@@ -101,6 +132,24 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedPatients = [...patients].sort((a, b) => {
+    const fieldA = (a[sortField] || '').toString().toLowerCase();
+    const fieldB = (b[sortField] || '').toString().toLowerCase();
+
+    if (fieldA < fieldB) return sortDirection === 'asc' ? -1 : 1;
+    if (fieldA > fieldB) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
 
@@ -123,7 +172,9 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       first_name: firstName,
       last_name: lastName,
       dob: patient.dob,
-      hospitalPatientId: patient.patientId.replace('P-', '') // Strip prefix for editing
+      hospitalPatientId: patient.hospitalPatientId || '',
+      deviceManufacturer: patient.deviceManufacturer || '',
+      deviceModel: patient.deviceModel || ''
     });
   };
 
@@ -162,6 +213,18 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     setSearchTerm('');
   };
 
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) return <ArrowUpDown className="h-3 w-3 opacity-30 ml-1" />;
+    return sortDirection === 'asc' ? <ArrowUp className="h-3 w-3 ml-1" /> : <ArrowDown className="h-3 w-3 ml-1" />;
+  };
+
+  const getManufacturerLogo = (name?: string) => {
+    if (!name) return null;
+    // Simple normalization to match keys
+    const key = Object.keys(MANUFACTURER_LOGOS).find(k => name.toLowerCase().includes(k.toLowerCase()));
+    return key ? MANUFACTURER_LOGOS[key] : null;
+  };
+
   return (
     <div className="container mx-auto pt-4 px-8 pb-8 max-w-7xl space-y-6 h-full overflow-y-auto">
       {/* Header Section */}
@@ -179,7 +242,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
           <div className="relative w-full md:w-96 group">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors" />
             <Input
-              placeholder="Search by name..."
+              placeholder="Search by name, ID, or MRN..."
               className="pl-10 h-11 bg-background/50 backdrop-blur-sm border-muted-foreground/20 focus:border-primary/50 transition-all"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -287,159 +350,229 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       {/* Patient List (Table View) */}
       <div className="flex flex-col gap-1 pb-4">
         {/* Header Row */}
-        <div className="flex items-center px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/30 rounded-lg mb-1">
-          <div className="w-[20%] min-w-[150px]">Name / ID</div>
-          <div className="w-[15%] min-w-[100px]">DOB</div>
-          <div className="w-[20%] min-w-[120px]">Device</div>
-          <div className="w-[20%] min-w-[120px]">Model</div>
-          <div className="w-[15%] min-w-[100px]">Last Report</div>
-          <div className="w-[10%] text-right">Actions</div>
+        <div className="flex items-center px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/30 rounded-lg mb-1 select-none">
+          <div
+            className="w-[20%] min-w-[150px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            onClick={() => handleSort('name')}
+          >
+            Name / ID <SortIcon field="name" />
+          </div>
+          <div
+            className="w-[12%] min-w-[100px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            onClick={() => handleSort('hospitalPatientId')}
+          >
+            Hospital MRN <SortIcon field="hospitalPatientId" />
+          </div>
+          <div
+            className="w-[12%] min-w-[90px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            onClick={() => handleSort('dob')}
+          >
+            DOB <SortIcon field="dob" />
+          </div>
+          <div
+            className="w-[18%] min-w-[110px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            onClick={() => handleSort('deviceManufacturer')}
+          >
+            Manufacturer <SortIcon field="deviceManufacturer" />
+          </div>
+          <div
+            className="w-[18%] min-w-[110px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            onClick={() => handleSort('deviceModel')}
+          >
+            Model <SortIcon field="deviceModel" />
+          </div>
+          <div
+            className="w-[12%] min-w-[100px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            onClick={() => handleSort('lastReportDate')}
+          >
+            Last Report <SortIcon field="lastReportDate" />
+          </div>
+          <div className="w-[8%] text-right">Actions</div>
         </div>
 
         {loading ? (
           <div className="text-center py-20 text-muted-foreground">Loading patients...</div>
-        ) : patients.length === 0 ? (
+        ) : sortedPatients.length === 0 ? (
           <div className="text-center py-20 text-muted-foreground">No patients found matching criteria.</div>
         ) : (
-          patients.map((patient) => (
-            <div
-              key={patient.id}
-              className={`group flex items-center px-4 py-2 bg-background/40 hover:bg-muted/50 border border-transparent hover:border-border/50 rounded-lg transition-all cursor-pointer text-sm ${editingPatientId === patient.id ? 'bg-muted/60 border-primary/20' : ''}`}
-              onClick={() => !editingPatientId && onPatientSelect(patient.id)}
-            >
-              {editingPatientId === patient.id ? (
-                // EDIT MODE
-                <>
-                  {/* Name & ID Inputs */}
-                  <div className="w-[20%] min-w-[150px] flex flex-col gap-1 pr-2">
-                    <div className="flex gap-1">
+          sortedPatients.map((patient) => {
+            const logo = getManufacturerLogo(patient.deviceManufacturer);
+
+            return (
+              <div
+                key={patient.id}
+                className={`group flex items-center px-4 py-2 bg-background/40 hover:bg-muted/50 border border-transparent hover:border-border/50 rounded-lg transition-all cursor-pointer text-sm ${editingPatientId === patient.id ? 'bg-muted/60 border-primary/20' : ''}`}
+                onClick={() => !editingPatientId && onPatientSelect(patient.id)}
+              >
+                {editingPatientId === patient.id ? (
+                  // EDIT MODE
+                  <>
+                    {/* Name & ID Inputs */}
+                    <div className="w-[20%] min-w-[150px] flex flex-col gap-1 pr-2">
+                      <div className="flex gap-1">
+                        <Input
+                          className="h-6 text-xs px-1"
+                          placeholder="First"
+                          value={editFormData.first_name}
+                          onChange={(e) => handleInputChange('first_name', e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <Input
+                          className="h-6 text-xs px-1 font-bold"
+                          placeholder="Last"
+                          value={editFormData.last_name}
+                          onChange={(e) => handleInputChange('last_name', e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      {/* Internal ID display only */}
+                      <span className="text-[9px] font-mono text-muted-foreground opacity-50 px-1">{patient.patientId}</span>
+                    </div>
+
+                    {/* Hospital MRN Input */}
+                    <div className="w-[12%] min-w-[100px] pr-2">
                       <Input
                         className="h-6 text-xs px-1"
-                        placeholder="First"
-                        value={editFormData.first_name}
-                        onChange={(e) => handleInputChange('first_name', e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                      <Input
-                        className="h-6 text-xs px-1 font-bold"
-                        placeholder="Last"
-                        value={editFormData.last_name}
-                        onChange={(e) => handleInputChange('last_name', e.target.value)}
+                        placeholder="MRN"
+                        value={editFormData.hospitalPatientId}
+                        onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                       />
                     </div>
-                    {/* Internal ID display only, or hidden if redundant */}
-                    <span className="text-[9px] font-mono text-muted-foreground opacity-50 px-1">{patient.patientId}</span>
-                  </div>
 
-                  {/* DOB Input */}
-                  <div className="w-[15%] min-w-[100px] pr-2">
-                    <Input
-                      className="h-6 text-xs px-1"
-                      placeholder="YYYY-MM-DD"
-                      value={editFormData.dob}
-                      onChange={(e) => handleInputChange('dob', e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
+                    {/* DOB Input */}
+                    <div className="w-[12%] min-w-[90px] pr-2">
+                      <Input
+                        className="h-6 text-xs px-1"
+                        placeholder="YYYY-MM-DD"
+                        value={editFormData.dob}
+                        onChange={(e) => handleInputChange('dob', e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
 
-                  {/* Read-only fields */}
-                  <div className="w-[20%] min-w-[120px] text-muted-foreground truncate pr-2 opacity-50">
-                    {patient.deviceManufacturer || '-'}
-                  </div>
-                  <div className="w-[20%] min-w-[120px] text-muted-foreground truncate pr-2 opacity-50">
-                    {patient.deviceModel || '-'}
-                  </div>
-                  <div className="w-[15%] min-w-[100px] text-muted-foreground opacity-50">
-                    {patient.lastReportDate || 'Never'}
-                  </div>
+                    {/* Device Input */}
+                    <div className="w-[18%] min-w-[110px] pr-2">
+                      <Input
+                        className="h-6 text-xs px-1"
+                        placeholder="Manufacturer"
+                        value={editFormData.deviceManufacturer}
+                        onChange={(e) => handleInputChange('deviceManufacturer', e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
 
-                  {/* Edit Actions */}
-                  <div className="w-[10%] flex justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-green-500 hover:text-green-600 hover:bg-green-100/20"
-                      onClick={handleSaveClick}
-                      title="Save"
-                    >
-                      <Check className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-100/20"
-                      onClick={handleCancelClick}
-                      title="Cancel"
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                // VIEW MODE
-                <>
-                  {/* Name & ID */}
-                  <div className="w-[20%] min-w-[150px] flex flex-col justify-center pr-2">
-                    <span className="font-semibold truncate text-foreground/90">{patient.name}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground opacity-70">{patient.patientId}</span>
-                  </div>
+                    {/* Model Input */}
+                    <div className="w-[18%] min-w-[110px] pr-2">
+                      <Input
+                        className="h-6 text-xs px-1"
+                        placeholder="Model"
+                        value={editFormData.deviceModel}
+                        onChange={(e) => handleInputChange('deviceModel', e.target.value)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
 
-                  {/* DOB */}
-                  <div className="w-[15%] min-w-[100px] text-muted-foreground flex items-center">
-                    <Calendar className="mr-1.5 h-3 w-3 opacity-50" />
-                    {patient.dob}
-                  </div>
+                    {/* Read-only fields */}
+                    <div className="w-[12%] min-w-[100px] text-muted-foreground opacity-50">
+                      {patient.lastReportDate || 'Never'}
+                    </div>
 
-                  {/* Manufacturer */}
-                  <div className="w-[20%] min-w-[120px] text-muted-foreground truncate pr-2">
-                    {patient.deviceManufacturer || '-'}
-                  </div>
+                    {/* Edit Actions */}
+                    <div className="w-[8%] flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-green-500 hover:text-green-600 hover:bg-green-100/20"
+                        onClick={handleSaveClick}
+                        title="Save"
+                      >
+                        <Check className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-100/20"
+                        onClick={handleCancelClick}
+                        title="Cancel"
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  // VIEW MODE
+                  <>
+                    {/* Name & ID */}
+                    <div className="w-[20%] min-w-[150px] flex flex-col justify-center pr-2">
+                      <span className="font-semibold truncate text-foreground/90">{patient.name}</span>
+                      <span className="text-[10px] font-mono text-muted-foreground opacity-70">{patient.patientId}</span>
+                    </div>
 
-                  {/* Model */}
-                  <div className="w-[20%] min-w-[120px] text-muted-foreground truncate pr-2" title={patient.deviceModel}>
-                    {patient.deviceModel || '-'}
-                  </div>
+                    {/* Hospital MRN */}
+                    <div className="w-[12%] min-w-[100px] text-muted-foreground truncate pr-2 text-xs">
+                      {patient.hospitalPatientId || '-'}
+                    </div>
 
-                  {/* Last Report */}
-                  <div className="w-[15%] min-w-[100px] text-muted-foreground flex items-center">
-                    <Clock className="mr-1.5 h-3 w-3 opacity-50" />
-                    {patient.lastReportDate || 'Never'}
-                    {patient.reportCount > 0 && (
-                      <Badge variant="secondary" className="ml-2 h-4 text-[9px] px-1 bg-secondary/40">
-                        {patient.reportCount}
-                      </Badge>
-                    )}
-                  </div>
+                    {/* DOB */}
+                    <div className="w-[12%] min-w-[90px] text-muted-foreground flex items-center">
+                      <Calendar className="mr-1.5 h-3 w-3 opacity-50" />
+                      {patient.dob}
+                    </div>
 
-                  {/* Actions */}
-                  <div className="w-[10%] flex justify-end gap-1">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
-                      onClick={(e) => handleEditClick(e, patient)}
-                      title="Edit Patient"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        window.electronAPI.openPatientDirectory(patient.id);
-                      }}
-                      title="Open Patient Directory"
-                    >
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          ))
+                    {/* Manufacturer w/ Logo */}
+                    <div className="w-[18%] min-w-[110px] text-muted-foreground truncate pr-2 flex items-center gap-2">
+                      {logo && (
+                        <img src={logo} alt={patient.deviceManufacturer} className="h-5 w-auto object-contain opacity-80" />
+                      )}
+                      <span className={logo ? "text-xs" : ""}>{patient.deviceManufacturer || '-'}</span>
+                    </div>
+
+                    {/* Model */}
+                    <div className="w-[18%] min-w-[110px] text-muted-foreground truncate pr-2" title={patient.deviceModel}>
+                      {patient.deviceModel || '-'}
+                    </div>
+
+                    {/* Last Report */}
+                    <div className="w-[12%] min-w-[100px] text-muted-foreground flex items-center">
+                      <Clock className="mr-1.5 h-3 w-3 opacity-50" />
+                      {patient.lastReportDate || 'Never'}
+                      {patient.reportCount > 0 && (
+                        <Badge variant="secondary" className="ml-2 h-4 text-[9px] px-1 bg-secondary/40">
+                          {patient.reportCount}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {/* Actions */}
+                    <div className="w-[8%] flex justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
+                        onClick={(e) => handleEditClick(e, patient)}
+                        title="Edit Patient"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.electronAPI.openPatientDirectory(patient.id);
+                        }}
+                        title="Open Patient Directory"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
     </div>
@@ -447,3 +580,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 };
 
 export default PatientDashboard;
+
+
+
+
