@@ -514,6 +514,7 @@ ipcMain.handle('get-patient-directories', async () => {
           last_name: patientData.last_name,
           name: `${patientData.last_name}, ${patientData.first_name}`,
           patientId: patientData.hospitalPatientId || patientData.id,
+          hospitalPatientId: patientData.hospitalPatientId,
           dob: patientData.dob,
           reportCount: visitCount,
           lastReportDate: visitDates[0] || null,

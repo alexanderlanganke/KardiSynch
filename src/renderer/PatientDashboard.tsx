@@ -14,6 +14,7 @@ import abbottLogo from './assets/logos/abbott.svg';
 import bostonLogo from './assets/logos/boston_scientific.svg';
 import impulseLogo from './assets/logos/impulse_dynamics.svg';
 import microportLogo from './assets/logos/microport.svg';
+import unknownLogo from './assets/logos/unknown.svg';
 
 const MANUFACTURER_LOGOS: Record<string, string> = {
   'Medtronic': medtronicLogo,
@@ -80,8 +81,9 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         const search = searchTerm.toLowerCase();
         filtered = filtered.filter(p =>
           p.name.toLowerCase().includes(search) ||
-          p.patientId.toLowerCase().includes(search) ||
-          (p.hospitalPatientId && p.hospitalPatientId.toLowerCase().includes(search))
+          String(p.patientId).toLowerCase().includes(search) ||
+          (p.hospitalPatientId && String(p.hospitalPatientId).toLowerCase().includes(search)) ||
+          p.id.toLowerCase().includes(search)
         );
       }
 
@@ -350,100 +352,98 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       {/* Patient List (Table View) */}
       <div className="flex flex-col gap-1 pb-4">
         {/* Header Row */}
-        <div className="flex items-center px-4 py-2 text-xs font-medium text-muted-foreground bg-muted/30 rounded-lg mb-1 select-none">
+        <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-lg mb-1 select-none">
           <div
-            className="w-[20%] min-w-[150px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            className="w-[30%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
             onClick={() => handleSort('name')}
           >
-            Name / ID <SortIcon field="name" />
+            Patient <SortIcon field="name" />
           </div>
           <div
-            className="w-[12%] min-w-[100px] flex items-center cursor-pointer hover:text-foreground transition-colors"
-            onClick={() => handleSort('hospitalPatientId')}
-          >
-            Hospital MRN <SortIcon field="hospitalPatientId" />
-          </div>
-          <div
-            className="w-[12%] min-w-[90px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
             onClick={() => handleSort('dob')}
           >
             DOB <SortIcon field="dob" />
           </div>
           <div
-            className="w-[18%] min-w-[110px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            className="w-[10%] flex items-center cursor-pointer hover:text-foreground transition-colors group justify-center"
             onClick={() => handleSort('deviceManufacturer')}
           >
-            Manufacturer <SortIcon field="deviceManufacturer" />
+            <SortIcon field="deviceManufacturer" />
+            <span className="sr-only">Manufacturer</span>
           </div>
           <div
-            className="w-[18%] min-w-[110px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            className="w-[18%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
             onClick={() => handleSort('deviceModel')}
           >
             Model <SortIcon field="deviceModel" />
           </div>
           <div
-            className="w-[12%] min-w-[100px] flex items-center cursor-pointer hover:text-foreground transition-colors"
+            className="w-[20%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
             onClick={() => handleSort('lastReportDate')}
           >
             Last Report <SortIcon field="lastReportDate" />
           </div>
-          <div className="w-[8%] text-right">Actions</div>
+          <div className="w-[10%] text-right"></div>
         </div>
 
         {loading ? (
-          <div className="text-center py-20 text-muted-foreground">Loading patients...</div>
+          <div className="flex flex-col items-center justify-center py-20 space-y-3 text-muted-foreground/50">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary/30"></div>
+            <p className="text-sm">Loading patients...</p>
+          </div>
         ) : sortedPatients.length === 0 ? (
-          <div className="text-center py-20 text-muted-foreground">No patients found matching criteria.</div>
+          <div className="text-center py-20 text-muted-foreground/60 border-2 border-dashed border-muted rounded-xl bg-muted/5">
+            <Search className="h-8 w-8 mx-auto mb-2 opacity-20" />
+            <p>No patients found matching criteria.</p>
+          </div>
         ) : (
           sortedPatients.map((patient) => {
-            const logo = getManufacturerLogo(patient.deviceManufacturer);
+            const logo = getManufacturerLogo(patient.deviceManufacturer) || unknownLogo;
 
             return (
               <div
                 key={patient.id}
-                className={`group flex items-center px-4 py-2 bg-background/40 hover:bg-muted/50 border border-transparent hover:border-border/50 rounded-lg transition-all cursor-pointer text-sm ${editingPatientId === patient.id ? 'bg-muted/60 border-primary/20' : ''}`}
+                className={`group flex items-center px-6 py-3 bg-background/60 hover:bg-muted/40 border border-transparent hover:border-border/40 rounded-xl transition-all duration-200 cursor-pointer text-sm shadow-sm hover:shadow-md mb-1.5 ${editingPatientId === patient.id ? 'bg-muted/30 ring-1 ring-primary/20 shadow-md' : ''}`}
                 onClick={() => !editingPatientId && onPatientSelect(patient.id)}
               >
                 {editingPatientId === patient.id ? (
                   // EDIT MODE
                   <>
-                    {/* Name & ID Inputs */}
-                    <div className="w-[20%] min-w-[150px] flex flex-col gap-1 pr-2">
-                      <div className="flex gap-1">
+                    {/* Patient Column (Name, MRN, ID) */}
+                    <div className="w-[30%] flex flex-col gap-1 pr-4">
+                      <div className="flex gap-2">
                         <Input
-                          className="h-6 text-xs px-1"
-                          placeholder="First"
+                          className="h-8 text-sm font-medium bg-background"
+                          placeholder="First Name"
                           value={editFormData.first_name}
                           onChange={(e) => handleInputChange('first_name', e.target.value)}
                           onClick={(e) => e.stopPropagation()}
                         />
                         <Input
-                          className="h-6 text-xs px-1 font-bold"
-                          placeholder="Last"
+                          className="h-8 text-sm font-medium bg-background"
+                          placeholder="Last Name"
                           value={editFormData.last_name}
                           onChange={(e) => handleInputChange('last_name', e.target.value)}
                           onClick={(e) => e.stopPropagation()}
                         />
                       </div>
-                      {/* Internal ID display only */}
-                      <span className="text-[9px] font-mono text-muted-foreground opacity-50 px-1">{patient.patientId}</span>
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          className="h-7 text-xs bg-background w-32"
+                          placeholder="MRN"
+                          value={editFormData.hospitalPatientId}
+                          onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                        <span className="text-[10px] font-mono text-muted-foreground opacity-50 select-all">{patient.patientId}</span>
+                      </div>
                     </div>
 
-                    {/* Hospital MRN Input */}
-                    <div className="w-[12%] min-w-[100px] pr-2">
+                    {/* DOB Column */}
+                    <div className="w-[12%] pr-2">
                       <Input
-                        className="h-6 text-xs px-1"
-                        placeholder="MRN"
-                        value={editFormData.hospitalPatientId}
-                        onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-
-                    {/* DOB Input */}
-                    <div className="w-[12%] min-w-[90px] pr-2">
-                      <Input
-                        className="h-6 text-xs px-1"
+                        className="h-8 text-sm bg-background"
                         placeholder="YYYY-MM-DD"
                         value={editFormData.dob}
                         onChange={(e) => handleInputChange('dob', e.target.value)}
@@ -451,21 +451,21 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                       />
                     </div>
 
-                    {/* Device Input */}
-                    <div className="w-[18%] min-w-[110px] pr-2">
+                    {/* Manufacturer Column */}
+                    <div className="w-[10%] pr-2 flex justify-center">
                       <Input
-                        className="h-6 text-xs px-1"
-                        placeholder="Manufacturer"
+                        className="h-6 text-xs bg-background text-center px-0"
+                        placeholder="Mfg"
                         value={editFormData.deviceManufacturer}
                         onChange={(e) => handleInputChange('deviceManufacturer', e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                       />
                     </div>
 
-                    {/* Model Input */}
-                    <div className="w-[18%] min-w-[110px] pr-2">
+                    {/* Model Column */}
+                    <div className="w-[18%] pr-2">
                       <Input
-                        className="h-6 text-xs px-1"
+                        className="h-7 text-xs bg-background"
                         placeholder="Model"
                         value={editFormData.deviceModel}
                         onChange={(e) => handleInputChange('deviceModel', e.target.value)}
@@ -473,17 +473,17 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                       />
                     </div>
 
-                    {/* Read-only fields */}
-                    <div className="w-[12%] min-w-[100px] text-muted-foreground opacity-50">
+                    {/* Last Report (Read Only) */}
+                    <div className="w-[20%] text-muted-foreground text-xs pl-1 opacity-50">
                       {patient.lastReportDate || 'Never'}
                     </div>
 
-                    {/* Edit Actions */}
-                    <div className="w-[8%] flex justify-end gap-1">
+                    {/* Actions */}
+                    <div className="w-[10%] flex justify-end gap-1">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-green-500 hover:text-green-600 hover:bg-green-100/20"
+                        className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-full"
                         onClick={handleSaveClick}
                         title="Save"
                       >
@@ -492,7 +492,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-100/20"
+                        className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-full"
                         onClick={handleCancelClick}
                         title="Cancel"
                       >
@@ -503,79 +503,81 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                 ) : (
                   // VIEW MODE
                   <>
-                    {/* Name & ID */}
-                    <div className="w-[20%] min-w-[150px] flex flex-col justify-center pr-2">
-                      <span className="font-semibold truncate text-foreground/90">{patient.name}</span>
-                      <span className="text-[10px] font-mono text-muted-foreground opacity-70">{patient.patientId}</span>
+                    {/* Patient Column */}
+                    <div className="w-[30%] flex flex-col justify-center pr-4">
+                      <span className="font-semibold text-foreground text-[15px] leading-tight group-hover:text-primary transition-colors">
+                        {patient.name}
+                      </span>
+                      <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground/80">
+                        <span className="font-mono text-xs text-muted-foreground/90">
+                          ID: {patient.hospitalPatientId || 'No ID'}
+                        </span>
+                      </div>
                     </div>
 
-                    {/* Hospital MRN */}
-                    <div className="w-[12%] min-w-[100px] text-muted-foreground truncate pr-2 text-xs">
-                      {patient.hospitalPatientId || '-'}
-                    </div>
-
-                    {/* DOB */}
-                    <div className="w-[12%] min-w-[90px] text-muted-foreground flex items-center">
-                      <Calendar className="mr-1.5 h-3 w-3 opacity-50" />
+                    {/* DOB Column */}
+                    <div className="w-[12%] text-xs text-muted-foreground flex items-center">
                       {patient.dob}
                     </div>
 
-                    {/* Manufacturer w/ Logo */}
-                    <div className="w-[18%] min-w-[110px] text-muted-foreground truncate pr-2 flex items-center gap-2">
-                      {logo && (
-                        <img src={logo} alt={patient.deviceManufacturer} className="h-5 w-auto object-contain opacity-80" />
-                      )}
-                      <span className={logo ? "text-xs" : ""}>{patient.deviceManufacturer || '-'}</span>
+                    {/* Manufacturer Column (Logo Only) */}
+                    <div className="w-[10%] flex justify-center items-center">
+                      <img
+                        src={logo}
+                        alt={patient.deviceManufacturer || 'Unknown'}
+                        className="h-6 w-auto object-contain max-w-[60px] opacity-90 group-hover:opacity-100 transition-opacity"
+                      />
                     </div>
 
-                    {/* Model */}
-                    <div className="w-[18%] min-w-[110px] text-muted-foreground truncate pr-2" title={patient.deviceModel}>
+                    {/* Model Column */}
+                    <div className="w-[18%] text-xs text-muted-foreground/80 truncate pr-4" title={patient.deviceModel}>
                       {patient.deviceModel || '-'}
                     </div>
 
                     {/* Last Report */}
-                    <div className="w-[12%] min-w-[100px] text-muted-foreground flex items-center">
-                      <Clock className="mr-1.5 h-3 w-3 opacity-50" />
-                      {patient.lastReportDate || 'Never'}
+                    <div className="w-[20%] text-sm text-muted-foreground flex items-center gap-2">
+                      <div className={`h-2 w-2 rounded-full ${patient.lastReportDate ? 'bg-emerald-500/50' : 'bg-slate-300'}`}></div>
+                      {patient.lastReportDate || 'No reports'}
                       {patient.reportCount > 0 && (
-                        <Badge variant="secondary" className="ml-2 h-4 text-[9px] px-1 bg-secondary/40">
+                        <Badge variant="outline" className="ml-1 h-5 text-[10px] px-1.5 border-primary/20 text-primary bg-primary/5">
                           {patient.reportCount}
                         </Badge>
                       )}
                     </div>
 
                     {/* Actions */}
-                    <div className="w-[8%] flex justify-end gap-1">
+                    <div className="w-[10%] flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
                         onClick={(e) => handleEditClick(e, patient)}
-                        title="Edit Patient"
+                        title="Edit Details"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity hover:bg-background hover:shadow-sm"
+                        className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
                         onClick={(e) => {
                           e.stopPropagation();
                           window.electronAPI.openPatientDirectory(patient.id);
                         }}
-                        title="Open Patient Directory"
+                        title="Open Folder"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
                       </Button>
                     </div>
                   </>
-                )}
+                )
+                }
               </div>
             );
           })
         )}
       </div>
-    </div>
+    </div >
   );
 };
 
