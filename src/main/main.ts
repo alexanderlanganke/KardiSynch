@@ -142,6 +142,23 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
   }
 });
 
+ipcMain.handle('create-patient', async (event, patient) => {
+  try {
+    const { createPatient } = await import('./database');
+    const { v4: uuidv4 } = await import('uuid');
+
+    if (!patient.id) {
+      patient.id = uuidv4();
+    }
+
+    await createPatient(patient);
+    return { success: true, id: patient.id };
+  } catch (error) {
+    console.error('Failed to create patient:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('get-patient-by-id', async (event, patientId) => {
   try {
     const patient = await getPatientById(patientId);

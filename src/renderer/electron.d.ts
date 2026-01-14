@@ -1,5 +1,6 @@
 export interface IElectronAPI {
   getAllPatients: (filters: any) => Promise<any[]>;
+  createPatient: (patient: any) => Promise<any>;
   getPatientById: (patientId: string) => Promise<any>;
   getPatientReports: (patientId: string) => Promise<any[]>;
   getSettings: () => Promise<any>;

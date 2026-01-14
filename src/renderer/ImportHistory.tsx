@@ -4,7 +4,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { History, FileText, AlertTriangle, CheckCircle, HelpCircle, ArrowRight } from 'lucide-react';
+import { History, FileText, AlertTriangle, CheckCircle, HelpCircle, ArrowRight, UserPlus } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Search } from 'lucide-react';
@@ -21,6 +23,15 @@ const ImportHistory: React.FC = () => {
     const [patients, setPatients] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedTargetPatient, setSelectedTargetPatient] = useState<string | null>(null);
+
+    // New Patient Creation State
+    const [activeMoveTab, setActiveMoveTab] = useState('existing');
+    const [newPatient, setNewPatient] = useState({
+        first_name: '',
+        last_name: '',
+        dob: '',
+        hospitalPatientId: ''
+    });
 
     useEffect(() => {
         loadHistory();
@@ -71,7 +82,7 @@ const ImportHistory: React.FC = () => {
     const [newVisitDate, setNewVisitDate] = useState('');
 
     useEffect(() => {
-        if (selectedTargetPatient) {
+        if (selectedTargetPatient && activeMoveTab === 'existing') {
             // Fetch visits for the selected patient
             window.electronAPI.getPatientReports(selectedTargetPatient).then(setVisits);
             setSelectedVisitId(null);
@@ -80,21 +91,45 @@ const ImportHistory: React.FC = () => {
         } else {
             setVisits([]);
         }
-    }, [selectedTargetPatient]);
+    }, [selectedTargetPatient, activeMoveTab]);
 
     const confirmMove = async () => {
-        if (!fileToMove || !selectedTargetPatient) return;
+        if (!fileToMove) return;
+
+        let finalPatientId = selectedTargetPatient;
+
+        if (activeMoveTab === 'new') {
+            // Create Patient First
+            if (!newPatient.last_name || !newPatient.dob) return;
+            try {
+                const res = await window.electronAPI.createPatient(newPatient);
+                if (res && res.id) {
+                    finalPatientId = res.id;
+                }
+            } catch (e) {
+                console.error('Failed to create patient', e);
+                return;
+            }
+        }
+
+        if (!finalPatientId) return;
 
         // Validation
-        if (visitMode === 'existing' && !selectedVisitId && visits.length > 0) return;
-        if (visitMode === 'new' && !newVisitDate) return;
+        if (activeMoveTab === 'existing') {
+            if (visitMode === 'existing' && !selectedVisitId && visits.length > 0) return;
+            if (visitMode === 'new' && !newVisitDate) return;
+        } else {
+            // For new patient, we MUST have a visit date (to create the report)
+            // We reuse newVisitDate state for this
+            if (!newVisitDate) return;
+        }
 
         try {
             await window.electronAPI.moveImportedFile(
                 fileToMove.id,
-                selectedTargetPatient,
-                visitMode === 'existing' ? selectedVisitId || undefined : undefined,
-                visitMode === 'new' ? newVisitDate : undefined
+                finalPatientId,
+                activeMoveTab === 'existing' && visitMode === 'existing' ? selectedVisitId || undefined : undefined,
+                (activeMoveTab === 'new' || visitMode === 'new') ? newVisitDate : undefined
             );
             setMoveFileModalOpen(false);
             setFileToMove(null);
@@ -102,6 +137,8 @@ const ImportHistory: React.FC = () => {
             setSelectedVisitId(null);
             setNewVisitDate('');
             setVisits([]);
+            setNewPatient({ first_name: '', last_name: '', dob: '', hospitalPatientId: '' });
+            setActiveMoveTab('existing');
             // Refresh events
             handleSessionClick(selectedSession);
         } catch (e) {
@@ -254,104 +291,166 @@ const ImportHistory: React.FC = () => {
                             Assignment for <strong>{fileToMove?.file_path?.split(/[\\/]/).pop()}</strong>.
                         </p>
 
-                        <div className="space-y-4">
-                            <h3 className="text-sm font-medium border-b pb-2">Step 1: Select Patient</h3>
-                            <div className="relative">
-                                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-                                <Input
-                                    placeholder="Search patients..."
-                                    className="pl-8"
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                />
-                            </div>
+                        <Tabs value={activeMoveTab} onValueChange={setActiveMoveTab} className="w-full">
+                            <TabsList className="grid w-full grid-cols-2">
+                                <TabsTrigger value="existing">Match Existing</TabsTrigger>
+                                <TabsTrigger value="new">Create New</TabsTrigger>
+                            </TabsList>
 
-                            <ScrollArea className="h-[200px] rounded-md border p-2">
-                                {filteredPatients.length === 0 ? (
-                                    <p className="text-center text-muted-foreground py-8">No matching patients found</p>
-                                ) : (
-                                    filteredPatients.map(p => (
-                                        <div
-                                            key={p.id}
-                                            onClick={() => setSelectedTargetPatient(p.id)}
-                                            className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${selectedTargetPatient === p.id ? 'bg-primary/20 border border-primary/50' : 'hover:bg-muted'}`}
-                                        >
-                                            <div>
-                                                <p className="font-medium text-sm">{p.name}</p>
-                                                <p className="text-xs text-muted-foreground">{p.dob} • {p.patientId}</p>
-                                            </div>
-                                            {selectedTargetPatient === p.id && <Badge variant="default" className="h-5">Selected</Badge>}
-                                        </div>
-                                    ))
-                                )}
-                            </ScrollArea>
-                        </div>
+                            <TabsContent value="existing" className="space-y-4 pt-4">
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-medium border-b pb-2">Step 1: Select Patient</h3>
+                                    <div className="relative">
+                                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                        <Input
+                                            placeholder="Search patients..."
+                                            className="pl-8"
+                                            value={searchTerm}
+                                            onChange={e => setSearchTerm(e.target.value)}
+                                        />
+                                    </div>
 
-                        {selectedTargetPatient && (
-                            <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
-                                <h3 className="text-sm font-medium border-b pb-2">Step 2: Assign Visit</h3>
-                                <div className="space-y-3">
-                                    {visits.length > 0 && (
-                                        <div
-                                            className={`p-3 rounded-lg border cursor-pointer ${visitMode === 'existing' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
-                                            onClick={() => setVisitMode('existing')}
-                                        >
-                                            <div className="flex items-center gap-2 mb-2">
-                                                <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'existing' ? 'border-primary' : 'border-muted-foreground'}`}>
-                                                    {visitMode === 'existing' && <div className="h-2 w-2 rounded-full bg-primary" />}
-                                                </div>
-                                                <span className="font-medium text-sm">Add to existing visit</span>
-                                            </div>
-                                            {visitMode === 'existing' && (
-                                                <ScrollArea className="h-[100px]">
-                                                    <div className="space-y-1 ml-6">
-                                                        {visits.map(v => (
-                                                            <div
-                                                                key={v.id}
-                                                                className={`p-2 rounded text-xs border cursor-pointer ${selectedVisitId === v.id ? 'bg-primary text-primary-foreground' : 'bg-muted/50 hover:bg-muted'}`}
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    setSelectedVisitId(v.id);
-                                                                }}
-                                                            >
-                                                                <div className="font-medium">{v.interrogation_date}</div>
-                                                                <div className="opacity-80">{v.manufacturer} {v.device?.type || 'Device'}</div>
-                                                            </div>
-                                                        ))}
+                                    <ScrollArea className="h-[200px] rounded-md border p-2">
+                                        {filteredPatients.length === 0 ? (
+                                            <p className="text-center text-muted-foreground py-8">No matching patients found</p>
+                                        ) : (
+                                            filteredPatients.map(p => (
+                                                <div
+                                                    key={p.id}
+                                                    onClick={() => setSelectedTargetPatient(p.id)}
+                                                    className={`flex items-center justify-between p-2 rounded-md cursor-pointer transition-colors ${selectedTargetPatient === p.id ? 'bg-primary/20 border border-primary/50' : 'hover:bg-muted'}`}
+                                                >
+                                                    <div>
+                                                        <p className="font-medium text-sm">{p.name}</p>
+                                                        <p className="text-xs text-muted-foreground">{p.dob} • {p.patientId}</p>
                                                     </div>
-                                                </ScrollArea>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    <div
-                                        className={`p-3 rounded-lg border cursor-pointer ${visitMode === 'new' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
-                                        onClick={() => setVisitMode('new')}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'new' ? 'border-primary' : 'border-muted-foreground'}`}>
-                                                {visitMode === 'new' && <div className="h-2 w-2 rounded-full bg-primary" />}
-                                            </div>
-                                            <span className="font-medium text-sm">Create new visit from date</span>
-                                        </div>
-                                        {visitMode === 'new' && (
-                                            <div className="ml-6 mt-3 max-w-xs" onClick={e => e.stopPropagation()}>
-                                                <Input
-                                                    type="date"
-                                                    value={newVisitDate}
-                                                    onChange={e => setNewVisitDate(e.target.value)}
-                                                />
-                                            </div>
+                                                    {selectedTargetPatient === p.id && <Badge variant="default" className="h-5">Selected</Badge>}
+                                                </div>
+                                            ))
                                         )}
+                                    </ScrollArea>
+                                </div>
+
+                                {selectedTargetPatient && (
+                                    <div className="space-y-4 animate-in fade-in slide-in-from-top-2">
+                                        <h3 className="text-sm font-medium border-b pb-2">Step 2: Assign Visit</h3>
+                                        <div className="space-y-3">
+                                            {visits.length > 0 && (
+                                                <div
+                                                    className={`p-3 rounded-lg border cursor-pointer ${visitMode === 'existing' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
+                                                    onClick={() => setVisitMode('existing')}
+                                                >
+                                                    <div className="flex items-center gap-2 mb-2">
+                                                        <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'existing' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                            {visitMode === 'existing' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                                                        </div>
+                                                        <span className="font-medium text-sm">Add to existing visit</span>
+                                                    </div>
+                                                    {visitMode === 'existing' && (
+                                                        <ScrollArea className="h-[100px]">
+                                                            <div className="space-y-1 ml-6">
+                                                                {visits.map(v => (
+                                                                    <div
+                                                                        key={v.id}
+                                                                        className={`p-2 rounded text-xs border cursor-pointer ${selectedVisitId === v.id ? 'bg-primary text-primary-foreground' : 'bg-muted/50 hover:bg-muted'}`}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            setSelectedVisitId(v.id);
+                                                                        }}
+                                                                    >
+                                                                        <div className="font-medium">{v.interrogation_date}</div>
+                                                                        <div className="opacity-80">{v.manufacturer} {v.device?.type || 'Device'}</div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        </ScrollArea>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            <div
+                                                className={`p-3 rounded-lg border cursor-pointer ${visitMode === 'new' ? 'bg-primary/5 border-primary/50' : 'hover:bg-muted'}`}
+                                                onClick={() => setVisitMode('new')}
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`h-4 w-4 rounded-full border flex items-center justify-center ${visitMode === 'new' ? 'border-primary' : 'border-muted-foreground'}`}>
+                                                        {visitMode === 'new' && <div className="h-2 w-2 rounded-full bg-primary" />}
+                                                    </div>
+                                                    <span className="font-medium text-sm">Create new visit from date</span>
+                                                </div>
+                                                {visitMode === 'new' && (
+                                                    <div className="ml-6 mt-3 max-w-xs" onClick={e => e.stopPropagation()}>
+                                                        <Input
+                                                            type="date"
+                                                            value={newVisitDate}
+                                                            onChange={e => setNewVisitDate(e.target.value)}
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </TabsContent>
+
+                            <TabsContent value="new" className="space-y-4 pt-4">
+                                <div className="space-y-3">
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs">First Name</Label>
+                                            <Input
+                                                value={newPatient.first_name}
+                                                onChange={e => setNewPatient({ ...newPatient, first_name: e.target.value })}
+                                                className="h-8"
+                                            />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <Label className="text-xs">Last Name</Label>
+                                            <Input
+                                                value={newPatient.last_name}
+                                                onChange={e => setNewPatient({ ...newPatient, last_name: e.target.value })}
+                                                className="h-8"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">Date of Birth</Label>
+                                        <Input
+                                            type="date"
+                                            value={newPatient.dob}
+                                            onChange={e => setNewPatient({ ...newPatient, dob: e.target.value })}
+                                            className="h-8"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <Label className="text-xs">Hospital MRN</Label>
+                                        <Input
+                                            value={newPatient.hospitalPatientId}
+                                            onChange={e => setNewPatient({ ...newPatient, hospitalPatientId: e.target.value })}
+                                            className="h-8"
+                                            placeholder="Optional"
+                                        />
+                                    </div>
+                                    <div className="space-y-1.5 pt-2 border-t">
+                                        <Label className="text-xs font-semibold">Visit Date (Required)</Label>
+                                        <Input
+                                            type="date"
+                                            value={newVisitDate}
+                                            onChange={e => setNewVisitDate(e.target.value)}
+                                            className="h-8"
+                                        />
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            </TabsContent>
+                        </Tabs>
                     </div>
                     <DialogFooter>
                         <Button variant="ghost" onClick={() => setMoveFileModalOpen(false)}>Cancel</Button>
-                        <Button onClick={confirmMove} disabled={!selectedTargetPatient || (visitMode === 'existing' && !selectedVisitId) || (visitMode === 'new' && !newVisitDate)}>
-                            Confirm Move
+                        <Button onClick={confirmMove} disabled={
+                            (activeMoveTab === 'existing' && (!selectedTargetPatient || (visitMode === 'existing' && !selectedVisitId) || (visitMode === 'new' && !newVisitDate))) ||
+                            (activeMoveTab === 'new' && (!newPatient.last_name || !newPatient.dob || !newVisitDate))
+                        }>
+                            {activeMoveTab === 'new' ? 'Create & Move' : 'Confirm Move'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>
