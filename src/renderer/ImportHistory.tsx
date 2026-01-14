@@ -123,11 +123,28 @@ const ImportHistory: React.FC = () => {
 
     return (
         <div className="container mx-auto p-6 max-w-7xl h-full flex flex-col gap-6">
-            <div className="flex items-center gap-4">
-                <History className="h-8 w-8 text-primary" />
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Import History</h1>
-                    <p className="text-muted-foreground">View past import sessions and correct errors.</p>
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                    <History className="h-8 w-8 text-primary" />
+                    <div>
+                        <h1 className="text-3xl font-bold tracking-tight">Import History</h1>
+                        <p className="text-muted-foreground">View past import sessions and correct errors.</p>
+                    </div>
+                </div>
+                <div className="flex justify-end">
+                    <Button variant="outline" onClick={async () => {
+                        if (confirm('This will attempt to re-import all files currently in the Unmatched directory. Continue?')) {
+                            const res = await window.electronAPI.reprocessUnmatched();
+                            if (res.success) {
+                                alert(`Rescan initiated. ${res.count} files moved to processing queue.`);
+                                loadHistory();
+                            } else {
+                                alert('Failed to rescan: ' + res.message);
+                            }
+                        }
+                    }}>
+                        <History className="mr-2 h-4 w-4" /> Rescan Unmatched Files
+                    </Button>
                 </div>
             </div>
 
@@ -251,14 +268,16 @@ const ImportHistory: React.FC = () => {
             </div>
 
             {/* Replaced Dialog with ManualSortingModal */}
-            {moveFileModalOpen && fileInfo && (
-                <ManualSortingModal
-                    open={moveFileModalOpen}
-                    fileInfo={fileInfo}
-                    onResolve={handleManualSortResolve}
-                />
-            )}
-        </div>
+            {
+                moveFileModalOpen && fileInfo && (
+                    <ManualSortingModal
+                        open={moveFileModalOpen}
+                        fileInfo={fileInfo}
+                        onResolve={handleManualSortResolve}
+                    />
+                )
+            }
+        </div >
     );
 };
 

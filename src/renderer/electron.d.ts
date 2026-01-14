@@ -29,6 +29,7 @@ export interface IElectronAPI {
   getParsedXml: (filePath: string) => Promise<any>;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
   openPatientDirectory: (patientId: string) => Promise<void>;
+  reprocessUnmatched: () => Promise<{ count: number; success: boolean; message?: string }>;
 
   // Import History & Manual Sorting
   manualSortingResponse: (response: any) => Promise<void>;
