@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   getAllPatients: (filters: any) => ipcRenderer.invoke('get-all-patients', filters),
   getPatientById: (patientId: string) => ipcRenderer.invoke('get-patient-by-id', patientId),
+  createPatient: (patient: any) => ipcRenderer.invoke('create-patient', patient),
   updatePatient: (patient: any) => ipcRenderer.invoke('update-patient', patient),
   rebuildDatabase: () => ipcRenderer.invoke('rebuild-database'),
   getPatientReports: (patientId: string) => ipcRenderer.invoke('get-patient-reports', patientId),
