@@ -1,6 +1,6 @@
 {
   "name": "kardisynch",
-  "version": "1.4.9",
+  "version": "1.5.0",
   "description": "A self contained electron based database, renderer and pdf viewer for IECD interrogations",
   "main": "dist/main/main.js",
   "scripts": {
@@ -101,6 +101,7 @@
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-switch": "^1.2.6",
     "@radix-ui/react-tabs": "^1.1.13",
     "@types/pdf-parse": "^1.1.5",
     "adm-zip": "^0.5.16",

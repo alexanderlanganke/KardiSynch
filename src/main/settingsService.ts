@@ -12,6 +12,8 @@ export interface AppSettings {
     usbSourceDirectories: string[];
     usbTargetDirectory: string;
     updateChannel: 'stable' | 'beta';
+    mriCountry: string;
+    mriManufacturers: Record<string, boolean>;
 }
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -25,6 +27,15 @@ const DEFAULT_SETTINGS: AppSettings = {
     usbSourceDirectories: [],
     usbTargetDirectory: '',
     updateChannel: 'stable',
+    mriCountry: 'Germany',
+    mriManufacturers: {
+        'Biotronik': true,
+        'Medtronic': false,
+        'Abbott': false,
+        'Boston Scientific': false,
+        'Impulse Dynamics': false,
+        'MicroPort': false
+    }
 };
 
 export const getAllSettings = async (): Promise<AppSettings> => {
@@ -39,6 +50,13 @@ export const getAllSettings = async (): Promise<AppSettings> => {
                 parsedDbSettings.usbSourceDirectories = JSON.parse(parsedDbSettings.usbSourceDirectories);
             } catch (e) {
                 parsedDbSettings.usbSourceDirectories = [];
+            }
+        }
+        if (parsedDbSettings.mriManufacturers) {
+            try {
+                parsedDbSettings.mriManufacturers = JSON.parse(parsedDbSettings.mriManufacturers);
+            } catch (e) {
+                parsedDbSettings.mriManufacturers = DEFAULT_SETTINGS.mriManufacturers;
             }
         }
 
@@ -71,6 +89,9 @@ export const saveSettings = async (settings: Partial<AppSettings>): Promise<void
             const settingsToSave: any = { ...otherSettings };
             if (settingsToSave.usbSourceDirectories) {
                 settingsToSave.usbSourceDirectories = JSON.stringify(settingsToSave.usbSourceDirectories);
+            }
+            if (settingsToSave.mriManufacturers) {
+                settingsToSave.mriManufacturers = JSON.stringify(settingsToSave.mriManufacturers);
             }
             await setDbSettings(settingsToSave);
         }

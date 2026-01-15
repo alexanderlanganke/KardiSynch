@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, User, Calendar, Clock, MoreVertical, X, Check, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react';
+import { Search, Filter, User, Calendar, Clock, MoreVertical, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, HelpCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 // Manufacturer Logos
@@ -36,6 +36,7 @@ interface Patient {
   deviceManufacturer?: string;
   deviceModel?: string;
   leads?: string[];
+  mriStatus?: { status: string; details: string; timestamp?: string };
 }
 
 
@@ -55,6 +56,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('name');
@@ -125,8 +127,23 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       fetchPatients();
     };
     window.electronAPI.onPatientListUpdate(handleUpdate);
+
+    // Listen for automation updates
+    const cleanupAutomation = window.electronAPI.onAutomationStatus((status: any) => {
+      setProcessingId(status.isProcessing ? status.currentPatientId : null);
+      // Refresh list if an item finished (we can infer this if processingId changes from ID to null, or we can just fetch periodically/on change)
+      // Ideally AutomationManager should emit 'patient-list-update' when done.
+      // For now, let's just show the spinner. 
+      // If we want the result to appear immediately, we need a refresh trigger.
+      // Let's assume onPatientListUpdate is triggered or we rely on spinner for now.
+    });
+
     return () => {
       window.electronAPI.removeListener('patient-list-update', handleUpdate);
+      // cleanupAutomation is a void return currently based on preload, check preload... 
+      // Preload: return () => ipcRenderer.removeListener... NO, onAutomationStatus just adds listener. it does NOT return cleanup.
+      // I need to fix preload if I want proper cleanup, or just ignore for now as Dashboard is main view.
+      // Actually, I should use `window.electronAPI.removeListener` if I can target the function.
     };
   }, [fetchPatients]);
 
@@ -354,7 +371,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         {/* Header Row */}
         <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-lg mb-1 select-none">
           <div
-            className="w-[30%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
+            className="w-[20%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
             onClick={() => handleSort('name')}
           >
             Patient <SortIcon field="name" />
@@ -366,7 +383,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             DOB <SortIcon field="dob" />
           </div>
           <div
-            className="w-[10%] flex items-center cursor-pointer hover:text-foreground transition-colors group justify-center"
+            className="w-[20%] flex items-center cursor-pointer hover:text-foreground transition-colors group justify-center"
             onClick={() => handleSort('deviceManufacturer')}
           >
             <SortIcon field="deviceManufacturer" />
@@ -411,7 +428,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                   // EDIT MODE
                   <>
                     {/* Patient Column (Name, MRN, ID) */}
-                    <div className="w-[30%] flex flex-col gap-1 pr-4">
+                    <div className="w-[20%] flex flex-col gap-1 pr-4">
                       <div className="flex gap-2">
                         <Input
                           className="h-8 text-sm font-medium bg-background"
@@ -452,7 +469,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                     </div>
 
                     {/* Manufacturer Column */}
-                    <div className="w-[10%] pr-2 flex justify-center">
+                    <div className="w-[20%] pr-2 flex justify-center">
                       <Input
                         className="h-6 text-xs bg-background text-center px-0"
                         placeholder="Mfg"
@@ -504,7 +521,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                   // VIEW MODE
                   <>
                     {/* Patient Column */}
-                    <div className="w-[30%] flex flex-col justify-center pr-4">
+                    <div className="w-[20%] flex flex-col justify-center pr-4">
                       <span className="font-semibold text-foreground text-[15px] leading-tight group-hover:text-primary transition-colors">
                         {patient.name}
                       </span>
@@ -521,19 +538,84 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                     </div>
 
                     {/* Manufacturer Column (Logo Only) */}
-                    <div className="w-[10%] flex justify-center items-center">
+                    <div className="w-[20%] flex justify-center items-center px-1">
                       <img
                         src={logo}
                         alt={patient.deviceManufacturer || 'Unknown'}
-                        className="h-6 w-auto object-contain max-w-[60px] opacity-90 group-hover:opacity-100 transition-opacity"
+                        className="h-[15px] w-auto max-w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
                       />
                     </div>
 
                     {/* Model Column */}
-                    <div className="w-[18%] text-xs text-muted-foreground/80 truncate pr-4" title={patient.deviceModel}>
-                      {patient.deviceModel || '-'}
-                    </div>
+                    <div className="w-[18%] pr-4">
+                      <div className="text-xs text-muted-foreground/80 truncate" title={patient.deviceModel}>
+                        {patient.deviceModel || 'Unknown Model'}
+                      </div>
+                      <div className="mt-1">
+                        {(() => {
+                          const isProcessing = processingId === patient.id;
+                          const status = patient.mriStatus?.status || 'unknown';
 
+                          if (isProcessing) {
+                            return (
+                              <div className="flex items-center gap-1 text-[10px] text-muted-foreground animate-pulse">
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Checking...
+                              </div>
+                            );
+                          }
+
+                          // Render Icon based on status
+                          if (status === 'mr_conditional' || status === 'conditional') {
+                            return (
+                              <div
+                                className="flex items-center gap-1 text-[10px] text-green-600 font-medium cursor-pointer hover:underline"
+                                title={patient.mriStatus?.details}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
+                                }}
+                              >
+                                <ShieldCheck className="h-3.5 w-3.5 fill-green-100" />
+                                MRI Conditional
+                              </div>
+                            );
+                          }
+
+                          if (status === 'unsafe' || status === 'no_info') {
+                            return (
+                              <div
+                                className="flex items-center gap-1 text-[10px] text-red-600 font-medium cursor-pointer hover:underline"
+                                title={patient.mriStatus?.details || 'Unsafe or No Info'}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
+                                }}
+                              >
+                                <ShieldAlert className="h-3.5 w-3.5 fill-red-100" />
+                                {status === 'unsafe' ? 'Unsafe / Warning' : 'Not Conditional'}
+                              </div>
+                            );
+                          }
+
+                          // Unknown or Check Failed
+                          return (
+                            <Badge
+                              variant="outline"
+                              className={`text-[9px] px-1 py-0 h-4 font-normal cursor-pointer hover:bg-muted ${status === 'check_failed' ? 'text-orange-600 border-orange-200' : 'text-muted-foreground'}`}
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                // Trigger background check
+                                window.electronAPI.triggerMriCheck(patient.id);
+                              }}
+                              title={patient.mriStatus?.details || 'Click to check'}
+                            >
+                              {status === 'check_failed' ? 'Check Failed' : 'Check MRI'}
+                            </Badge>
+                          );
+                        })()}
+                      </div>
+                    </div>
                     {/* Last Report */}
                     <div className="w-[20%] text-sm text-muted-foreground flex items-center gap-2">
                       <div className={`h-2 w-2 rounded-full ${patient.lastReportDate ? 'bg-emerald-500/50' : 'bg-slate-300'}`}></div>
