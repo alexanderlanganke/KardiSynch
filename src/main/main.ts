@@ -142,11 +142,31 @@ app.whenReady().then(async () => {
 
 ipcMain.handle('read-file-text', async (event, filePath) => {
   try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return content;
+    const stats = await fs.stat(filePath);
+
+    if (stats.isDirectory()) {
+      const files = await fs.readdir(filePath);
+      // Prioritize XML, then TXT/LOG
+      const candidate = files.find(f => f.toLowerCase().endsWith('.xml')) ||
+        files.find(f => f.toLowerCase().endsWith('.txt')) ||
+        files.find(f => f.toLowerCase().endsWith('.log'));
+
+      if (candidate) {
+        const candidatePath = path.join(filePath, candidate);
+        const content = await fs.readFile(candidatePath, 'utf-8');
+        return `--- DIRECTORY PREVIEW: ${path.basename(filePath)} ---\n--- SHOWING FILE: ${candidate} ---\n\n${content}`;
+      } else {
+        return `--- DIRECTORY CONTENT ---\n${files.join('\n')}\n\n(No textual preview available)`;
+      }
+    } else {
+      // Regular file
+      const content = await fs.readFile(filePath, 'utf-8');
+      return content;
+    }
   } catch (error) {
     console.warn(`Failed to read text file ${filePath}:`, error);
-    throw error;
+    // Return error as text so user sees why
+    return `Error reading file: ${error}`;
   }
 });
 
