@@ -33,9 +33,15 @@ const createTables = (db: sqlite3.Database) => {
         first_name TEXT,
         last_name TEXT NOT NULL,
         dob TEXT NOT NULL,
-        hospitalPatientId TEXT
+        hospitalPatientId TEXT,
+        mri_status TEXT,
+        mri_data_hash TEXT
       );
     `);
+
+    // Migration for existing databases
+    db.run("ALTER TABLE Patients ADD COLUMN mri_status TEXT", () => { });
+    db.run("ALTER TABLE Patients ADD COLUMN mri_data_hash TEXT", () => { });
 
     db.run(`
       CREATE TABLE IF NOT EXISTS Reports (
@@ -221,7 +227,16 @@ export const getPatientById = (patientId: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.get(
-      `SELECT * FROM Patients WHERE id = ?`,
+      `SELECT 
+         p.*, 
+         r.manufacturer as deviceManufacturer, 
+         r.device_model as deviceModel, 
+         r.device_serial_number as deviceSerial
+       FROM Patients p 
+       LEFT JOIN Reports r ON p.id = r.patient_id 
+       WHERE p.id = ?
+       ORDER BY r.interrogation_date DESC 
+       LIMIT 1`,
       [patientId],
       (err, row: any) => {
         if (err) {
@@ -229,17 +244,28 @@ export const getPatientById = (patientId: string): Promise<any> => {
           reject(err);
         } else if (!row) {
           console.error('[getPatientById] Patient not found with ID:', patientId);
+          // DEBUG: List available IDs to see mismatch
+          db.all('SELECT id FROM Patients LIMIT 5', (e, rows: any[]) => {
+            if (e) console.error('Debug query failed', e);
+            else console.log('DEBUG: First 5 IDs in DB:', rows.map(r => r.id));
+          });
+          db.get('SELECT count(*) as count FROM Patients', (e, r: any) => {
+            console.log('DEBUG: Total Patients:', r?.count);
+          });
           reject(new Error('Patient not found'));
         } else {
-          console.log('[getPatientById] Found patient:', row);
-          // Transform to include combined name
+          // Transform to include combined name and device info
           const patient = {
             id: row.id,
             patientId: `P-${row.id}`,
             first_name: row.first_name,
             last_name: row.last_name,
             name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
-            dob: row.dob || ''
+            dob: row.dob || '',
+            deviceManufacturer: row.deviceManufacturer,
+            deviceModel: row.deviceModel,
+            deviceSerial: row.deviceSerial,
+            mriStatus: row.mri_status ? JSON.parse(row.mri_status) : null
           };
           resolve(patient);
         }
@@ -388,6 +414,7 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
         p.last_name,
         p.dob,
         p.hospitalPatientId,
+        p.mri_status,
         COUNT(r.id) as reportCount,
         MAX(r.interrogation_date) as lastReportDate
       FROM Patients p 
@@ -421,7 +448,7 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
       params.push(filters.deviceManufacturer);
     }
 
-    query += ' GROUP BY p.id, p.first_name, p.last_name, p.dob';
+    query += ' GROUP BY p.id, p.first_name, p.last_name, p.dob, p.mri_status';
 
     db.all(query, params, (err, rows: any[]) => {
       if (err) {
@@ -435,7 +462,8 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
           name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
           dob: row.dob || '',
           lastReportDate: row.lastReportDate || '',
-          reportCount: row.reportCount || 0
+          reportCount: row.reportCount || 0,
+          mriStatus: row.mri_status ? JSON.parse(row.mri_status) : null
         }));
         resolve(patients);
       }
@@ -540,8 +568,13 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
 
     // 2. Process Visits (Reports)
     const visitDirs = await fs.promises.readdir(patientDir, { withFileTypes: true });
+    // console.log(`[rebuildDatabase] Found ${visitDirs.length} items in ${dir.name}`);
     for (const vDir of visitDirs) {
-      if (!vDir.isDirectory()) continue;
+      if (!vDir.isDirectory()) {
+        // console.log(`Skipping non-directory in patient folder: ${vDir.name}`);
+        continue;
+      }
+      console.log(`[rebuildDatabase] Processing visit dir: ${vDir.name}`);
 
       const visitDir = path.join(patientDir, vDir.name);
 
@@ -604,6 +637,17 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
 
             if (v.device_type && reportData.device.type === 'Unknown') reportData.device.type = v.device_type;
             if (v.device_model && reportData.device.model === 'Unknown') reportData.device.model = v.device_model;
+            if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
+
+            // Parse Leads from XML if not already found by deep scan
+            if (v.leads && v.leads.lead && reportData.leads.length === 0) {
+              const rawLeads = Array.isArray(v.leads.lead) ? v.leads.lead : [v.leads.lead];
+              reportData.leads = rawLeads.map((l: any) => ({
+                model: l.model,
+                serial_number: l.serial,
+                position: l.position || 'Unknown'
+              }));
+            }
             if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
           }
         } catch (e) { console.error('Error reading visit.xml', e); }
@@ -779,6 +823,20 @@ export const updateReportPatient = async (reportId: string, newPatientId: string
       if (err) reject(err);
       else resolve();
     });
+  });
+};
+
+export const updatePatientMRIStatus = async (patientId: string, status: any, hash: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run(
+      `UPDATE Patients SET mri_status = ?, mri_data_hash = ? WHERE id = ?`,
+      [JSON.stringify(status), hash, patientId],
+      (err) => {
+        if (err) reject(err);
+        else resolve();
+      }
+    );
   });
 };
 

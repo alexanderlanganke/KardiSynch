@@ -10,6 +10,7 @@ import { setMainWindow, getMainWindow } from './windowManager';
 import { getAllSettings, saveSettings } from './settingsService';
 import { getConfig } from './config';
 import { XMLParser } from 'fast-xml-parser';
+import { AutomationManager } from './services/AutomationManager';
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -33,6 +34,7 @@ function createWindow() {
   }
 
   setMainWindow(mainWindow);
+  AutomationManager.getInstance().setWindow(mainWindow);
 }
 
 app.whenReady().then(async () => {
@@ -120,6 +122,12 @@ app.whenReady().then(async () => {
   // 4. Create Window
   createWindow();
   console.log('Electron app is ready.');
+
+  // Start automated background tasks
+  setTimeout(() => {
+    AutomationManager.getInstance().startMonitoring();
+  }, 5000); // Small delay to let UI load
+
 
   if (settings) {
     fs.writeFile('debug_paths.txt', `UserData: ${app.getPath('userData')}\nImportDir: ${settings.importDir}\nDataDir: ${settings.dataPath}`);
@@ -482,6 +490,61 @@ ipcMain.handle('reprocess-unmatched', async () => {
   }
 });
 
+ipcMain.handle('get-mri-status', async (event, patientId) => {
+  try {
+    // In a real app, we'd fetch the patient from DB to get Manufacturer/Model.
+    // For this prototype, we'll accept them as args or mock them if just ID provided.
+    // Let's assume the frontend passes the details for now to keep it simple, 
+    // or we fetch the patient here.
+
+    // Fetch patient logic (simplified):
+    const patientData = await import('./database').then(m => m.getPatientById(patientId)); // dynamic import or use existing
+    if (!patientData) throw new Error('Patient not found');
+
+    // Assuming patientData has deviceManufacturer and deviceModel
+    // We need to map DB fields to what service expects.
+    // Note: implementation details of database.ts might differ.
+
+    // Let's just pass the data from frontend for flexible testing for now:
+    // IPC signature: (event, { manufacturer, model, serial })
+
+    const reports = await import('./database').then(m => m.getPatientReports(patientId));
+    const latestReport = reports && reports.length > 0 ? reports[0] : null;
+    const leads = latestReport?.leads || [];
+
+    console.log(`[get-mri-status] Found ${leads.length} leads for patient.`);
+    if (leads.length > 0) console.log(`[get-mri-status] Lead 1: ${leads[0].model}`);
+
+    const settings = await getAllSettings();
+    const country = settings.mriCountry || 'Germany';
+
+    return await import('./services/mriLookupService').then(m =>
+      m.checkMRIStatus(
+        patientData.deviceManufacturer || 'Unknown',
+        patientData.deviceModel || 'Unknown',
+        patientData.deviceSerial,
+        leads,
+        country
+      )
+    );
+
+  } catch (error: any) {
+    console.error('MRI Check Failed:', error);
+    return { status: 'unknown', details: error.message };
+  }
+});
+
+ipcMain.handle('trigger-mri-check', async (event, patientId: string) => {
+  try {
+    console.log('[IPC] Triggering MRI check for:', patientId);
+    AutomationManager.getInstance().forceCheck(patientId);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Trigger Check Failed:', error);
+    throw error;
+  }
+});
+
 // Filesystem-based IPC handlers
 ipcMain.handle('get-patient-directories', async () => {
   try {
@@ -496,6 +559,30 @@ ipcMain.handle('get-patient-directories', async () => {
     const dirs = await fs.readdir(reportsDir, { withFileTypes: true });
     const parser = new XMLParser();
     const patients = [];
+
+    // Fetch MRI statuses from DB to enrich filesystem data
+    const mriStatuses = await new Promise<Record<string, any>>((resolve) => {
+      import('./database').then(({ getDb }) => {
+        try {
+          getDb().all('SELECT id, mri_status FROM Patients', (err, rows: any[]) => {
+            if (err) {
+              console.warn('Failed to fetch MRI statuses for directory listing:', err);
+              resolve({});
+            } else {
+              const map: Record<string, any> = {};
+              rows.forEach(r => {
+                if (r.mri_status) {
+                  try { map[r.id] = JSON.parse(r.mri_status); } catch { }
+                }
+              });
+              resolve(map);
+            }
+          });
+        } catch (e) {
+          resolve({});
+        }
+      });
+    });
 
     for (const dir of dirs) {
       if (!dir.isDirectory()) continue;
@@ -555,6 +642,7 @@ ipcMain.handle('get-patient-directories', async () => {
           lastReportDate: visitDates[0] || null,
           deviceManufacturer,
           deviceModel,
+          mriStatus: mriStatuses[patientData.id] || null,
           leads: leadsSummary
         });
       } catch (err) {

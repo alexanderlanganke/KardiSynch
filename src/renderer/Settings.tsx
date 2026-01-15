@@ -5,7 +5,25 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck } from 'lucide-react';
+import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, CheckCircle, XCircle } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+
+// Logos
+import biotronikLogo from './assets/logos/biotronik.svg';
+import medtronicLogo from './assets/logos/medtronic.svg';
+import abbottLogo from './assets/logos/abbott.svg';
+import bostonLogo from './assets/logos/boston_scientific.svg';
+import impulseLogo from './assets/logos/impulse_dynamics.svg';
+import microportLogo from './assets/logos/microport.svg';
+
+const LOGO_MAP: Record<string, string> = {
+  'Biotronik': biotronikLogo,
+  'Medtronic': medtronicLogo,
+  'Abbott': abbottLogo,
+  'Boston Scientific': bostonLogo,
+  'Impulse Dynamics': impulseLogo,
+  'MicroPort': microportLogo
+};
 
 const Settings: React.FC = () => {
   const [settings, setSettings] = useState<{
@@ -24,6 +42,8 @@ const Settings: React.FC = () => {
     usbSourceDirectories: [],
     usbTargetDirectory: '',
     updateChannel: 'stable',
+    mriCountry: 'Germany',
+    mriManufacturers: {} as Record<string, boolean>,
   });
   const [updateStatus, setUpdateStatus] = useState<string>('Idle');
   const [appVersion, setAppVersion] = useState<string>('');
@@ -121,6 +141,7 @@ const Settings: React.FC = () => {
           <TabsTrigger value="usb">USB Watcher</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
           <TabsTrigger value="updates">Updates</TabsTrigger>
+          <TabsTrigger value="mri">MRI</TabsTrigger>
           <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
 
@@ -358,6 +379,82 @@ const Settings: React.FC = () => {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="mri">
+            <Card>
+              <CardHeader>
+                <CardTitle>MRI Status Check Configuration</CardTitle>
+                <CardDescription>
+                  Configure settings for the automated MRI Conditional Status lookup.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="space-y-2">
+                  <Label htmlFor="mri-country">Country / Region</Label>
+                  <Input
+                    id="mri-country"
+                    name="mriCountry"
+                    value={settings.mriCountry}
+                    onChange={handleInputChange}
+                    placeholder="e.g. United States, Germany"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    The country to select on manufacturer websites (e.g. ProMRI Check). Defaults to 'Germany'.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <Label>Manufacturer Automation</Label>
+                  <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                    {Object.entries(LOGO_MAP).map(([name, logo]) => {
+                      const enabled = settings.mriManufacturers?.[name] ?? false;
+                      const isUnavailable = name !== 'Biotronik'; // Only Biotronik implemented now
+
+                      return (
+                        <div
+                          key={name}
+                          className={`
+                            relative border rounded-lg p-4 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all
+                            ${enabled ? 'border-primary ring-1 ring-primary bg-primary/5' : 'bg-muted/30 opacity-70 hover:opacity-100'}
+                          `}
+                          onClick={() => {
+                            // Toggle settings
+                            setSettings(prev => ({
+                              ...prev,
+                              mriManufacturers: {
+                                ...prev.mriManufacturers,
+                                [name]: !enabled
+                              }
+                            }));
+                          }}
+                        >
+                          <div className="absolute top-2 right-2">
+                            <Switch checked={enabled} onCheckedChange={() => { }} />
+                          </div>
+
+                          <img src={logo} alt={name} className="h-8 max-w-[120px] object-contain my-2" />
+
+                          {isUnavailable && enabled && (
+                            <span className="text-[10px] text-destructive font-bold bg-destructive/10 px-2 py-0.5 rounded-full">
+                              COMING SOON
+                            </span>
+                          )}
+
+                          {!enabled && (
+                            <span className="text-[10px] text-muted-foreground">Disabled</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Enable automatic MRI checks for these manufacturers. The check runs in the background.
+                  </p>
+                </div>
+
               </CardContent>
             </Card>
           </TabsContent>

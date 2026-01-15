@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVisitDirectories: (patientId: string) => ipcRenderer.invoke('get-visit-directories', patientId),
   getVisitFiles: (patientId: string, visitDirName: string) => ipcRenderer.invoke('get-visit-files', patientId, visitDirName),
   getParsedXml: (filePath: string) => ipcRenderer.invoke('get-parsed-xml', filePath),
+  getMRIStatus: (patientId: string) => ipcRenderer.invoke('get-mri-status', patientId),
 
   // Import History & Manual Sorting
   manualSortingResponse: (response: any) => ipcRenderer.invoke('manual-sorting-response', response),
@@ -56,6 +57,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onImportSessionUpdate: (callback: (session: any) => void) => {
     ipcRenderer.on('import-session-update', (event, session) => callback(session));
   },
+
+  // Automation Service
+  onAutomationStatus: (callback: (status: any) => void) => {
+    ipcRenderer.on('automation-status', (event, status) => callback(status));
+  },
+  triggerMriCheck: (patientId: string) => ipcRenderer.invoke('trigger-mri-check', patientId),
+
 
   // Device Selection (Autodetection Fallback)
   sendDeviceSelectionResult: (result: any) => ipcRenderer.invoke('device-selection-result', result),

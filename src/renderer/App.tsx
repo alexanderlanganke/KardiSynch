@@ -6,7 +6,7 @@ import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
-import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import icon from './assets/icon.jpg';
 import ImportHistory from './ImportHistory';
@@ -68,6 +68,8 @@ const NavItem: React.FC<{
 
 // Actually I will assume the previous chunks are preserved if I target specific lines.
 // But to be safe and clean, I will replace the imports and the App component BODY.
+
+
 
 const App: React.FC = () => {
   const { currentView, setCurrentView, currentPatientId, setCurrentPatientId } = useAppContext();
@@ -198,6 +200,8 @@ const App: React.FC = () => {
           fileInfo={deviceSelectionFile}
           onResolve={handleDeviceSelectionResolve}
         />
+
+
 
       </div>
     </ThemeProvider>
