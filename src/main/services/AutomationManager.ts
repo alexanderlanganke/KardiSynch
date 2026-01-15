@@ -6,6 +6,7 @@ import { getAllSettings } from '../settingsService';
 
 interface QueueItem {
     patientId: string;
+    patientName: string;
     manufacturer: string;
     model: string;
     serial?: string;
@@ -67,7 +68,7 @@ export class AutomationManager {
         // SQLite can handle it.
 
         db.all(`
-      SELECT p.id, p.mri_data_hash, 
+      SELECT p.id, p.first_name, p.last_name, p.mri_data_hash, 
              r.manufacturer, r.device_model, r.device_serial_number, r.data
       FROM Patients p
       LEFT JOIN Reports r ON r.patient_id = p.id
@@ -105,6 +106,7 @@ export class AutomationManager {
                     console.log(`[AutomationManager] Queueing MRI check for ${row.id} (Hash mismatch)`);
                     this.addToQueue({
                         patientId: row.id,
+                        patientName: `${row.last_name}, ${row.first_name}`,
                         manufacturer: row.manufacturer,
                         model: row.device_model,
                         serial: row.device_serial_number,
@@ -132,8 +134,8 @@ export class AutomationManager {
         const item = this.queue[0]; // Peek
 
         try {
-            this.broadcastStatus(`Checking MRI: ${item.manufacturer} device...`, item.patientId);
-            this.broadcastProcessStatus('start', item, 'Initializing check...', 0);
+            this.broadcastStatus(`Checking MRI: ${item.manufacturer} device for ${item.patientName}...`, item.patientId);
+            this.broadcastProcessStatus('start', item, `Initializing check for ${item.patientName}...`, 0);
 
             // 1. Validate Leads (Pre-check)
             const validation = this.validateLeadCount(item.model, item.leads);
@@ -201,7 +203,7 @@ export class AutomationManager {
         const db = getDb();
 
         db.get(`
-           SELECT p.id, r.manufacturer, r.device_model, r.device_serial_number, r.data
+           SELECT p.id, p.first_name, p.last_name, r.manufacturer, r.device_model, r.device_serial_number, r.data
            FROM Patients p
            LEFT JOIN Reports r ON r.patient_id = p.id
            WHERE p.id = ?
@@ -221,6 +223,7 @@ export class AutomationManager {
 
             this.addToQueue({
                 patientId: row.id,
+                patientName: `${row.last_name}, ${row.first_name}`,
                 manufacturer: row.manufacturer,
                 model: row.device_model,
                 serial: row.device_serial_number,

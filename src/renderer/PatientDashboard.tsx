@@ -567,6 +567,22 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                             status = 'unknown';
                           }
 
+                          // Helper to format tooltip
+                          const formatTooltip = () => {
+                            const details = patient.mriStatus?.details || 'Status Unknown';
+                            const device = `Device: ${patient.deviceModel || 'Unknown'}`;
+
+                            // Format leads logic
+                            let leadsText = 'Leads: None';
+                            if (patient.leads && patient.leads.length > 0) {
+                              // leads is usually an array of strings like "Manufacturer Model (Serial)" based on main.ts
+                              // Let's create a clean list
+                              leadsText = 'Leads:\n' + patient.leads.map(l => `• ${l}`).join('\n');
+                            }
+
+                            return `${details}\n\n${device}\n${leadsText}`;
+                          };
+
                           if (isProcessing) {
                             return (
                               <div className="flex items-center gap-1 text-[10px] text-muted-foreground animate-pulse">
@@ -577,13 +593,12 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                           }
 
                           // Render Icon based on status
-                          // Render Icon based on status
                           if (status === 'mr_conditional' || status === 'conditional') {
                             return (
                               <div
                                 className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
                                 style={{ backgroundColor: '#16a34a', color: 'white', borderColor: '#15803d' }}
-                                title={patient.mriStatus?.details}
+                                title={formatTooltip()}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
@@ -602,7 +617,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                               <div
                                 className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
                                 style={{ backgroundColor: '#dc2626', color: 'white', borderColor: '#b91c1c' }}
-                                title={patient.mriStatus?.details || 'Unsafe or No Info'}
+                                title={formatTooltip()}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
@@ -619,7 +634,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                             <div
                               className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
                               style={{ backgroundColor: '#4b5563', color: 'white', borderColor: '#374151' }}
-                              title={patient.mriStatus?.details || 'Status Unknown - Click to Check'}
+                              title={formatTooltip()}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 window.electronAPI.triggerMriCheck(patient.id);

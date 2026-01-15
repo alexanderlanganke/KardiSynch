@@ -411,7 +411,8 @@ const Settings: React.FC = () => {
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                     {Object.entries(LOGO_MAP).map(([name, logo]) => {
                       const enabled = settings.mriManufacturers?.[name] ?? false;
-                      const isUnavailable = name !== 'Biotronik'; // Only Biotronik implemented now
+                      const isUnavailable = name !== 'Biotronik' && name !== 'Medtronic';
+                      const isMedtronic = name === 'Medtronic';
 
                       return (
                         <div
@@ -445,6 +446,33 @@ const Settings: React.FC = () => {
 
                           {!enabled && (
                             <span className="text-[10px] text-muted-foreground">Disabled</span>
+                          )}
+
+                          {isMedtronic && enabled && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[10px] px-2 mt-1"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const btn = e.currentTarget;
+                                btn.innerText = 'Checking...';
+                                btn.disabled = true;
+                                try {
+                                  const res = await window.electronAPI.checkMedtronicUpdates();
+                                  if (res.updated) alert(`Medtronic Data Updated! ${res.count} items.`);
+                                  else if (res.error) alert(`Update Failed: ${res.error}`);
+                                  else alert(`Up to date. (${res.count} items)`);
+                                } catch (err) {
+                                  alert('Error checking updates');
+                                } finally {
+                                  btn.innerText = 'Check Updates';
+                                  btn.disabled = false;
+                                }
+                              }}
+                            >
+                              Check Updates
+                            </Button>
                           )}
                         </div>
                       );

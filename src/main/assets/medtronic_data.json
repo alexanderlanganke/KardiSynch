@@ -1,0 +1,938 @@
+[
+  {
+    "modelName": "Advisa DR MRI SureScan",
+    "modelNumber": "A2DR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Advisa DR MRI SureScan",
+    "modelNumber": "A3DR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Advisa SR MRI SureScan",
+    "modelNumber": "A3SR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB1D1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB1D4",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB1Q1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB1QQ",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB2D1*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB2D4*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB2Q1*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Amplia MRI CRT-D SureScan",
+    "modelNumber": "DTMB2QQ*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58, 65, 85 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Astra MRI DR SureScan",
+    "modelNumber": "X1DR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Astra MRI DR SureScan",
+    "modelNumber": "X2DR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Astra MRI DR SureScan",
+    "modelNumber": "X3DR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Astra MRI SR SureScan",
+    "modelNumber": "X1SR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Astra MRI SR SureScan",
+    "modelNumber": "X2SR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Astra MRI SR SureScan",
+    "modelNumber": "X3SR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Attesta MRI SureScan",
+    "modelNumber": "ATSR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Attesta MRI SureScan",
+    "modelNumber": "ATDR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Attesta MRI SureScan",
+    "modelNumber": "ATDRL1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Attesta MRI SureScan",
+    "modelNumber": "ATDRS1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Aurora EV-ICD MRI SureScan",
+    "modelNumber": "DVEA3E4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Azure MRI SureScan",
+    "modelNumber": "W1SR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Azure MRI SureScan",
+    "modelNumber": "W2SR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Azure MRI SureScan",
+    "modelNumber": "W3SR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Azure MRI SureScan",
+    "modelNumber": "W1DR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Azure MRI SureScan",
+    "modelNumber": "W2DR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Azure MRI SureScan",
+    "modelNumber": "W3DR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA1D1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA1D4",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA1Q1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA1QQ",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA2D1*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA2D4*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA2Q1*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Claria MRI CRT-D SureScan",
+    "modelNumber": "DTMA2QQ*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Cobalt DR ICD MRI SureScan",
+    "modelNumber": "DDPB3D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt DR ICD MRI SureScan",
+    "modelNumber": "DDPB3D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt HF CRT-D MRI SureScan",
+    "modelNumber": "DTPB2D1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Cobalt HF CRT-D MRI SureScan",
+    "modelNumber": "DTPB2D4",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Cobalt HF CRT-D MRI SureScan",
+    "modelNumber": "DTPB2Q1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Cobalt HF CRT-D MRI SureScan",
+    "modelNumber": "DTPB2QQ",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Cobalt VR ICD MRI SureScan",
+    "modelNumber": "DVPB3D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt VR ICD MRI SureScan",
+    "modelNumber": "DVPB3D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt XT DR ICD MRI SureScan",
+    "modelNumber": "DDPA2D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt XT DR ICD MRI SureScan",
+    "modelNumber": "DDPA2D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt XT HF CRT-D MRI SureScan",
+    "modelNumber": "DTPA2D1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Cobalt XT HF CRT-D MRI SureScan",
+    "modelNumber": "DTPA2D4",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Cobalt XT HF CRT-D MRI SureScan",
+    "modelNumber": "DTPA2Q1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Cobalt XT HF CRT-D MRI SureScan",
+    "modelNumber": "DTPA2QQ",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Cobalt XT VR ICD MRI SureScan",
+    "modelNumber": "DVPA2D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Cobalt XT VR ICD MRI SureScan",
+    "modelNumber": "DVPA2D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Compia MRI CRT-D SureScan",
+    "modelNumber": "DTMC1D1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Compia MRI CRT-D SureScan",
+    "modelNumber": "DTMC1QQ",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Compia MRI CRT-D SureScan",
+    "modelNumber": "DTMC2D1*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Compia MRI CRT-D SureScan",
+    "modelNumber": "DTMC2D4*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Compia MRI CRT-D SureScan",
+    "modelNumber": "DTMC2QQ*",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Crome DR ICD MRI SureScan",
+    "modelNumber": "DDPC3D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Crome DR ICD MRI SureScan",
+    "modelNumber": "DDPC3D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Crome HF CRT-D MRI SureScan",
+    "modelNumber": "DTPC2D1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Crome HF CRT-D MRI SureScan",
+    "modelNumber": "DTPC2D4",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Crome HF CRT-D MRI SureScan",
+    "modelNumber": "DTPC2Q1",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Crome HF CRT-D MRI SureScan",
+    "modelNumber": "DTPC2QQ",
+    "pacingLeads": null,
+    "pacing6725": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Crome VR ICD MRI SureScan",
+    "modelNumber": "DVPC3D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Crome VR ICD MRI SureScan",
+    "modelNumber": "DVPC3D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "EnRhythm MRI SureScan",
+    "modelNumber": "EMDR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Ensura MRI SureScan",
+    "modelNumber": "EN1SR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Ensura MRI SureScan",
+    "modelNumber": "EN1DR01*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI DR SureScan",
+    "modelNumber": "DDMB1D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI DR SureScan",
+    "modelNumber": "DDMB1D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI DR SureScan",
+    "modelNumber": "DDMC3D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI DR SureScan",
+    "modelNumber": "DDMC3D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI DR SureScan",
+    "modelNumber": "DDMB2D1*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI DR SureScan",
+    "modelNumber": "DDMB2D4*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI VR SureScan",
+    "modelNumber": "DVMB1D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI VR SureScan",
+    "modelNumber": "DVMB1D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI VR SureScan",
+    "modelNumber": "DVMB2D1*",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI VR SureScan",
+    "modelNumber": "DVMB2D4*",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI VR SureScan",
+    "modelNumber": "DVMC3D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Evera MRI VR SureScan",
+    "modelNumber": "DVMC3D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "LINQ II",
+    "modelNumber": "LNQ22",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Micra\n(referred to as Micra VR)",
+    "modelNumber": "MC1VR01",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Micra AV",
+    "modelNumber": "MC1AVR1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Micra AV2",
+    "modelNumber": "MC2AVR1†",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Micra VR2",
+    "modelNumber": "MC2VR01†",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Mirro MRI DR SureScan",
+    "modelNumber": "DDME3D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Mirro MRI DR SureScan",
+    "modelNumber": "DDME3D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Mirro MRI VR SureScan",
+    "modelNumber": "DVME3D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Mirro MRI VR SureScan",
+    "modelNumber": "DVME3D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Percepta CRT-P MRI SureScan",
+    "modelNumber": "W1TR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Percepta CRT-P MRI SureScan",
+    "modelNumber": "W1TR04*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Percepta CRT-P MRI SureScan",
+    "modelNumber": "W4TR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58, 65, 85 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Percepta CRT-P MRI SureScan",
+    "modelNumber": "W4TR04*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58, 65, 85 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Primo MRI DR SureScan",
+    "modelNumber": "DDMD3D1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Primo MRI DR SureScan",
+    "modelNumber": "DDMD3D4",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Primo MRI VR SureScan",
+    "modelNumber": "DVMD3D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Primo MRI VR SureScan",
+    "modelNumber": "DVMD3D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Reveal LINQ",
+    "modelNumber": "LNQ11",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Reveal XT",
+    "modelNumber": "9529",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Revo MRI SureScan",
+    "modelNumber": "RVDR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Serena CRT-P MRI SureScan",
+    "modelNumber": "W1TR02",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Serena CRT-P MRI SureScan",
+    "modelNumber": "W1TR05*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Serena CRT-P MRI SureScan",
+    "modelNumber": "W4TR02",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Serena CRT-P MRI SureScan",
+    "modelNumber": "W4TR05*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Solara CRT-P MRI SureScan",
+    "modelNumber": "W1TR03",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Solara CRT-P MRI SureScan",
+    "modelNumber": "W1TR06*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4296 (78, 88 cm)\n4196 (78, 88 cm)\n4396 (78, 88 cm)\n4796* (88 cm)"
+  },
+  {
+    "modelName": "Solara CRT-P MRI SureScan",
+    "modelNumber": "W4TR03",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Solara CRT-P MRI SureScan",
+    "modelNumber": "W4TR06*",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": "4798 (78, 88 cm)\n4398 (78, 88 cm)\n4298 (78, 88 cm)\n4598 (78, 88 cm)"
+  },
+  {
+    "modelName": "Sphera MRI SureScan",
+    "modelNumber": "SPSR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Sphera MRI SureScan",
+    "modelNumber": "SPDR01",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Sphera MRI SureScan",
+    "modelNumber": "SPDRL1",
+    "pacingLeads": "3830 (59, 69, 74 cm)\n4076 (35, 45, 52, 58, 65, 85 cm)\n5076 (35, 45, 52, 58, 65, 85 cm)\n4074 (52, 58 cm)\n4574 (45, 53 cm)\n5086MRI (45, 52, 58 cm)\n5054* (52, 58 cm)\n5554* (45, 53 cm)",
+    "pacing6725": null,
+    "defibLeads": null,
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Visia AF MRI VR SureScan",
+    "modelNumber": "DVFB1D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Visia AF MRI VR SureScan",
+    "modelNumber": "DVFB1D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Visia AF MRI VR SureScan",
+    "modelNumber": "DVFC3D1",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Visia AF MRI VR SureScan",
+    "modelNumber": "DVFC3D4",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Visia AF MRI VR SureScan",
+    "modelNumber": "DVFB2D1*",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6947 (58, 65 cm)\n6935 (58, 65 cm)",
+    "crtPacingLeads": null
+  },
+  {
+    "modelName": "Visia AF MRI VR SureScan",
+    "modelNumber": "DVFB2D4*",
+    "pacingLeads": null,
+    "pacing6725": null,
+    "defibLeads": "6946M (55, 62 cm)\n6947M (55, 62 cm)\n6935M (55, 62 cm)",
+    "crtPacingLeads": null
+  }
+]
