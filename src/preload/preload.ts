@@ -73,6 +73,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Updates
   checkMedtronicUpdates: () => ipcRenderer.invoke('check-medtronic-updates'),
+  getDeviceNews: () => ipcRenderer.invoke('get-device-news'),
+  onNewsStatus: (callback: (message: string) => void) => ipcRenderer.on('news-status', (_, message) => callback(message)),
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   quitAndInstall: () => ipcRenderer.invoke('quit-and-install'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

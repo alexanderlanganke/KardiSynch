@@ -1,13 +1,15 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
 import fs from 'fs';
 import path from 'path';
 
 const MEDTRONIC_URL = 'https://www.medtronic.com/en-us/healthcare-professionals/mri-resources/mr-conditional-search-tool.html';
-const ASSETS_PATH = path.join(__dirname, '../assets');
-const LOCAL_DATA_PATH = path.join(ASSETS_PATH, 'medtronic_data.json');
+// function to get path lazily to ensure app is ready and we get correct userData
+const getLocalDataPath = () => path.join(app.getPath('userData'), 'medtronic_data.json');
 
 export async function checkForMedtronicUpdates(): Promise<{ updated: boolean; count: number; error?: string }> {
     console.log('[Medtronic Updater] Checking for updates...');
+    const localDataPath = getLocalDataPath();
+
     let win: BrowserWindow | null = new BrowserWindow({
         show: false,
         width: 1280,
@@ -74,8 +76,8 @@ export async function checkForMedtronicUpdates(): Promise<{ updated: boolean; co
         // Let's do a basic JSON stringify compare for simplicity and robustness.
         let localData = [];
         try {
-            if (fs.existsSync(LOCAL_DATA_PATH)) {
-                localData = JSON.parse(fs.readFileSync(LOCAL_DATA_PATH, 'utf8'));
+            if (fs.existsSync(localDataPath)) {
+                localData = JSON.parse(fs.readFileSync(localDataPath, 'utf8'));
             }
         } catch (e) {
             console.warn('[Medtronic Updater] Local data missing or corrupt.', e);
@@ -95,11 +97,13 @@ export async function checkForMedtronicUpdates(): Promise<{ updated: boolean; co
         }
 
         // Save new data
-        if (!fs.existsSync(ASSETS_PATH)) {
-            fs.mkdirSync(ASSETS_PATH, { recursive: true });
+        // Save new data
+        const dir = path.dirname(localDataPath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
         }
 
-        fs.writeFileSync(LOCAL_DATA_PATH, newJson);
+        fs.writeFileSync(localDataPath, newJson);
         console.log(`[Medtronic Updater] Updated local database with ${scrapedData.length} items.`);
 
         return { updated: true, count: scrapedData.length };

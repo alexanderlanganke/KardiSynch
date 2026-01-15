@@ -35,6 +35,36 @@ function createWindow() {
 
   setMainWindow(mainWindow);
   AutomationManager.getInstance().setWindow(mainWindow);
+
+  // Helper to open external links in a dedicated window (since system browser might be missing)
+  const openExternalLink = (targetUrl: string) => {
+    const win = new BrowserWindow({
+      width: 1200,
+      height: 800,
+      title: 'External Link',
+      autoHideMenuBar: true,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true
+      }
+    });
+
+    win.loadURL(targetUrl).catch(e => {
+      console.error('Failed to load external URL:', targetUrl, e);
+      win.close();
+    });
+  };
+
+  // Intercept new window creation (window.open, target="_blank")
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    // Basic security check: ensure it's http/https
+    if (url.startsWith('http:') || url.startsWith('https:')) {
+      // shell.openExternal(url); // Fails if xdg-open missing
+      openExternalLink(url);
+    }
+    return { action: 'deny' };
+  });
 }
 
 app.whenReady().then(async () => {
@@ -805,6 +835,18 @@ ipcMain.handle('check-medtronic-updates', async () => {
   } catch (error: any) {
     console.error('Failed to check Medtronic updates:', error);
     return { updated: false, count: 0, error: error.message };
+  }
+});
+
+import { getDeviceNews } from './services/newsService';
+
+ipcMain.handle('get-device-news', async (event) => {
+  const sendStatus = (msg: string) => event.sender.send('news-status', msg);
+  try {
+    return await getDeviceNews(sendStatus);
+  } catch (error) {
+    console.error('Failed to get device news:', error);
+    return [];
   }
 });
 ipcMain.handle('get-app-version', () => {
