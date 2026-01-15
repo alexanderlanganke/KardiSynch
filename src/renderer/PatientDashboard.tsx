@@ -542,7 +542,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                       <img
                         src={logo}
                         alt={patient.deviceManufacturer || 'Unknown'}
-                        className="h-[15px] w-auto max-w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
+                        className="h-5 w-auto max-w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
                       />
                     </div>
 

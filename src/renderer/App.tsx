@@ -6,12 +6,13 @@ import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
-import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History, Loader2 } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History, Loader2, Newspaper } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import icon from './assets/icon.jpg';
 import ImportHistory from './ImportHistory';
 import ManualSortingModal from './ManualSortingModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
+import DeviceNews from './DeviceNews';
 
 
 const ThemeToggle: React.FC = () => {
@@ -126,6 +127,8 @@ const App: React.FC = () => {
         return <Settings />;
       case 'history':
         return <ImportHistory />;
+      case 'news':
+        return <DeviceNews />;
       case 'patientDetail':
         if (currentPatientId) {
           return (
@@ -163,6 +166,11 @@ const App: React.FC = () => {
               active={currentView === 'history'}
               onClick={() => setCurrentView('history')}
               icon={<History className="h-6 w-6" />}
+            />
+            <NavItem
+              active={currentView === 'news'}
+              onClick={() => setCurrentView('news')}
+              icon={<Newspaper className="h-6 w-6" />}
             />
             <NavItem
               active={currentView === 'settings'}

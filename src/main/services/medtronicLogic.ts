@@ -9,10 +9,26 @@ export interface MRIStatusResult {
     timestamp: string;
     warning?: string;
 }
-// We need to use require for the JSON to ensure it works in both Main process and potentially tests
-// But since we are moving this to a TS file, we can try using import if resolveJsonModule is on.
-// Given previous issues, distinct "require" is safer for data loading in this specific setup without checking deep config.
-import medtronicData from '../assets/medtronic_data.json';
+
+import { app } from 'electron';
+import fs from 'fs';
+import path from 'path';
+// We import bundled data as fallback
+import bundledData from '../assets/medtronic_data.json';
+
+// Helper to get fresh data
+const getMedtronicData = () => {
+    try {
+        // Check user data (where scraper writes)
+        const userDataPath = path.join(app.getPath('userData'), 'medtronic_data.json');
+        if (fs.existsSync(userDataPath)) {
+            return JSON.parse(fs.readFileSync(userDataPath, 'utf8'));
+        }
+    } catch (e) {
+        console.warn('Failed to load local medtronic data, using bundled fallback.', e);
+    }
+    return bundledData;
+};
 
 export async function checkMedtronic(model: string, leads: any[] = []): Promise<MRIStatusResult> {
 
@@ -21,8 +37,11 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
     const cleanModelInput = modelInput.replace(/[^a-z0-9]/g, '');
 
     // 1. Find Device Support
+    // Use dynamic data source
+    const data = getMedtronicData();
+
     // We check if input is contained in JSON modelName/Number OR vice versa.
-    const deviceMatch = medtronicData.find((d: any) => {
+    const deviceMatch = data.find((d: any) => {
         const mName = (d.modelName || '').toLowerCase();
         const mNum = (d.modelNumber || '').toLowerCase();
 
