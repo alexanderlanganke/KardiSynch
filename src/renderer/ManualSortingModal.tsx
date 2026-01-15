@@ -48,12 +48,19 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
         if (open && fileInfo) {
             setTextContent(null);
 
-            // Check for XML/Text files
+            // Check for XML/Text files (or basically aught that isn't PDF)
             const ext = fileInfo.filename?.toLowerCase().split('.').pop();
-            if (['xml', 'log', 'txt'].includes(ext) && fileInfo.tempPath) {
+            const isPdf = ext === 'pdf';
+
+            // Try to read content for anything that isn't a likely binary (or just catch errors)
+            // KardiSynch mainly handles XML, text, logs, and folders (which have no extension usually)
+            if (!isPdf && fileInfo.tempPath) {
                 window.electronAPI.readFileText(fileInfo.tempPath)
                     .then(setTextContent)
-                    .catch(e => console.error('Failed to read file text', e));
+                    .catch(e => {
+                        console.error('Failed to read file text', e);
+                        setTextContent(`Preview parsing failed: ${e}`);
+                    });
             }
 
             // Load patients for search
@@ -451,7 +458,7 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
                                         <div className="min-h-full w-full flex flex-col items-center justify-center p-4">
                                             <PdfViewer pdfPath={fileInfo.tempPath} />
                                         </div>
-                                    ) : (fileInfo.filename?.toLowerCase().endsWith('.xml') || fileInfo.filename?.toLowerCase().endsWith('.log') || fileInfo.filename?.toLowerCase().endsWith('.txt')) ? (
+                                    ) : (textContent || isPdf === false) ? (
                                         <div className="w-full h-full p-6 overflow-auto bg-white shadow-sm border rounded m-4 font-mono text-xs whitespace-pre-wrap text-slate-700 leading-relaxed selection:bg-yellow-200 selection:text-black">
                                             {textContent || <div className="flex flex-col items-center justify-center h-full opacity-50"><div className="animate-spin h-6 w-6 border-2 border-primary rounded-full border-t-transparent mb-2"></div>Loading content...</div>}
                                         </div>

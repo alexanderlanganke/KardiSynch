@@ -135,6 +135,28 @@ export class AutomationManager {
             this.broadcastStatus(`Checking MRI: ${item.manufacturer} device...`, item.patientId);
             this.broadcastProcessStatus('start', item, 'Initializing check...', 0);
 
+            // 1. Validate Leads (Pre-check)
+            const validation = this.validateLeadCount(item.model, item.leads);
+            if (!validation.valid) {
+                console.log(`[AutomationManager] Validation Failed for ${item.patientId}: ${validation.reason}`);
+
+                // Save 'unknown' status immediately
+                const result = {
+                    manufacturer: item.manufacturer,
+                    status: 'unknown' as const,
+                    details: `Validation Failed: ${validation.reason}`,
+                    timestamp: new Date().toISOString()
+                };
+
+                await updatePatientMRIStatus(item.patientId, result, item.hash);
+
+                if (this.win) this.win.webContents.send('patient-list-update');
+                this.broadcastProcessStatus('complete', item, `Skipped: ${validation.reason}`, 100);
+
+                // Skip to finally
+                return;
+            }
+
             const settings = await getAllSettings();
             const country = settings.mriCountry || 'Germany';
 
@@ -229,5 +251,35 @@ export class AutomationManager {
                 currentPatientId: currentId
             });
         }
+    }
+
+    private validateLeadCount(model: string, leads: any[]): { valid: boolean; reason?: string } {
+        // 1. No leads -> Unknown
+        if (!leads || leads.length === 0) {
+            return { valid: false, reason: 'No lead data available' };
+        }
+
+        const m = (model || '').toUpperCase();
+        console.log(`[AutomationManager] Validating leads for ${m}, LeadCount: ${leads.length}`);
+
+        const count = leads.length;
+
+        // 2. Mismatch Logic based on common suffixes/types
+        // Single Chamber (VR, SR, S) -> Expects 1
+        if (m.match(/\b(VR|SR|S)(-T)?\b/) && count !== 1) {
+            return { valid: false, reason: `Model ${model} expects 1 lead, found ${count}` };
+        }
+
+        // Dual Chamber (DR, D) -> Expects 2
+        if (m.match(/\b(DR|D)(-T)?\b/) && count !== 2) {
+            return { valid: false, reason: `Model ${model} expects 2 leads, found ${count}` };
+        }
+
+        // CRT (HF, CRT, QP) -> Expects >= 3
+        if (m.match(/\b(CRT|HF|QP)\b/) && count < 3) {
+            return { valid: false, reason: `Model ${model} expects 3+ leads, found ${count}` };
+        }
+
+        return { valid: true };
     }
 }

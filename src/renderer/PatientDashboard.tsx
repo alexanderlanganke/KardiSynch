@@ -554,7 +554,18 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                       <div className="mt-1">
                         {(() => {
                           const isProcessing = processingId === patient.id;
-                          const status = patient.mriStatus?.status || 'unknown';
+                          let status = patient.mriStatus?.status;
+                          const manu = (patient.deviceManufacturer || '').toLowerCase();
+
+                          // Force unknown status for Unknown/Missing manufacturers
+                          if (manu === 'unknown' || !manu) {
+                            status = 'unknown';
+                          }
+
+                          // Default to unknown if not present
+                          if (!status) {
+                            status = 'unknown';
+                          }
 
                           if (isProcessing) {
                             return (
@@ -566,52 +577,57 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                           }
 
                           // Render Icon based on status
+                          // Render Icon based on status
                           if (status === 'mr_conditional' || status === 'conditional') {
                             return (
                               <div
-                                className="flex items-center gap-1 text-[10px] text-green-600 font-medium cursor-pointer hover:underline"
+                                className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
+                                style={{ backgroundColor: '#16a34a', color: 'white', borderColor: '#15803d' }}
                                 title={patient.mriStatus?.details}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
                                 }}
                               >
-                                <ShieldCheck className="h-3.5 w-3.5 fill-green-100" />
+                                <ShieldCheck className="h-3.5 w-3.5" />
                                 MRI Conditional
                               </div>
                             );
                           }
 
+
+                          // Unsafe / No Info
                           if (status === 'unsafe' || status === 'no_info') {
                             return (
                               <div
-                                className="flex items-center gap-1 text-[10px] text-red-600 font-medium cursor-pointer hover:underline"
+                                className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
+                                style={{ backgroundColor: '#dc2626', color: 'white', borderColor: '#b91c1c' }}
                                 title={patient.mriStatus?.details || 'Unsafe or No Info'}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
                                 }}
                               >
-                                <ShieldAlert className="h-3.5 w-3.5 fill-red-100" />
+                                <ShieldAlert className="h-3.5 w-3.5" />
                                 {status === 'unsafe' ? 'Unsafe / Warning' : 'Not Conditional'}
                               </div>
                             );
                           }
 
-                          // Unknown or Check Failed
+                          // Unknown / Explicitly Unknown / Default
                           return (
-                            <Badge
-                              variant="outline"
-                              className={`text-[9px] px-1 py-0 h-4 font-normal cursor-pointer hover:bg-muted ${status === 'check_failed' ? 'text-orange-600 border-orange-200' : 'text-muted-foreground'}`}
-                              onClick={async (e) => {
+                            <div
+                              className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
+                              style={{ backgroundColor: '#4b5563', color: 'white', borderColor: '#374151' }}
+                              title={patient.mriStatus?.details || 'Status Unknown - Click to Check'}
+                              onClick={(e) => {
                                 e.stopPropagation();
-                                // Trigger background check
                                 window.electronAPI.triggerMriCheck(patient.id);
                               }}
-                              title={patient.mriStatus?.details || 'Click to check'}
                             >
-                              {status === 'check_failed' ? 'Check Failed' : 'Check MRI'}
-                            </Badge>
+                              <HelpCircle className="h-3.5 w-3.5" />
+                              MRI Conditional Unknown
+                            </div>
                           );
                         })()}
                       </div>
