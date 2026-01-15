@@ -30,7 +30,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     mriCountry: 'Germany',
     mriManufacturers: {
         'Biotronik': true,
-        'Medtronic': false,
+        'Medtronic': true,
         'Abbott': false,
         'Boston Scientific': false,
         'Impulse Dynamics': false,

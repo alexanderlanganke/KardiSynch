@@ -1,4 +1,5 @@
 import { BrowserWindow } from 'electron';
+import { checkMedtronic } from './medtronicLogic';
 
 export interface MRIStatusResult {
     manufacturer: string;
@@ -244,6 +245,11 @@ export const checkMRIStatus = async (
         if (manu.includes('biotronik')) {
             return await checkBiotronik(model, leads, country);
         }
+
+        if (manu.includes('medtronic')) {
+            return await checkMedtronic(model, leads);
+        }
+
         // Add other manufacturers here
 
         return {
@@ -263,3 +269,4 @@ export const checkMRIStatus = async (
         };
     }
 };
+

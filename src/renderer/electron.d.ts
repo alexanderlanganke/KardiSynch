@@ -20,6 +20,7 @@ export interface IElectronAPI {
   rebuildDatabase: () => Promise<any>;
   clearAllData: () => Promise<boolean>;
   checkForUpdates: () => Promise<any>;
+  checkMedtronicUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;
   quitAndInstall: () => Promise<void>;
   getAppVersion: () => Promise<string>;
   onUpdateStatus: (callback: (status: any) => void) => () => void;

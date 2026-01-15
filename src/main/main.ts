@@ -797,7 +797,16 @@ ipcMain.handle('check-for-updates', async () => {
 ipcMain.handle('quit-and-install', () => {
   autoUpdater.quitAndInstall();
 });
+import { checkForMedtronicUpdates } from './services/medtronicScraper';
 
+ipcMain.handle('check-medtronic-updates', async () => {
+  try {
+    return await checkForMedtronicUpdates();
+  } catch (error: any) {
+    console.error('Failed to check Medtronic updates:', error);
+    return { updated: false, count: 0, error: error.message };
+  }
+});
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
