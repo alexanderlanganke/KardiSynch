@@ -123,17 +123,37 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
         // Wait up to 5s for either Lead input or Result
         let needsLeads = false;
         const startLeadCheck = Date.now();
-        while (Date.now() - startLeadCheck < 5000) {
+        while (Date.now() - startLeadCheck < 10000) { // Increased timeout to 10s for safety
+            // Check for VISIBLE lead input
             needsLeads = await win.webContents.executeJavaScript(`
-               !!document.getElementById('checkProMriFrom:inLead1_input')
+               (function() {
+                   const el = document.getElementById('checkProMriFrom:inLead1_input');
+                   return el && el.offsetParent !== null && el.style.display !== 'none';
+               })()
             `).catch(() => false);
-            if (needsLeads) break;
 
-            // Also check if result is already there
+            if (needsLeads) {
+                console.log('[MRI Service] Visible lead input detected.');
+                break;
+            }
+
+            // Check for VISIBLE result (posText or pos)
+            // posText/pos exist hidden on the lead page, so we MUST check visibility
             const resultReady = await win.webContents.executeJavaScript(`
-               !!document.getElementById('posText') || !!document.getElementById('pos')
+               (function() {
+                   const posText = document.getElementById('posText');
+                   const pos = document.getElementById('pos');
+                   
+                   const isVisible = (el) => el && el.offsetParent !== null && el.style.display !== 'none' && el.innerText.trim().length > 0;
+                   
+                   return isVisible(posText) || isVisible(pos);
+               })()
             `).catch(() => false);
-            if (resultReady) break;
+
+            if (resultReady) {
+                console.log('[MRI Service] Visible result detected.');
+                break;
+            }
 
             await wait(500);
         }
@@ -230,6 +250,97 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
     }
 }
 
+// Helper: Estimate port count from model name
+function getEstimatedPortCount(modelName: string): number | null {
+    const name = modelName.toUpperCase();
+    if (name.includes('CRT') || name.includes('HF') || name.includes('QUAD')) return 3;
+    // DX Systems (Biotronik) -> Single lead that acts as Dual, so we expect 1 lead entry
+    if (name.includes('DX')) return 1;
+    if (name.includes('DR') || name.includes('DUAL') || name.includes('DC')) return 2;
+    if (name.includes('SR') || name.includes('VR') || name.includes('SINGLE') || name.includes('SC')) return 1;
+    return null;
+}
+
+// Helper: Pre-validate MRI prerequisites
+function validateMRIPrerequisites(manufacturer: string, model: string, leads: any[]): { valid: boolean; result?: MRIStatusResult } {
+    const manuLower = manufacturer.toLowerCase();
+    const modelLower = model.toLowerCase();
+
+    // 1. Leadless Systems (Micra, ILR, Aveir, etc.) -> Must have 0 leads
+    const isLeadless = modelLower.includes('micra') ||
+        modelLower.includes('reveal') ||
+        modelLower.includes('linq') ||
+        modelLower.includes('aveir') ||
+        modelLower.includes('confirm rx'); // Abbott ILR
+
+    if (isLeadless) {
+        if (leads.length > 0) {
+            return {
+                valid: false,
+                result: {
+                    manufacturer,
+                    status: 'unsafe',
+                    details: `Leadless device (${model}) detected, but patent has ${leads.length} recorded leads. This implies abandoned leads or data error.`,
+                    timestamp: new Date().toISOString()
+                }
+            };
+        }
+        return { valid: true }; // Proceed to specific lookup
+    }
+
+    // 2. Impulse Dynamics (Optimizer) -> Exception for Manu mismatch
+    // They don't make leads, so mixed manufacturer is expected/allowed.
+    if (manuLower.includes('impulse') || manuLower.includes('optimizer')) {
+        // Just proceed, they are strict but we don't block on manu mix
+        return { valid: true };
+    }
+
+    // 3. Manufacturer Mismatch (General Rule)
+    const mismatchedLead = leads.find(l => !l.manufacturer.toLowerCase().includes(manuLower) && !manuLower.includes(l.manufacturer.toLowerCase()));
+    if (mismatchedLead) {
+        return {
+            valid: false,
+            result: {
+                manufacturer,
+                status: 'unsafe',
+                details: `Manufacturer mismatch detected. Device: ${manufacturer}, Lead: ${mismatchedLead.manufacturer}. System is likely Non-MRI Conditional.`,
+                timestamp: new Date().toISOString()
+            }
+        };
+    }
+
+    // 4. Port Count / Lead Mismatch
+    // If leads > ports -> Abandoned leads
+    // If leads < ports -> Plugged ports (often unsafe)
+    const portCount = getEstimatedPortCount(model);
+    if (portCount !== null) {
+        if (leads.length > portCount) {
+            return {
+                valid: false,
+                result: {
+                    manufacturer,
+                    status: 'unsafe',
+                    details: `More leads (${leads.length}) found than device ports (${portCount}). Implies abandoned leads.`,
+                    timestamp: new Date().toISOString()
+                }
+            };
+        }
+        if (leads.length < portCount) {
+            return {
+                valid: false,
+                result: {
+                    manufacturer,
+                    status: 'unsafe',
+                    details: `Fewer leads (${leads.length}) found than device ports (${portCount}). Plugged ports are generally not MRI conditional.`,
+                    timestamp: new Date().toISOString()
+                }
+            };
+        }
+    }
+
+    return { valid: true };
+}
+
 export const checkMRIStatus = async (
     manufacturer: string,
     model: string,
@@ -238,6 +349,13 @@ export const checkMRIStatus = async (
     country: string = 'Germany'
 ): Promise<MRIStatusResult> => {
     console.log(`[MRI Service] Checking status for ${manufacturer} ${model}...`);
+
+    // 1. Run Pre-Validation
+    const preCheck = validateMRIPrerequisites(manufacturer, model, leads);
+    if (!preCheck.valid && preCheck.result) {
+        console.warn('[MRI Service] Pre-validation failed:', preCheck.result.details);
+        return preCheck.result;
+    }
 
     try {
         const manu = manufacturer.toLowerCase();

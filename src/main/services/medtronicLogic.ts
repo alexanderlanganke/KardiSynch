@@ -68,24 +68,37 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
     }
 
     // 2. Validate Leads
-    // Check if device is Leadless (Micra)
-    const isLeadless = ['Micra', 'LCP', 'Intra-Cardiac'].some(k => deviceMatch.modelName.includes(k));
+    // 2. Validate Leads
+    const modelNameLower = deviceMatch.modelName.toLowerCase();
 
-    if (leads.length === 0 && !isLeadless) {
+    // Check for Micra (Leadless Pacemaker)
+    const isMicra = modelNameLower.includes('micra');
+    if (isMicra) {
         return {
             manufacturer: 'Medtronic',
-            status: 'unknown',
-            details: `Device found (${deviceMatch.modelName}), but no lead data available to verify compatibility.`,
+            status: 'conditional',
+            details: `System is MR Conditional (Micra TPS). Device: ${deviceMatch.modelName}.`,
             timestamp: new Date().toISOString()
         };
     }
 
-    if (isLeadless) {
-        // Skip Lead Validation for Leadless Devices
+    // Check for ILR (Insertable Cardiac Monitor)
+    // Reveal LINQ, LINQ II, etc.
+    const isILR = modelNameLower.includes('reveal') || modelNameLower.includes('linq');
+    if (isILR) {
         return {
             manufacturer: 'Medtronic',
             status: 'conditional',
-            details: `System is MR Conditional (Leadless Device). Device: ${deviceMatch.modelName}.`,
+            details: `System is MR Conditional (Insertable Cardiac Monitor). Device: ${deviceMatch.modelName}.`,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    if (leads.length === 0) {
+        return {
+            manufacturer: 'Medtronic',
+            status: 'unknown',
+            details: `Device found (${deviceMatch.modelName}), but no lead data available to verify compatibility.`,
             timestamp: new Date().toISOString()
         };
     }
