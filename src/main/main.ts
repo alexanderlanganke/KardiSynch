@@ -595,6 +595,10 @@ ipcMain.handle('trigger-mri-check', async (event, patientId: string) => {
   }
 });
 
+ipcMain.handle('retrigger-all-mri-checks', async () => {
+  AutomationManager.getInstance().forceCheckAll();
+});
+
 // Filesystem-based IPC handlers
 ipcMain.handle('get-patient-directories', async () => {
   try {
