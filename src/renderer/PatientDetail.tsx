@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, User, Calendar, Activity, Battery, Zap, Pencil } from 'lucide-react';
 import ViewPane from '@/components/ViewPane';
 import VisitTimeline from '@/components/VisitTimeline';
-import DeviceLeadEditor from '@/components/DeviceLeadEditor';
+import DeviceLeadEditor from '@/components/DeviceLeadEditor.tsx';
 
 interface PatientDetailProps {
   patientId: string;

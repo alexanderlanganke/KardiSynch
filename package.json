@@ -1,6 +1,6 @@
 {
   "name": "kardisynch",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "description": "A self contained electron based database, renderer and pdf viewer for IECD interrogations",
   "main": "dist/main/main.js",
   "scripts": {
