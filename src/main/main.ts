@@ -314,7 +314,9 @@ ipcMain.handle('update-patient', async (event, patient) => {
       first_name: patient.first_name,
       last_name: patient.last_name,
       dob: patient.dob,
-      hospitalPatientId: patient.hospitalPatientId
+      hospitalPatientId: patient.hospitalPatientId,
+      devices: patient.devices,
+      leads: patient.leads
     }));
 
     return { success: true };

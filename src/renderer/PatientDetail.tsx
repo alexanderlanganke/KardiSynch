@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, User, Calendar, Activity, Battery, Zap } from 'lucide-react';
+import { ArrowLeft, User, Calendar, Activity, Battery, Zap, Pencil } from 'lucide-react';
 import ViewPane from '@/components/ViewPane';
 import VisitTimeline from '@/components/VisitTimeline';
+import DeviceLeadEditor from '@/components/DeviceLeadEditor';
 
 interface PatientDetailProps {
   patientId: string;
@@ -12,12 +13,13 @@ interface PatientDetailProps {
 }
 
 const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
-  console.log('[PatientDetail] Received patientId:', patientId, 'Type:', typeof patientId);
+  // console.log('[PatientDetail] Received patientId:', patientId, 'Type:', typeof patientId);
   const [patient, setPatient] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null]);
   const [activePaneId, setActivePaneId] = useState(0);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
 
   useEffect(() => {
     loadPatientData();
@@ -43,6 +45,17 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       console.error('Failed to load patient data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePatientUpdate = async (updatedData: any) => {
+    try {
+      await window.electronAPI.updatePatient(updatedData);
+      // Refresh local data
+      await loadPatientData();
+    } catch (error) {
+      console.error('Failed to update patient:', error);
+      throw error; // Re-throw for editor to handle/alert
     }
   };
 
@@ -92,7 +105,18 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex flex-col justify-center">
-            <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient.name}</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient.name}</h1>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-5 w-5 text-muted-foreground hover:text-primary p-0"
+                onClick={() => setIsEditorOpen(true)}
+                title="Edit Patient & Devices"
+              >
+                <Pencil className="h-3 w-3" />
+              </Button>
+            </div>
             <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
               <span className="font-mono opacity-80">{patient.patientId}</span>
               <span>•</span>
@@ -107,9 +131,13 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           {patient.devices && patient.devices.length > 0 && patient.devices.map((device: any, idx: number) => (
             <div key={`dev-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 border border-primary/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
               <Activity className="h-3 w-3 text-primary/70" />
-              <span className="font-semibold text-foreground/80">{device.model}</span>
-              <span className="font-mono text-muted-foreground opacity-70">{device.serial}</span>
-              <span className="text-muted-foreground border-l border-primary/10 pl-1.5 ml-0.5">{device.implant_date}</span>
+              <div className="flex flex-col leading-none gap-0.5">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-foreground/80">{device.model}</span>
+                  <span className="font-mono text-muted-foreground opacity-70">({device.serial})</span>
+                </div>
+                {device.type && <span className="text-[9px] text-muted-foreground opacity-60 uppercase tracking-tighter">{device.type}</span>}
+              </div>
             </div>
           ))}
 
@@ -117,9 +145,16 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           {patient.leads && patient.leads.length > 0 && patient.leads.map((lead: any, idx: number) => (
             <div key={`lead-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/5 border border-yellow-500/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
               <Zap className="h-3 w-3 text-yellow-600/70" />
-              <span className="font-semibold text-foreground/80">{lead.model}</span>
-              <span className="font-mono text-muted-foreground opacity-70">{lead.serial}</span>
-              <span className="text-muted-foreground border-l border-yellow-500/10 pl-1.5 ml-0.5">{lead.implant_date}</span>
+              <div className="flex flex-col leading-none gap-0.5">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-foreground/80">{lead.model}</span>
+                  <span className="font-mono text-muted-foreground opacity-70">({lead.serial})</span>
+                </div>
+                <div className="flex items-center gap-1 text-[9px] text-muted-foreground opacity-60 uppercase tracking-tighter">
+                  {lead.type && <span>{lead.type}</span>}
+                  {lead.connector && <span>• {lead.connector}</span>}
+                </div>
+              </div>
             </div>
           ))}
 
@@ -170,6 +205,16 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         }))}
         onVisitSelect={handleVisitSelect}
       />
+
+      {/* Editor Modal */}
+      {patient && (
+        <DeviceLeadEditor
+          open={isEditorOpen}
+          onOpenChange={setIsEditorOpen}
+          patient={patient}
+          onSave={handlePatientUpdate}
+        />
+      )}
     </div>
   );
 };

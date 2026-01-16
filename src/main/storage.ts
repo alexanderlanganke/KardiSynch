@@ -49,6 +49,7 @@ const generatePatientXML = (
       <serial>${d.serial || 'Unknown'}</serial>
       <manufacturer>${d.manufacturer || 'Unknown'}</manufacturer>
       <implant_date>${d.implant_date || 'Unknown'}</implant_date>
+      <type>${d.type || 'Unknown'}</type>
     </device>`;
     });
     xml += `
@@ -65,6 +66,8 @@ const generatePatientXML = (
       <serial>${l.serial || 'Unknown'}</serial>
       <manufacturer>${l.manufacturer || 'Unknown'}</manufacturer>
       <implant_date>${l.implant_date || 'Unknown'}</implant_date>
+      <type>${l.type || 'Unknown'}</type>
+      <connector>${l.connector || 'Unknown'}</connector>
     </lead>`;
     });
     xml += `
@@ -309,7 +312,14 @@ export const storeFile = async (
  */
 export const updatePatientXML = async (
   patientId: string,
-  updatedData: { first_name: string; last_name: string; dob: string; hospitalPatientId: string | null }
+  updatedData: {
+    first_name: string;
+    last_name: string;
+    dob: string;
+    hospitalPatientId: string | null;
+    devices?: any[];
+    leads?: any[];
+  }
 ): Promise<void> => {
   const settings = await getSettings();
   const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
@@ -326,41 +336,52 @@ export const updatePatientXML = async (
   const patientDir = path.join(reportsDir, patientDirName);
   const patientXmlPath = path.join(patientDir, 'patient.xml');
 
-  let existingDevices: any[] = [];
-  let existingLeads: any[] = [];
+  let devices = updatedData.devices;
+  let leads = updatedData.leads;
 
-  // Read existing data
-  if (fs.existsSync(patientXmlPath)) {
-    try {
-      const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
-      const parser = new XMLParser({ ignoreAttributes: false });
-      const parsed = parser.parse(xmlContent);
+  // If devices or leads NOT provided, read existing data to preserve it
+  if (!devices || !leads) {
+    let existingDevices: any[] = [];
+    let existingLeads: any[] = [];
 
-      if (parsed.patient) {
-        if (parsed.patient.devices && parsed.patient.devices.device) {
-          existingDevices = Array.isArray(parsed.patient.devices.device)
-            ? parsed.patient.devices.device
-            : [parsed.patient.devices.device];
+    if (fs.existsSync(patientXmlPath)) {
+      try {
+        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+        const parser = new XMLParser({ ignoreAttributes: false });
+        const parsed = parser.parse(xmlContent);
+
+        if (parsed.patient) {
+          if (parsed.patient.devices && parsed.patient.devices.device) {
+            existingDevices = Array.isArray(parsed.patient.devices.device)
+              ? parsed.patient.devices.device
+              : [parsed.patient.devices.device];
+          }
+          if (parsed.patient.leads && parsed.patient.leads.lead) {
+            existingLeads = Array.isArray(parsed.patient.leads.lead)
+              ? parsed.patient.leads.lead
+              : [parsed.patient.leads.lead];
+          }
         }
-        if (parsed.patient.leads && parsed.patient.leads.lead) {
-          existingLeads = Array.isArray(parsed.patient.leads.lead)
-            ? parsed.patient.leads.lead
-            : [parsed.patient.leads.lead];
-        }
+      } catch (e) {
+        console.error('Error reading existing patient.xml during update:', e);
       }
-    } catch (e) {
-      console.error('Error reading existing patient.xml during update:', e);
     }
+
+    if (!devices) devices = existingDevices;
+    if (!leads) leads = existingLeads;
   }
 
-  // Generate new XML with updated patient info and existing devices/leads
+  // Generate new XML with updated patient info and devices/leads
   const newXml = generatePatientXML(
     {
       id: patientId,
-      ...updatedData
+      first_name: updatedData.first_name,
+      last_name: updatedData.last_name,
+      dob: updatedData.dob,
+      hospitalPatientId: updatedData.hospitalPatientId
     },
-    existingDevices,
-    existingLeads
+    devices,
+    leads
   );
 
   fs.writeFileSync(patientXmlPath, newXml);

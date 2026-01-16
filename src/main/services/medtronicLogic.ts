@@ -46,9 +46,14 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
         const mNum = (d.modelNumber || '').toLowerCase();
 
         // Strict-ish match logic:
-        if (mNum && (cleanModelInput.includes(mNum.replace(/[^a-z0-9]/g, '')) || mNum.includes(modelInput))) return true;
+        const cleanName = mName.replace(/[^a-z0-9]/g, '');
+        const cleanNum = mNum.replace(/[^a-z0-9]/g, '');
 
-        if (mName.includes(modelInput) || modelInput.includes(mName)) return true;
+        // Match numbers strictly if present
+        if (cleanNum && (cleanModelInput.includes(cleanNum) || cleanNum.includes(cleanModelInput))) return true;
+
+        // Match names more loosely (e.g. Micra AV2 vs Micra AV 2)
+        if (cleanName.includes(cleanModelInput) || cleanModelInput.includes(cleanName)) return true;
 
         return false;
     });
@@ -63,6 +68,28 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
     }
 
     // 2. Validate Leads
+    // Check if device is Leadless (Micra)
+    const isLeadless = ['Micra', 'LCP', 'Intra-Cardiac'].some(k => deviceMatch.modelName.includes(k));
+
+    if (leads.length === 0 && !isLeadless) {
+        return {
+            manufacturer: 'Medtronic',
+            status: 'unknown',
+            details: `Device found (${deviceMatch.modelName}), but no lead data available to verify compatibility.`,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    if (isLeadless) {
+        // Skip Lead Validation for Leadless Devices
+        return {
+            manufacturer: 'Medtronic',
+            status: 'conditional',
+            details: `System is MR Conditional (Leadless Device). Device: ${deviceMatch.modelName}.`,
+            timestamp: new Date().toISOString()
+        };
+    }
+
     // Gather all compatible lead strings for this device
     const compatibleText = [
         deviceMatch.pacingLeads,
@@ -73,15 +100,6 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
 
     const resultLeads: string[] = [];
     let allCompatible = true;
-
-    if (leads.length === 0) {
-        return {
-            manufacturer: 'Medtronic',
-            status: 'unknown',
-            details: `Device found (${deviceMatch.modelName}), but no lead data available to verify compatibility.`,
-            timestamp: new Date().toISOString()
-        };
-    }
 
     for (const lead of leads) {
         const leadModel = (lead.model || lead.name || '').trim().toLowerCase();
