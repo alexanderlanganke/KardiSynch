@@ -235,7 +235,7 @@ export class AutomationManager {
             this.win.webContents.send('process-status', {
                 taskId: `mri-${item.patientId}`,
                 type,
-                title: `MRI Check: ${item.manufacturer}`,
+                title: `MRI Check: ${item.patientName} (${item.manufacturer})`,
                 message,
                 progress
             });
