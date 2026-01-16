@@ -63,7 +63,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('automation-status', (event, status) => callback(status));
   },
   triggerMriCheck: (patientId: string) => ipcRenderer.invoke('trigger-mri-check', patientId),
-
+  retriggerAllMriChecks: () => ipcRenderer.invoke('retrigger-all-mri-checks'),
 
   // Device Selection (Autodetection Fallback)
   sendDeviceSelectionResult: (result: any) => ipcRenderer.invoke('device-selection-result', result),

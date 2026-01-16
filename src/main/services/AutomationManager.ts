@@ -50,22 +50,18 @@ export class AutomationManager {
         }, 6 * 60 * 60 * 1000);
     }
 
+    // Force re-check of ALL patients, ignoring hash
+    async forceCheckAll() {
+        console.log('[AutomationManager] Force checking ALL patients...');
+        await this.scanAndQueue(true);
+    }
+
     // Scan all patients and queue updates if needed
-    async scanAndQueue() {
-        if (this.isProcessing) return; // Don't scan if busy processing? Actually scanning is fast, processing is slow.
-        // But if queue is full, maybe wait? No, queue handles it.
+    async scanAndQueue(force: boolean = false) {
+        if (this.isProcessing && !force) return;
 
-        console.log('[AutomationManager] Accessing DB to scan patients...');
+        console.log(`[AutomationManager] Accessing DB to scan patients... (Force: ${force})`);
         const db = getDb();
-
-        // Fetch all patients with their MRI hash and latest device data
-        // We need a complex query to get device data from Reports or cached columns?
-        // Current Patients table doesn't have device info directly (it's in Reports).
-        // We need to disable this check if no reports exist.
-
-        // Efficient query: Get Patient + Latest Report Device Data
-        // We'll process in chunks or all at once (20 patients is small, but 2000?)
-        // SQLite can handle it.
 
         db.all(`
       SELECT p.id, p.first_name, p.last_name, p.mri_data_hash, 
@@ -82,7 +78,6 @@ export class AutomationManager {
 
             console.log(`[AutomationManager] Scanned ${rows.length} patients.`);
             const settings = await getAllSettings();
-            // Parse settings.mri.allowed? Need to implement that setting structure first.
 
             for (const row of rows) {
                 if (!row.manufacturer) continue; // No device data
@@ -101,9 +96,11 @@ export class AutomationManager {
 
                 const hash = this.calculateHash(row.manufacturer, row.device_model, row.device_serial_number || '', leads);
 
-                // If Changed or Never Checked
-                if (row.mri_data_hash !== hash) {
-                    console.log(`[AutomationManager] Queueing MRI check for ${row.id} (Hash mismatch)`);
+                // If Changed or Never Checked or FORCE
+                if (force || row.mri_data_hash !== hash) {
+                    if (force) console.log(`[AutomationManager] Queueing ${row.id} (Force Check)`);
+                    else console.log(`[AutomationManager] Queueing ${row.id} (Hash mismatch)`);
+
                     this.addToQueue({
                         patientId: row.id,
                         patientName: `${row.last_name}, ${row.first_name}`,
@@ -119,7 +116,7 @@ export class AutomationManager {
     }
 
     addToQueue(item: QueueItem) {
-        // Avoid duplicates
+        // Avoid duplicates in queue
         if (this.queue.some(q => q.patientId === item.patientId)) return;
 
         this.queue.push(item);
@@ -257,15 +254,22 @@ export class AutomationManager {
     }
 
     private validateLeadCount(model: string, leads: any[]): { valid: boolean; reason?: string } {
-        // 1. No leads -> Unknown
-        if (!leads || leads.length === 0) {
-            return { valid: false, reason: 'No lead data available' };
+        const m = (model || '').toUpperCase();
+        console.log(`[AutomationManager] Validating leads for ${m}, LeadCount: ${leads && leads.length || 0}`);
+
+        const count = leads ? leads.length : 0;
+
+        // 0. CHECK FOR LEADLESS DEVICES FIRST
+        const LEADLESS_KEYWORDS = ['MICRA', 'AVEIR', 'REVEAL', 'BIOMONITOR', 'CONFIRM', 'LINQ', 'LOOP RECORDER', 'NANOTIM', 'NANOSTIM'];
+        if (LEADLESS_KEYWORDS.some(k => m.includes(k))) {
+            console.log(`[AutomationManager] Device ${model} identified as Leadless/ILR. Skipping lead count check.`);
+            return { valid: true };
         }
 
-        const m = (model || '').toUpperCase();
-        console.log(`[AutomationManager] Validating leads for ${m}, LeadCount: ${leads.length}`);
-
-        const count = leads.length;
+        // 1. No leads -> Unknown (if not leadless)
+        if (count === 0) {
+            return { valid: false, reason: 'No lead data available' };
+        }
 
         // 2. Mismatch Logic based on common suffixes/types
         // Single Chamber (VR, SR, S) -> Expects 1

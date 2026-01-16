@@ -406,6 +406,37 @@ const Settings: React.FC = () => {
                   </p>
                 </div>
 
+                <div className="space-y-2 border p-4 rounded-lg bg-orange-50/50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900/50">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label className="text-orange-800 dark:text-orange-200">Retrigger All Checks</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Force re-check MRI status for ALL patients, including those already checked.
+                        This runs in the background.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="bg-orange-100 hover:bg-orange-200 text-orange-900 dark:bg-orange-900/40 dark:hover:bg-orange-900/60 dark:text-orange-100 border-orange-200"
+                      onClick={async () => {
+                        if (confirm("This will queue updated checks for EVERY patient in the database. This may take a significant amount of time. Continue?")) {
+                          try {
+                            await window.electronAPI.retriggerAllMriChecks();
+                            alert("All checks have been queued. Watch the notification center for progress.");
+                          } catch (e) {
+                            console.error(e);
+                            alert("Failed to trigger checks.");
+                          }
+                        }
+                      }}
+                    >
+                      <RefreshCw className="mr-2 h-4 w-4" />
+                      Retrigger All
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="space-y-4">
                   <Label>Manufacturer Automation</Label>
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
