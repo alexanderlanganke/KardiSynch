@@ -72,7 +72,11 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
     const modelNameLower = deviceMatch.modelName.toLowerCase();
 
     // Check for Micra (Leadless Pacemaker)
-    const isMicra = modelNameLower.includes('micra');
+    // Robust check: Check name, model number (MC1/MC2), or input string
+    const isMicra = modelNameLower.includes('micra') ||
+        (deviceMatch.modelNumber && (deviceMatch.modelNumber.startsWith('MC1') || deviceMatch.modelNumber.startsWith('MC2'))) ||
+        modelInput.includes('micra');
+
     if (isMicra) {
         return {
             manufacturer: 'Medtronic',

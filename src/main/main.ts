@@ -307,7 +307,26 @@ ipcMain.handle('get-patient-by-id', async (event, patientId) => {
 ipcMain.handle('update-patient', async (event, patient) => {
   try {
     // 1. Update Database
-    await import('./database').then(m => m.updatePatient(patient));
+    // Extract primary device info for DB cache
+    let device_manufacturer = null;
+    let device_model = null;
+    let device_serial = null;
+
+    if (patient.devices && patient.devices.length > 0) {
+      // Assume first device is primary/active
+      const d = patient.devices[0];
+      device_manufacturer = d.manufacturer;
+      device_model = d.model;
+      device_serial = d.serial;
+    }
+
+    await import('./database').then(m => m.updatePatient({
+      ...patient,
+      device_manufacturer,
+      device_model,
+      device_serial,
+      leads: patient.leads ? JSON.stringify(patient.leads) : null
+    }));
 
     // 2. Update XML Storage
     await import('./storage').then(m => m.updatePatientXML(patient.id, {
