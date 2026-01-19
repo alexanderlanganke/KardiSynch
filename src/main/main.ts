@@ -260,42 +260,8 @@ ipcMain.handle('get-patient-by-id', async (event, patientId) => {
   try {
     const patient = await getPatientById(patientId);
 
-    // Enrich with device/lead history from patient.xml
-    try {
-      const settings = await getAllSettings();
-      const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
-      const reportsDir = path.join(dataDir, 'Reports');
-
-      // Find patient directory
-      const dirs = await fs.readdir(reportsDir);
-      const patientDirName = dirs.find(dir => dir.startsWith(patientId));
-
-      if (patientDirName) {
-        const patientXmlPath = path.join(reportsDir, patientDirName, 'patient.xml');
-        const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false });
-        const patientData = parser.parse(xmlContent).patient;
-
-        if (patientData.devices && patientData.devices.device) {
-          patient.devices = Array.isArray(patientData.devices.device)
-            ? patientData.devices.device
-            : [patientData.devices.device];
-        } else {
-          patient.devices = [];
-        }
-
-        if (patientData.leads && patientData.leads.lead) {
-          patient.leads = Array.isArray(patientData.leads.lead)
-            ? patientData.leads.lead
-            : [patientData.leads.lead];
-        } else {
-          patient.leads = [];
-        }
-      }
-    } catch (fsError) {
-      console.warn(`Failed to read patient.xml for ${patientId}:`, fsError);
-      // Non-fatal, return patient from DB
-    }
+    // Enrich with device/lead history from patient.xml -> REMOVED.
+    // Logic is now centralized in database.ts::getPatientById to ensure Single Source of Truth.
 
     return patient;
   } catch (error) {

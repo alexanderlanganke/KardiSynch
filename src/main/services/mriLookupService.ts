@@ -94,7 +94,7 @@ async function checkAbbott(model: string, leads: any[]): Promise<MRIStatusResult
     };
 }
 
-async function checkBiotronik(model: string, leads: any[] = [], country: string = 'Germany'): Promise<MRIStatusResult> {
+async function checkBiotronik(model: string, leads: any[] = [], country: string = 'Germany', onProgress?: (msg: string) => void): Promise<MRIStatusResult> {
     // 0. Direct Exception for BioMonitor (ILR)
     if (model.toLowerCase().includes('biomonitor')) {
         return {
@@ -120,6 +120,7 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
 
     try {
         console.log('[MRI Service] Navigate to ProMRI Check...');
+        if (onProgress) onProgress('Connecting to ProMRI Check...');
         await win.loadURL('https://www.promricheck.com');
 
         // 1. Enter System Check
@@ -132,6 +133,7 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
 
         // 2. Select Country
         console.log(`[MRI Service] Setting Country: ${country}...`);
+        if (onProgress) onProgress(`Selecting Region: ${country}...`);
         await safeType(win, 'checkProMriFrom:country_input', country);
 
         // Click Continue
@@ -147,6 +149,7 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
 
         // 3. Enter Device
         console.log(`[MRI Service] Setting Device: ${model}...`);
+        if (onProgress) onProgress(`Finding Device: ${model}...`);
         await safeType(win, 'checkProMriFrom:device_input', model);
 
         // Click Continue
@@ -201,6 +204,7 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
 
         if (needsLeads) {
             console.log('[MRI Service] Device requires leads. Inputting...');
+            if (onProgress) onProgress('Device requires leads. Inputting lead data...');
             if (!leads || leads.length === 0) {
                 // Return unknown instead of throwing, so we cache the result as 'check_failed' effectively?
                 // Or "no_info"
@@ -363,14 +367,18 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
     }
 
     // 4. Manufacturer Mismatch (General Rule)
-    const mismatchedLead = leads.find(l => !l.manufacturer.toLowerCase().includes(manuLower) && !manuLower.includes(l.manufacturer.toLowerCase()));
+    const mismatchedLead = leads.find(l => {
+        const leadManu = l.manufacturer ? l.manufacturer.toLowerCase() : '';
+        return leadManu && !leadManu.includes(manuLower) && !manuLower.includes(leadManu);
+    });
+
     if (mismatchedLead) {
         return {
             valid: false,
             result: {
                 manufacturer,
                 status: 'unsafe',
-                details: `Manufacturer mismatch detected. Device: ${manufacturer}, Lead: ${mismatchedLead.manufacturer}. System is likely Non-MRI Conditional.`,
+                details: `Manufacturer mismatch detected. Device: ${manufacturer}, Lead: ${mismatchedLead.manufacturer || 'Unknown'}. System is likely Non-MRI Conditional.`,
                 timestamp: new Date().toISOString()
             }
         };
@@ -412,7 +420,8 @@ export const checkMRIStatus = async (
     model: string,
     serial?: string,
     leads: any[] = [],
-    country: string = 'Germany'
+    country: string = 'Germany',
+    onProgress?: (msg: string) => void
 ): Promise<MRIStatusResult> => {
     console.log(`[MRI Service] Checking status for ${manufacturer} ${model}...`);
 
@@ -436,7 +445,7 @@ export const checkMRIStatus = async (
         const manu = manufacturer.toLowerCase();
 
         if (manu.includes('biotronik')) {
-            return await checkBiotronik(model, leads, country);
+            return await checkBiotronik(model, leads, country, onProgress);
         }
 
         if (manu.includes('medtronic')) {
