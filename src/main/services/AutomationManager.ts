@@ -155,7 +155,12 @@ export class AutomationManager {
             const result = await checkMRIStatus(
                 item.manufacturer,
                 item.model,
-                item.leads || []
+                item.serial,
+                item.leads || [],
+                'Germany', // Default country
+                (msg) => {
+                    sendNotification(`MRI Check (${item.patientName}): ${msg}`, 'info');
+                }
             );
 
             // Notify result
@@ -204,42 +209,29 @@ export class AutomationManager {
         }
     }
 
-    // Force a specific patient check
     async forceCheck(patientId: string) {
         console.log(`[AutomationManager] Force checking ${patientId}...`);
 
         try {
             // Updated import path
-            const { getPatientById, getPatientReports } = await import('../database');
+            const { getPatientById } = await import('../database');
 
-            // 1. Get Patient (Triggers Read-Repair if stale)
+            // 1. Get Patient (Triggers Read-Repair if stale, returns Normalized Data)
             const patient = await getPatientById(patientId);
             console.log(`[AutomationManager] Force Check Debug - Patient:`, JSON.stringify(patient, null, 2));
 
-            // 2. Get Report (For fallback/override)
-            const reports = await getPatientReports(patientId);
-            const latestReport = reports && reports.length > 0 ? reports[0] : null;
-
-            // 3. Resolve Device Data (Prefer Report > Profile)
-            // Note: getPatientById already merges profile data into .deviceManufacturer etc.
-            const manufacturer = latestReport?.manufacturer || patient.deviceManufacturer;
-            const model = latestReport?.device?.model || patient.deviceModel;
-            const serial = latestReport?.device?.serial_number || patient.deviceSerial;
+            // 2. Use Data Directly from Database (Lazy Load System source of truth)
+            const manufacturer = patient.deviceManufacturer;
+            const model = patient.deviceModel;
+            const serial = patient.deviceSerial;
+            const leads = patient.leads || [];
 
             if (!manufacturer || !model) {
-                console.warn(`[AutomationManager] Cannot force check ${patientId}: Missing manufacturer/model via safe lookup.`);
+                console.warn(`[AutomationManager] Cannot force check ${patientId}: Missing manufacturer/model.`);
                 return;
             }
 
-            // 4. Resolve Leads
-            let leads: any[] = [];
-            if (latestReport?.leads && latestReport.leads.length > 0) {
-                leads = latestReport.leads;
-            } else if (patient.leads) {
-                leads = Array.isArray(patient.leads) ? patient.leads : [patient.leads];
-            }
-
-            // 5. Hash & Queue
+            // 3. Hash & Queue
             const hash = this.calculateHash(manufacturer, model, serial || '', leads);
             this.addToQueue({
                 patientId: patient.id,

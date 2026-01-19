@@ -11,44 +11,44 @@ export function getMainWindow(): BrowserWindow | null {
 }
 
 export function sendUnmatchedFiles(files: string[]) {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('unmatched-files', files);
   }
 }
 
 export function sendNotification(message: string, type: 'info' | 'warning' | 'error' = 'info') {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('notify', { type, message });
   }
 }
 
 export function sendProcessStatus(status: { type: 'start' | 'progress' | 'complete' | 'error'; message: string; file?: string }) {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('process-status', status);
   }
 }
 
 
 export function sendPatientListUpdate() {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('patient-list-update');
   }
 }
 
 export function sendManualSortingRequest(fileInfo: any) {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('request-manual-sorting', fileInfo);
   }
 }
 
 export function sendImportSessionUpdate(session: any) {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('import-session-update', session);
   }
 }
 
 export function sendDeviceSelectionRequest(fileInfo: any) {
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('request-device-selection', fileInfo);
   }
 }

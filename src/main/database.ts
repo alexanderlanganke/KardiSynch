@@ -56,6 +56,7 @@ const createTables = (db: sqlite3.Database) => {
     safeAddColumn("ALTER TABLE Patients ADD COLUMN device_model TEXT");
     safeAddColumn("ALTER TABLE Patients ADD COLUMN device_serial TEXT");
     safeAddColumn("ALTER TABLE Patients ADD COLUMN leads TEXT");
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN devices TEXT");
     // Lazy Sync Support
     safeAddColumn("ALTER TABLE Patients ADD COLUMN last_indexed_mtime INTEGER");
 
@@ -211,13 +212,14 @@ export const updatePatient = (patient: {
   device_model?: string | null;
   device_serial?: string | null;
   leads?: string | null;
+  devices?: any[] | null;
 }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
       `UPDATE Patients SET 
          first_name = ?, last_name = ?, dob = ?, hospitalPatientId = ?,
-         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?
+         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?, devices = ?
        WHERE id = ?`,
       [
         patient.first_name,
@@ -228,6 +230,7 @@ export const updatePatient = (patient: {
         patient.device_model || null,
         patient.device_serial || null,
         patient.leads || null,
+        patient.devices ? JSON.stringify(patient.devices) : null,
         patient.id
       ],
       (err) => {
@@ -308,7 +311,7 @@ export const getPatientById = (patientId: string): Promise<any> => {
             fileStats = fs.statSync(patientXmlPath);
             // If DB is missing row OR timestamps mismatch OR critical data is missing (e.g. bad previous repair)
             const isStale = !row || !row.last_indexed_mtime || Math.abs(fileStats.mtimeMs - row.last_indexed_mtime) > 1000;
-            const isMissingData = row && (!row.device_manufacturer || !row.device_model);
+            const isMissingData = row && (!row.device_manufacturer || !row.device_model || !row.devices);
 
             if (isStale || isMissingData) {
               console.log(`[getPatientById] Repair triggered for ${patientId}. Stale: ${isStale}, Missing Data: ${isMissingData}. DB Mtime: ${row?.last_indexed_mtime}, File Mtime: ${fileStats.mtimeMs}.`);
@@ -338,9 +341,9 @@ export const getPatientById = (patientId: string): Promise<any> => {
                 db.run(
                   `INSERT OR REPLACE INTO Patients (
                              id, first_name, last_name, dob, hospitalPatientId, 
-                             device_manufacturer, device_model, device_serial, leads,
+                             device_manufacturer, device_model, device_serial, leads, devices,
                              last_indexed_mtime
-                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                   [
                     p.id,
                     p.first_name,
@@ -351,6 +354,7 @@ export const getPatientById = (patientId: string): Promise<any> => {
                     p.device_model || (Array.isArray(p.devices?.device) ? p.devices.device[0].model : p.devices?.device?.model) || null,
                     p.device_serial || (Array.isArray(p.devices?.device) ? p.devices.device[0].serial : p.devices?.device?.serial) || null,
                     p.leads ? JSON.stringify(p.leads) : null,
+                    p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
                     fileStats?.mtimeMs || Date.now()
                   ],
                   (e) => {
@@ -370,7 +374,8 @@ export const getPatientById = (patientId: string): Promise<any> => {
                 deviceManufacturer: p.device_manufacturer || (p.devices?.device?.[0]?.manufacturer),
                 deviceModel: p.device_model || (p.devices?.device?.[0]?.model),
                 deviceSerial: p.device_serial || (p.devices?.device?.[0]?.serial),
-                leads: p.leads ? (typeof p.leads === 'string' ? JSON.parse(p.leads) : p.leads) : [],
+                leads: p.leads ? JSON.stringify(p.leads) : null,
+                devices: p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
                 mri_status: row?.mri_status // Preserve existing analysis if any
               };
               console.log('[getPatientById] Read-repair complete.');
@@ -397,6 +402,32 @@ export const getPatientById = (patientId: string): Promise<any> => {
           }
         };
 
+        const normalizeLeads = (source: any) => {
+          if (!source) return [];
+          if (Array.isArray(source)) return source;
+          if (source.lead && Array.isArray(source.lead)) return source.lead;
+          if (source.lead) return [source.lead];
+          return [];
+        };
+
+        const leads = normalizeLeads(safeJSONParse(row.leads, []));
+        const devices = safeJSONParse(row.devices, []);
+
+        // Resolve Device Data: Prioritize 'devices' list (from patient.xml) as it represents the current implant profile.
+        // Fallback to Report/DB columns only if 'devices' list is empty.
+        let deviceManufacturer = row.deviceManufacturer || row.device_manufacturer;
+        let deviceModel = row.deviceModel || row.device_model;
+        let deviceSerial = row.deviceSerial || row.device_serial;
+
+        if (devices.length > 0) {
+          const activeDevice = devices[0];
+          if (activeDevice && activeDevice.model) {
+            deviceManufacturer = activeDevice.manufacturer || deviceManufacturer;
+            deviceModel = activeDevice.model;
+            deviceSerial = activeDevice.serial || deviceSerial;
+          }
+        }
+
         const patient = {
           id: row.id,
           patientId: `P-${row.id}`,
@@ -404,10 +435,11 @@ export const getPatientById = (patientId: string): Promise<any> => {
           last_name: row.last_name,
           name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
           dob: row.dob || '',
-          deviceManufacturer: row.deviceManufacturer || row.device_manufacturer, // Fallback to profile
-          deviceModel: row.deviceModel || row.device_model,
-          deviceSerial: row.deviceSerial || row.device_serial,
-          leads: safeJSONParse(row.leads, []),
+          deviceManufacturer,
+          deviceModel,
+          deviceSerial,
+          leads,
+          devices,
           mriStatus: safeJSONParse(row.mri_status, null)
         };
         resolve(patient);
@@ -693,9 +725,9 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
             const db = getDb();
             db.run(
               `INSERT OR REPLACE INTO Patients (
-                 id, first_name, last_name, dob, hospitalPatientId, 
-                 device_manufacturer, device_model, device_serial, leads
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 id, first_name, last_name, dob, hospitalPatientId,
+                 device_manufacturer, device_model, device_serial, leads, devices
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 p.id,
                 p.first_name,
@@ -705,7 +737,8 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
                 p.device_manufacturer || null,
                 p.device_model || null,
                 p.device_serial || null,
-                p.leads ? JSON.stringify(p.leads) : null
+                p.leads ? JSON.stringify(p.leads) : null,
+                p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null
               ],
               (err) => {
                 if (err) reject(err);
