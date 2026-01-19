@@ -65,7 +65,46 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
     await wait(1000);
 }
 
+async function checkAbbott(model: string, leads: any[]): Promise<MRIStatusResult> {
+    const modelLower = model.toLowerCase();
+
+    // Direct Exceptions for Leadless / ILR
+    if (modelLower.includes('aveir') || modelLower.includes('nanostim') || modelLower.includes('lcp')) {
+        return {
+            manufacturer: 'Abbott',
+            status: 'conditional',
+            details: `System is MR Conditional (Leadless Pacemaker). Device: ${model}.`,
+            timestamp: new Date().toISOString()
+        };
+    }
+    if (modelLower.includes('confirm rx')) {
+        return {
+            manufacturer: 'Abbott',
+            status: 'conditional',
+            details: `System is MR Conditional (Insertable Cardiac Monitor). Device: ${model}.`,
+            timestamp: new Date().toISOString()
+        };
+    }
+
+    return {
+        manufacturer: 'Abbott',
+        status: 'unknown',
+        details: 'Abbott automation not fully implemented yet.',
+        timestamp: new Date().toISOString()
+    };
+}
+
 async function checkBiotronik(model: string, leads: any[] = [], country: string = 'Germany'): Promise<MRIStatusResult> {
+    // 0. Direct Exception for BioMonitor (ILR)
+    if (model.toLowerCase().includes('biomonitor')) {
+        return {
+            manufacturer: 'Biotronik',
+            status: 'conditional',
+            details: `System is MR Conditional (Insertable Cardiac Monitor). Device: ${model}.`,
+            timestamp: new Date().toISOString()
+        };
+    }
+
     let win: BrowserWindow | null = new BrowserWindow({
         show: false, // Keep hidden for production
         width: 1280,
@@ -76,6 +115,8 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
             contextIsolation: true
         }
     });
+    // ... rest of function ...
+
 
     try {
         console.log('[MRI Service] Navigate to ProMRI Check...');
@@ -266,12 +307,27 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
     const manuLower = manufacturer.toLowerCase();
     const modelLower = model.toLowerCase();
 
-    // 1. Leadless Systems (Micra, ILR, Aveir, etc.) -> Must have 0 leads
-    const isLeadless = modelLower.includes('micra') ||
-        modelLower.includes('reveal') ||
-        modelLower.includes('linq') ||
-        modelLower.includes('aveir') ||
-        modelLower.includes('confirm rx'); // Abbott ILR
+    // 1. Leadless Systems (Manufacturer Specific) -> Must have 0 leads
+    let isLeadlessPacer = false;
+    let isILR = false;
+    let isLeadless = false; // Combined flag
+
+    if (manuLower.includes('medtronic')) {
+        // Medtronic Leadless Pacer: Micra (including model numbers MC1/MC2)
+        isLeadlessPacer = modelLower.includes('micra') || modelLower.startsWith('mc1') || modelLower.startsWith('mc2');
+        // Medtronic ILR: Reveal, LINQ
+        isILR = modelLower.includes('reveal') || modelLower.includes('linq');
+    } else if (manuLower.includes('abbott') || manuLower.includes('st. jude') || manuLower.includes('sjm')) {
+        // Abbott Leadless Pacer: Aveir, Nanostim
+        isLeadlessPacer = modelLower.includes('aveir') || modelLower.includes('nanostim');
+        // Abbott ILR: Confirm Rx
+        isILR = modelLower.includes('confirm rx');
+    } else if (manuLower.includes('biotronik')) {
+        // Biotronik ILR: BioMonitor
+        isILR = modelLower.includes('biomonitor');
+    }
+
+    isLeadless = isLeadlessPacer || isILR;
 
     if (isLeadless) {
         if (leads.length > 0) {
@@ -280,7 +336,7 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
                 result: {
                     manufacturer,
                     status: 'unsafe',
-                    details: `Leadless device (${model}) detected, but patent has ${leads.length} recorded leads. This implies abandoned leads or data error.`,
+                    details: `Leadless device (${model}) detected, but patient has ${leads.length} recorded leads. This implies abandoned leads or data error.`,
                     timestamp: new Date().toISOString()
                 }
             };
@@ -288,14 +344,25 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
         return { valid: true }; // Proceed to specific lookup
     }
 
-    // 2. Impulse Dynamics (Optimizer) -> Exception for Manu mismatch
-    // They don't make leads, so mixed manufacturer is expected/allowed.
+    // 2. Impulse Dynamics (Optimizer) -> Exception
     if (manuLower.includes('impulse') || manuLower.includes('optimizer')) {
-        // Just proceed, they are strict but we don't block on manu mix
         return { valid: true };
     }
 
-    // 3. Manufacturer Mismatch (General Rule)
+    // 3. Standard Devices (Not Leadless/ILR) -> Must have > 0 leads
+    if (!leads || leads.length === 0) {
+        return {
+            valid: false,
+            result: {
+                manufacturer,
+                status: 'unknown',
+                details: 'Device requires leads but none found in patient data. Please ensure leads are entered.',
+                timestamp: new Date().toISOString()
+            }
+        };
+    }
+
+    // 4. Manufacturer Mismatch (General Rule)
     const mismatchedLead = leads.find(l => !l.manufacturer.toLowerCase().includes(manuLower) && !manuLower.includes(l.manufacturer.toLowerCase()));
     if (mismatchedLead) {
         return {
@@ -309,9 +376,7 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
         };
     }
 
-    // 4. Port Count / Lead Mismatch
-    // If leads > ports -> Abandoned leads
-    // If leads < ports -> Plugged ports (often unsafe)
+    // 5. Port Count / Lead Mismatch
     const portCount = getEstimatedPortCount(model);
     if (portCount !== null) {
         if (leads.length > portCount) {
@@ -341,6 +406,7 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
     return { valid: true };
 }
 
+
 export const checkMRIStatus = async (
     manufacturer: string,
     model: string,
@@ -349,6 +415,15 @@ export const checkMRIStatus = async (
     country: string = 'Germany'
 ): Promise<MRIStatusResult> => {
     console.log(`[MRI Service] Checking status for ${manufacturer} ${model}...`);
+
+    if (!manufacturer || !model) {
+        return {
+            manufacturer: manufacturer || 'Unknown',
+            status: 'unknown',
+            details: 'Device manufacturer or model information is missing.',
+            timestamp: new Date().toISOString()
+        };
+    }
 
     // 1. Run Pre-Validation
     const preCheck = validateMRIPrerequisites(manufacturer, model, leads);
@@ -366,6 +441,10 @@ export const checkMRIStatus = async (
 
         if (manu.includes('medtronic')) {
             return await checkMedtronic(model, leads);
+        }
+
+        if (manu.includes('abbott') || manu.includes('st. jude') || manu.includes('sjm')) {
+            return await checkAbbott(model, leads);
         }
 
         // Add other manufacturers here

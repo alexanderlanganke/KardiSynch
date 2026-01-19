@@ -39,9 +39,25 @@ const createTables = (db: sqlite3.Database) => {
       );
     `);
 
+    // Safe Migration Helper
+    const safeAddColumn = (sql: string) => {
+      db.run(sql, (err) => {
+        if (err && !err.message.includes('duplicate column name')) {
+          console.warn(`[Schema Migration] Error running ${sql}:`, err.message);
+        }
+      });
+    };
+
     // Migration for existing databases
-    db.run("ALTER TABLE Patients ADD COLUMN mri_status TEXT", () => { });
-    db.run("ALTER TABLE Patients ADD COLUMN mri_data_hash TEXT", () => { });
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN mri_status TEXT");
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN mri_data_hash TEXT");
+    // Add Manual Device Data Columns (Patient Profile)
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN device_manufacturer TEXT");
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN device_model TEXT");
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN device_serial TEXT");
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN leads TEXT");
+    // Lazy Sync Support
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN last_indexed_mtime INTEGER");
 
     db.run(`
       CREATE TABLE IF NOT EXISTS Reports (
@@ -191,12 +207,29 @@ export const updatePatient = (patient: {
   last_name: string;
   dob: string;
   hospitalPatientId: string | null;
+  device_manufacturer?: string | null;
+  device_model?: string | null;
+  device_serial?: string | null;
+  leads?: string | null;
 }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
-      'UPDATE Patients SET first_name = ?, last_name = ?, dob = ?, hospitalPatientId = ? WHERE id = ?',
-      [patient.first_name, patient.last_name, patient.dob, patient.hospitalPatientId, patient.id],
+      `UPDATE Patients SET 
+         first_name = ?, last_name = ?, dob = ?, hospitalPatientId = ?,
+         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?
+       WHERE id = ?`,
+      [
+        patient.first_name,
+        patient.last_name,
+        patient.dob,
+        patient.hospitalPatientId,
+        patient.device_manufacturer || null,
+        patient.device_model || null,
+        patient.device_serial || null,
+        patient.leads || null,
+        patient.id
+      ],
       (err) => {
         if (err) {
           reject(err);
@@ -223,9 +256,10 @@ export const getReportById = (id: string): Promise<any> => {
 };
 
 export const getPatientById = (patientId: string): Promise<any> => {
-  console.log('[getPatientById] Looking for patient with ID:', patientId);
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const db = getDb();
+
+    // 1. Fetch from DB
     db.get(
       `SELECT 
          p.*, 
@@ -238,37 +272,145 @@ export const getPatientById = (patientId: string): Promise<any> => {
        ORDER BY r.interrogation_date DESC 
        LIMIT 1`,
       [patientId],
-      (err, row: any) => {
+      async (err, row: any) => {
         if (err) {
           console.error('[getPatientById] Database error:', err);
           reject(err);
-        } else if (!row) {
-          console.error('[getPatientById] Patient not found with ID:', patientId);
-          // DEBUG: List available IDs to see mismatch
-          db.all('SELECT id FROM Patients LIMIT 5', (e, rows: any[]) => {
-            if (e) console.error('Debug query failed', e);
-            else console.log('DEBUG: First 5 IDs in DB:', rows.map(r => r.id));
-          });
-          db.get('SELECT count(*) as count FROM Patients', (e, r: any) => {
-            console.log('DEBUG: Total Patients:', r?.count);
-          });
-          reject(new Error('Patient not found'));
-        } else {
-          // Transform to include combined name and device info
-          const patient = {
-            id: row.id,
-            patientId: `P-${row.id}`,
-            first_name: row.first_name,
-            last_name: row.last_name,
-            name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
-            dob: row.dob || '',
-            deviceManufacturer: row.deviceManufacturer,
-            deviceModel: row.deviceModel,
-            deviceSerial: row.deviceSerial,
-            mriStatus: row.mri_status ? JSON.parse(row.mri_status) : null
-          };
-          resolve(patient);
+          return;
         }
+
+        // 2. Resolve Data Path for Verification
+        let dataDir;
+        try {
+          const settings = await getSettings();
+          dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+        } catch (e) {
+          dataDir = path.join(app.getPath('userData'), '_DATA');
+        }
+        const reportsDir = path.join(dataDir, 'Reports');
+
+        // Access FS to find patient directory (heuristic by ID prefix)
+        let patientXmlPath: string | null = null;
+        try {
+          const dirs = await fs.promises.readdir(reportsDir);
+          const patientDirName = dirs.find(dir => dir.startsWith(patientId));
+          if (patientDirName) {
+            patientXmlPath = path.join(reportsDir, patientDirName, 'patient.xml');
+          }
+        } catch (e) { /* ignore */ }
+
+        // 3. Lazy Sync / Read Repair
+        let shouldRepair = false;
+        let fileStats: fs.Stats | undefined;
+
+        if (patientXmlPath && fs.existsSync(patientXmlPath)) {
+          try {
+            fileStats = fs.statSync(patientXmlPath);
+            // If DB is missing row OR timestamps mismatch OR critical data is missing (e.g. bad previous repair)
+            const isStale = !row || !row.last_indexed_mtime || Math.abs(fileStats.mtimeMs - row.last_indexed_mtime) > 1000;
+            const isMissingData = row && (!row.device_manufacturer || !row.device_model);
+
+            if (isStale || isMissingData) {
+              console.log(`[getPatientById] Repair triggered for ${patientId}. Stale: ${isStale}, Missing Data: ${isMissingData}. DB Mtime: ${row?.last_indexed_mtime}, File Mtime: ${fileStats.mtimeMs}.`);
+              shouldRepair = true;
+            }
+          } catch (e) { console.warn('[getPatientById] Stat failed:', e); }
+        } else if (!row) {
+          // No DB row and no File -> Not found
+          reject(new Error('Patient not found'));
+          return;
+        }
+
+        // 4. Perform Repair if needed
+        if (shouldRepair && patientXmlPath) {
+          try {
+            const { XMLParser } = await import('fast-xml-parser');
+            const parser = new XMLParser({ ignoreAttributes: false });
+            const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+            const parsed = parser.parse(xmlContent);
+            const p = parsed.patient;
+
+            if (p) {
+              console.log('[getPatientById] Repair Debug - Parsed Device:', JSON.stringify(p.devices, null, 2));
+
+              // Update DB immediately
+              await new Promise<void>((res, rej) => {
+                db.run(
+                  `INSERT OR REPLACE INTO Patients (
+                             id, first_name, last_name, dob, hospitalPatientId, 
+                             device_manufacturer, device_model, device_serial, leads,
+                             last_indexed_mtime
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    p.id,
+                    p.first_name,
+                    p.last_name,
+                    p.dob,
+                    p.hospitalPatientId || null,
+                    p.device_manufacturer || (Array.isArray(p.devices?.device) ? p.devices.device[0].manufacturer : p.devices?.device?.manufacturer) || null,
+                    p.device_model || (Array.isArray(p.devices?.device) ? p.devices.device[0].model : p.devices?.device?.model) || null,
+                    p.device_serial || (Array.isArray(p.devices?.device) ? p.devices.device[0].serial : p.devices?.device?.serial) || null,
+                    p.leads ? JSON.stringify(p.leads) : null,
+                    fileStats?.mtimeMs || Date.now()
+                  ],
+                  (e) => {
+                    if (e) rej(e);
+                    else res();
+                  }
+                );
+              });
+
+              // Update the 'row' variable so we return fresh data
+              row = {
+                ...row,
+                id: p.id,
+                first_name: p.first_name,
+                last_name: p.last_name,
+                dob: p.dob,
+                deviceManufacturer: p.device_manufacturer || (p.devices?.device?.[0]?.manufacturer),
+                deviceModel: p.device_model || (p.devices?.device?.[0]?.model),
+                deviceSerial: p.device_serial || (p.devices?.device?.[0]?.serial),
+                leads: p.leads ? (typeof p.leads === 'string' ? JSON.parse(p.leads) : p.leads) : [],
+                mri_status: row?.mri_status // Preserve existing analysis if any
+              };
+              console.log('[getPatientById] Read-repair complete.');
+            }
+          } catch (e) {
+            console.error('[getPatientById] Repair failed:', e);
+          }
+        }
+
+        // 5. Return Data
+        if (!row) {
+          reject(new Error('Patient not found'));
+          return;
+        }
+
+        // Safe JSON Parse Helper
+        const safeJSONParse = (str: any, fallback: any = []) => {
+          if (!str) return fallback;
+          try {
+            return JSON.parse(str);
+          } catch (e) {
+            console.warn('[getPatientById] JSON parse failed, returning fallback:', e);
+            return fallback;
+          }
+        };
+
+        const patient = {
+          id: row.id,
+          patientId: `P-${row.id}`,
+          first_name: row.first_name,
+          last_name: row.last_name,
+          name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
+          dob: row.dob || '',
+          deviceManufacturer: row.deviceManufacturer || row.device_manufacturer, // Fallback to profile
+          deviceModel: row.deviceModel || row.device_model,
+          deviceSerial: row.deviceSerial || row.device_serial,
+          leads: safeJSONParse(row.leads, []),
+          mriStatus: safeJSONParse(row.mri_status, null)
+        };
+        resolve(patient);
       }
     );
   });
@@ -550,9 +692,21 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
           await new Promise<void>((resolve, reject) => {
             const db = getDb();
             db.run(
-              `INSERT OR REPLACE INTO Patients (id, first_name, last_name, dob, hospitalPatientId) 
-               VALUES (?, ?, ?, ?, ?)`,
-              [p.id, p.first_name, p.last_name, p.dob, p.hospitalPatientId || null],
+              `INSERT OR REPLACE INTO Patients (
+                 id, first_name, last_name, dob, hospitalPatientId, 
+                 device_manufacturer, device_model, device_serial, leads
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                p.id,
+                p.first_name,
+                p.last_name,
+                p.dob,
+                p.hospitalPatientId || null,
+                p.device_manufacturer || null,
+                p.device_model || null,
+                p.device_serial || null,
+                p.leads ? JSON.stringify(p.leads) : null
+              ],
               (err) => {
                 if (err) reject(err);
                 else resolve();
