@@ -119,7 +119,7 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
     let allCompatible = true;
 
     for (const lead of leads) {
-        const leadModel = (lead.model || lead.name || '').trim().toLowerCase();
+        const leadModel = String(lead.model || lead.name || '').trim().toLowerCase();
         if (!leadModel) continue;
 
         // Check if this lead model appears in the compatible text
