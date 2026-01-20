@@ -971,7 +971,7 @@ export const rescanVisitDirectory = async (visitPath: string) => {
     // Prioritize PDF and XML
     for (const file of files) {
       // Skip unwanted files
-      if (['.pdf', '.xml', '.txt', '.log'].every(ext => !file.toLowerCase().endsWith(ext))) continue;
+      if (['.pdf', '.xml', '.txt', '.log', '.pkg'].every(ext => !file.toLowerCase().endsWith(ext))) continue;
 
       const filePath = path.join(visitPath, file);
       try {
