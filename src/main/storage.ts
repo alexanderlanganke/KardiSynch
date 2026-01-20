@@ -283,7 +283,7 @@ export const storeFile = async (
           const newLead = {
             model: l.model,
             serial: l.serial,
-            manufacturer: report.manufacturer, // Assuming same manufacturer for now, or unknown
+            manufacturer: l.manufacturer || report.manufacturer,
             implant_date: l.implant_date || 'Unknown'
           };
 

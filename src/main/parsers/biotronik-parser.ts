@@ -21,7 +21,8 @@ function findTable(data: any, tableName: string): any[] | null {
         const tables = Array.isArray(rawTables) ? rawTables : [rawTables];
 
         for (const table of tables) {
-            if (table['TableName'] === tableName) {
+            // String conversion handles cases where '9002' is parsed as number
+            if (String(table['TableName']) === tableName) {
                 return table['TableEntry'];
             }
         }
@@ -51,6 +52,30 @@ function findEntry(rawTableEntries: any[] | any | null, attributeName: string): 
         console.error(`Error finding attribute: ${attributeName}`, e);
     }
     return null;
+}
+
+/**
+ * Finds all values for a specific attribute from a table.
+ * Returns an array of strings. 
+ * Handles cases where the attribute might exist once, multiple times, or not at all.
+ */
+function findAllEntries(rawTableEntries: any[] | any | null, attributeName: string): string[] {
+    if (!rawTableEntries) return [];
+    try {
+        const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
+        return tableEntries
+            .filter((e: any) => e['AttributeName'] === attributeName)
+            .map((e: any) => {
+                if (e['CharValue']) return String(e['CharValue']);
+                if (e['DecimalValue']) return e['DecimalValue'].toString();
+                if (e['SmallIntValue']) return e['SmallIntValue'].toString();
+                if (e['DateValue']) return String(e['DateValue']);
+                return '';
+            });
+    } catch (e) {
+        console.error(`Error finding all entries for attribute: ${attributeName}`, e);
+        return [];
+    }
 }
 
 /**
@@ -100,6 +125,76 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         const personalData = xml['InterfaceData']?.['Patient']?.['PersonalData'];
         console.log('PersonalData keys:', personalData ? Object.keys(personalData) : 'PersonalData is missing');
 
+        // Extract hardware info from Table 9002 (Settings)
+        const channels = findAllEntries(settingsTable, 'Kanäle');
+
+        const manufacturers = findAllEntries(settingsTable, 'Hersteller');
+        const models = findAllEntries(settingsTable, 'Elektrodenmodell');
+        const serials = findAllEntries(settingsTable, 'Seriennummer');
+
+        // Dynamic Lead Construction
+        const leads: LeadData[] = [];
+
+        // We iterate through the 'Kanäle' array as it defines the installed slots.
+        // We assume the other arrays (manufacturers, models, serials) start at the same index 
+        // and align with the channels.
+        // NOTE: The XML often ends with a "." or empty entry for unused slots, we must filter those.
+
+        for (let i = 0; i < channels.length; i++) {
+            const channel = channels[i];
+
+            // Skip invalid or placeholder channels
+            if (!channel || channel === '.' || channel === 'Unknown') continue;
+
+            // Basic Lead Object
+            const lead: LeadData = {
+                name: `${channel}-Lead`,
+                manufacturer: manufacturers[i] && manufacturers[i] !== '.' ? manufacturers[i] : 'Unknown',
+                model: models[i] && models[i] !== '.' ? models[i] : undefined,
+                serial: serials[i] && serials[i] !== '.' ? serials[i] : undefined
+            };
+
+            // Map extracted measurements based on Channel Name
+            // Mapping Logic: RA -> FU_RA_*, RV -> FU_RV_*, LV -> FU_LV_*
+            let prefix = '';
+            if (channel === 'RA') prefix = 'FU_RA';
+            else if (channel === 'RV') prefix = 'FU_RV';
+            else if (channel === 'LV') prefix = 'FU_LV';
+
+            if (prefix) {
+                // Attach Impedance
+                const impedVal = findEntry(summaryTable, `${prefix}_IMPED`);
+                if (impedVal) {
+                    lead.impedance = { value: impedVal, unit: 'Ohms' };
+                }
+
+                // Attach Sensing
+                const senseVal = findEntry(summaryTable, `${prefix}_SENSING`);
+                if (senseVal) {
+                    lead.sensing = { value: senseVal, unit: 'mV' };
+                }
+
+                // Pacing Threshold (Requires manual constructing from two fields usually)
+                // Assuming standard naming like A_AMPLITUDE, V_AMPLITUDE etc. derived from channel
+                let pacingPrefix = '';
+                if (channel === 'RA') pacingPrefix = 'A';
+                else if (channel === 'RV') pacingPrefix = 'V';
+                else if (channel === 'LV') pacingPrefix = 'LV';
+
+                const amp = findEntry(summaryTable, `${pacingPrefix}_AMPLITUDE`);
+                const pulse = findEntry(summaryTable, `${pacingPrefix}_IMPDAUER`);
+
+                if (amp && pulse) {
+                    lead.pacing_threshold = {
+                        value: `${amp} @ ${pulse}`,
+                        unit: 'V @ ms'
+                    };
+                }
+            }
+
+            leads.push(lead);
+        }
+
         const standardizedData: UnifiedReport = {
             manufacturer: findEntry(summaryTable, 'MANUFACTURERDESCR') || 'Biotronik',
             interrogation_date: xml['InterfaceData']['Examination']['ExaminationDate'],
@@ -124,53 +219,9 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
                 },
                 status: findEntry(summaryTable, 'FU1BATTERYSTATUS') || 'Unknown',
             },
-            leads: [
-                {
-                    name: 'A-Lead (RA)',
-                    pacing_threshold: {
-                        value: `${findEntry(summaryTable, 'A_AMPLITUDE')} @ ${findEntry(summaryTable, 'A_IMPDAUER')}`,
-                        unit: 'V @ ms'
-                    },
-                    sensing: {
-                        value: findEntry(summaryTable, 'FU_RA_SENSING') || '',
-                        unit: 'mV'
-                    },
-                    impedance: {
-                        value: findEntry(summaryTable, 'FU_RA_IMPED') || '',
-                        unit: 'Ohms'
-                    },
-                },
-                {
-                    name: 'V-Lead (RV)',
-                    pacing_threshold: {
-                        value: `${findEntry(summaryTable, 'V_AMPLITUDE')} @ ${findEntry(summaryTable, 'V_IMPDAUER')}`,
-                        unit: 'V @ ms'
-                    },
-                    sensing: {
-                        value: findEntry(summaryTable, 'FU_RV_SENSING') || '',
-                        unit: 'mV'
-                    },
-                    impedance: {
-                        value: findEntry(summaryTable, 'FU_RV_IMPED') || '',
-                        unit: 'Ohms'
-                    },
-                },
-                {
-                    name: 'LV-Lead (LV)',
-                    pacing_threshold: {
-                        value: `${findEntry(summaryTable, 'LV_AMPLITUDE')} @ ${findEntry(summaryTable, 'LV_IMPDAUER')}`,
-                        unit: 'V @ ms'
-                    },
-                    sensing: {
-                        value: findEntry(summaryTable, 'FU_LV_SENSING') || '',
-                        unit: 'mV'
-                    },
-                    impedance: {
-                        value: findEntry(summaryTable, 'FU_LV_IMPED') || '',
-                        unit: 'Ohms'
-                    },
-                }
-            ],
+
+            leads: leads,
+
             arrhythmia_summary: {
                 atrial_fibrillation_burden: {
                     value: findEntry(statsTable, 'Atriale Arrhythmielast') || '',
