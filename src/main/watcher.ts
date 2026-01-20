@@ -174,7 +174,9 @@ const processTempDirectory = async (tempDir: string) => {
   // Categorize files
   const structuredFiles = supportedFiles.filter(f => {
     const ext = path.extname(f).toLowerCase();
-    return ext === '.xml' || ext === '.pkg' || ext === '.log';
+    return ext === '.xml' || ext === '.pkg' || ext === '.log' || ext === '.pdd' || ext === '.bnk';
+
+
   });
 
   const pdfFiles = supportedFiles.filter(f => {
