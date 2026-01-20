@@ -62,6 +62,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onAutomationStatus: (callback: (status: any) => void) => {
     ipcRenderer.on('automation-status', (event, status) => callback(status));
   },
+  onMRIStatusUpdate: (callback: (data: { patientId: string; status: any }) => void) => {
+    ipcRenderer.on('mri-status-update', (event, data) => callback(data));
+  },
   triggerMriCheck: (patientId: string) => ipcRenderer.invoke('trigger-mri-check', patientId),
   retriggerAllMriChecks: () => ipcRenderer.invoke('retrigger-all-mri-checks'),
 

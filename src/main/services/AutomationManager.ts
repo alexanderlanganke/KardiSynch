@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { checkMRIStatus } from './mriLookupService';
 import { getDb } from '../database';
-import { sendNotification } from '../windowManager';
+import { sendNotification, sendProcessStatus } from '../windowManager';
 
 export class AutomationManager {
     private static instance: AutomationManager;
@@ -142,13 +142,23 @@ export class AutomationManager {
         if (this.checkQueue.length === 0) {
             this.isProcessing = false;
             this.broadcastStatus();
-            sendNotification('All MRI compliance checks completed.', 'info');
+            // sendNotification('All MRI compliance checks completed.', 'info');
             return;
         }
 
         this.isProcessing = true;
         const item = this.checkQueue.shift();
         this.broadcastStatus();
+
+        // 1. Start Task
+        const taskId = `mri-${item.patientId}-${Date.now()}`;
+        sendProcessStatus({
+            type: 'start',
+            message: taskId, // Protocol: message handles title/id sometimes, but let's stick to standard if possible
+            taskId: taskId,
+            title: `MRI Check: ${item.patientName}`,
+            progress: 0
+        });
 
         try {
             console.log(`[MRI Service] Checking status for ${item.manufacturer} ${item.model}...`);
@@ -159,13 +169,29 @@ export class AutomationManager {
                 item.leads || [],
                 'Germany', // Default country
                 (msg) => {
-                    sendNotification(`MRI Check (${item.patientName}): ${msg}`, 'info');
+                    // Update Progress
+                    sendProcessStatus({
+                        type: 'progress',
+                        taskId: taskId,
+                        message: msg,
+                        progress: 0 // We assume unknown progress unless we map messages to %
+                        // Ideally we'd improve mriLookupService to pass % back
+                    });
                 }
             );
 
             // Notify result
             const notifType = (result.status === 'unsafe' || result.status === 'unknown') ? 'warning' : 'info';
+            // Only send toast on completion
             sendNotification(`MRI Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
+
+            // Complete Task
+            sendProcessStatus({
+                type: 'complete',
+                taskId: taskId,
+                progress: 100,
+                message: `Result: ${result.status}`
+            });
 
             // Update DB
             const db = getDb();
@@ -181,8 +207,16 @@ export class AutomationManager {
                 }
             );
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(`[AutomationManager] Error processing ${item.patientId}:`, error);
+
+            // Error Task
+            sendProcessStatus({
+                type: 'error',
+                taskId: taskId,
+                message: error.message || 'Check Failed'
+            });
+
         } finally {
             // Wait a bit to be polite to websites?
             setTimeout(() => {

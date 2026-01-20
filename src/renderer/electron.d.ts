@@ -49,6 +49,7 @@ export interface IElectronAPI {
 
   // Automation
   onAutomationStatus: (callback: (status: any) => void) => void;
+  onMRIStatusUpdate: (callback: (data: { patientId: string; status: any }) => void) => void;
   triggerMriCheck: (patientId: string) => Promise<void>;
 }
 
