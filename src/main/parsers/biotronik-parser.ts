@@ -40,7 +40,7 @@ function findEntry(rawTableEntries: any[] | any | null, attributeName: string): 
     if (!rawTableEntries) return null;
     try {
         const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
-        const entry = tableEntries.find((e: any) => e['AttributeName'] === attributeName);
+        const entry = tableEntries.find((e: any) => e['AttributeName']?.toLowerCase() === attributeName.toLowerCase());
         if (!entry) return null;
 
         if (entry['CharValue']) return String(entry['CharValue']);
@@ -64,7 +64,7 @@ function findAllEntries(rawTableEntries: any[] | any | null, attributeName: stri
     try {
         const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
         return tableEntries
-            .filter((e: any) => e['AttributeName'] === attributeName)
+            .filter((e: any) => e['AttributeName']?.toLowerCase() === attributeName.toLowerCase())
             .map((e: any) => {
                 if (e['CharValue']) return String(e['CharValue']);
                 if (e['DecimalValue']) return e['DecimalValue'].toString();
@@ -126,11 +126,71 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         console.log('PersonalData keys:', personalData ? Object.keys(personalData) : 'PersonalData is missing');
 
         // Extract hardware info from Table 9002 (Settings)
-        const channels = findAllEntries(settingsTable, 'Kanäle');
+        let channels = findAllEntries(settingsTable, 'Kanäle');
 
         const manufacturers = findAllEntries(settingsTable, 'Hersteller');
         const models = findAllEntries(settingsTable, 'Elektrodenmodell');
         const serials = findAllEntries(settingsTable, 'Seriennummer');
+
+        // INTELLIGENT ALIGNMENT FIX:
+        // Biotronik XMLs sometimes contain multiple blocks of 'Kanäle' (e.g., historical vs current),
+        // but only one block of 'Elektrodenmodell'.
+        // If we naive-map, we might map Model[0] to Channel[0] of the wrong block.
+        // Logic: If channels are a multiple of models, try to find the best aligned block.
+
+        if (models.length > 0 && channels.length > models.length && channels.length % models.length === 0) {
+            console.log(`[Biotronik Parser] Detected channel duplication (${channels.length} channels, ${models.length} models). Attempting alignment...`);
+
+            const blockSize = models.length;
+            const blockCount = channels.length / blockSize;
+            let bestBlockIndex = 0;
+            let bestBlockScore = -1;
+
+            for (let b = 0; b < blockCount; b++) {
+                const start = b * blockSize;
+                const chunk = channels.slice(start, start + blockSize);
+
+                // Score this chunk:
+                // We want Key Information to align.
+                // If Model[i] exists and is not '.', then Channel[i] should ideally not be '.'
+                let score = 0;
+                let hasValidChannel = false;
+
+                for (let i = 0; i < blockSize; i++) {
+                    const modelVal = models[i];
+                    const channelVal = chunk[i];
+
+                    const modelExists = modelVal && modelVal !== '.' && modelVal !== 'Unknown';
+                    const channelExists = channelVal && channelVal !== '.' && channelVal !== 'Unknown';
+
+                    if (modelExists && channelExists) {
+                        score += 5; // Strong Match
+                    } else if (modelExists && !channelExists) {
+                        score -= 5; // Mismatch: Valid model but 'empty' channel
+                    } else if (channelExists) {
+                        hasValidChannel = true;
+                    }
+                }
+
+                // Tie-breaker: prefer chunks with more valid channel data overall
+                if (hasValidChannel) score += 1;
+
+                // Tie-breaker: prefer later blocks (usually current?)
+                // Actually not safe to assume, stick to content match.
+
+                console.log(`Block ${b}: ${chunk.join(', ')} (Score: ${score})`);
+
+                if (score > bestBlockScore) {
+                    bestBlockScore = score;
+                    bestBlockIndex = b;
+                }
+            }
+
+            // Slice to use only the best block
+            const bestStart = bestBlockIndex * blockSize;
+            channels = channels.slice(bestStart, bestStart + blockSize);
+            console.log(`Selected Channel Block ${bestBlockIndex}: ${channels.join(', ')}`);
+        }
 
         // Dynamic Lead Construction
         const leads: LeadData[] = [];
