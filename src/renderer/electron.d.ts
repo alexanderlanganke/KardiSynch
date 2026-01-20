@@ -51,6 +51,11 @@ export interface IElectronAPI {
   onAutomationStatus: (callback: (status: any) => void) => void;
   onMRIStatusUpdate: (callback: (data: { patientId: string; status: any }) => void) => void;
   triggerMriCheck: (patientId: string) => Promise<void>;
+  retriggerAllMriChecks: () => Promise<void>;
+
+  // Visit Management
+  rescanVisit: (visitId: string) => Promise<any>;
+  moveVisit: (visitId: string, targetPatientId: string) => Promise<any>;
 }
 
 declare global {

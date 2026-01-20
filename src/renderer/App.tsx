@@ -10,7 +10,7 @@ import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History
 import { cn } from '@/lib/utils';
 import icon from './assets/icon.jpg';
 import ImportHistory from './ImportHistory';
-import ManualSortingModal from './ManualSortingModal';
+import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
 import DeviceNews from './DeviceNews';
 
@@ -60,18 +60,6 @@ const NavItem: React.FC<{
 );
 
 
-
-// ... (ThemeToggle and NavItem remain the same if not touched by replacement, but we need to supply the imports)
-
-// Since I am replacing the whole file content via tool isn't ideal if I can just edit chunks, 
-// but the instruction says "Replace the App component return".
-// Let's try to be surgical to avoid re-pasting the ThemeToggle which is fine.
-
-// Actually I will assume the previous chunks are preserved if I target specific lines.
-// But to be safe and clean, I will replace the imports and the App component BODY.
-
-
-
 const App: React.FC = () => {
   const { currentView, setCurrentView, currentPatientId, setCurrentPatientId } = useAppContext();
 
@@ -99,6 +87,13 @@ const App: React.FC = () => {
 
   const handleManualSortingResolve = (decision: any) => {
     window.electronAPI.manualSortingResponse(decision);
+    setManualSortingOpen(false);
+    setManualSortingFile(null);
+  };
+
+  const handleManualSortingCancel = () => {
+    // Treat cancel as unmatched to prevent infinite loop or hang
+    window.electronAPI.manualSortingResponse({ action: 'unmatched' });
     setManualSortingOpen(false);
     setManualSortingFile(null);
   };
@@ -197,10 +192,12 @@ const App: React.FC = () => {
         </div>
 
         {/* Global Modals */}
-        <ManualSortingModal
+        <PatientAssignmentModal
           open={manualSortingOpen}
-          fileInfo={manualSortingFile}
+          mode="import"
+          sourceItem={manualSortingFile}
           onResolve={handleManualSortingResolve}
+          onCancel={handleManualSortingCancel}
         />
 
         <DeviceSelectionModal
@@ -208,9 +205,6 @@ const App: React.FC = () => {
           fileInfo={deviceSelectionFile}
           onResolve={handleDeviceSelectionResolve}
         />
-
-
-
       </div>
     </ThemeProvider>
   );
