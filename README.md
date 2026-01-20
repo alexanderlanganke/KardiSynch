@@ -14,13 +14,26 @@ KardiSynch is a modern, self-contained application designed to streamline the ma
 - **Direct File Management**: Patient data is stored in a structured directory hierarchy (`Reports/PatientID/VisitID`), allowing for easy backup and external access.
 - **XML Metadata**: Automatically generates `patient.xml` and `visit.xml` metadata files for interoperability.
 
-### ⚡ Automated Ingestion
-- **Smart Import**: Simply drop files into the `_IMPORT` directory. KardiSynch automatically detects, parses, and organizes them into the correct patient and visit folders.
+### ⚡ Automated Ingestion & Sorting
+- **Smart Import**: Simply drop files into the `_IMPORT` directory. KardiSynch automatically detects, parses, and organizes them.
+- **Manual Sorting Interface**: A unified interface (`PatientAssignmentModal`) handles files that cannot be automatically matched, allowing users to:
+  - Assign files to existing patients.
+  - Create new patients on the fly.
+  - Link files to existing visits or create new ones.
 - **Multi-Manufacturer Support**:
-  - **Medtronic**: PDF and proprietary formats.
+  - **Medtronic**: PDF, proprietary formats (PDD), and ZIP archives.
   - **Biotronik**: XML and PDF reports.
   - **Boston Scientific**: PDF and ZIP exports.
   - **Abbott**: PDF reports.
+
+### 🛠️ Data Management Tools
+- **Rescan Visit**: Re-process existing visit folders to extract fresh data (demographics, devices, leads). Includes a **Data Merge** interface to resolve conflicts between current records and scanned data.
+- **Move Visit**: Easily reassign an entire visit (and its files) to a different patient in case of import errors.
+- **Device & Lead Editor**: Manually edit patient device and lead history with a dedicated editor.
+
+### 🛡️ Safety & Compliance
+- **MRI Safety Checks**: Automatic detection of MRI compatibility status based on device/lead combinations (using Medtronic ProMRI data where applicable).
+- **Activity & Notifications**: Real-time feedback on import status, MRI warnings, and background processes via a notification center.
 
 ### 📊 Advanced Parsing & Visualization
 - **PDF Intelligence**: Extracts patient demographics, device details, and interrogation dates directly from PDF reports using advanced regex patterns.
@@ -65,9 +78,6 @@ npm run build
 ## 🔮 Planned Features
 
 - [ ] **DICOM Integration**: Support for imaging data.
-- [ ] **HL7 Export**: Interface with hospital EMR systems.
-- [ ] **Cloud Sync**: Optional secure cloud backup.
-- [ ] **AI Analysis**: Automated arrhythmia detection assistance.
 
 ---
 *KardiSynch is a tool for data management and visualization. It is not a diagnostic device.*
