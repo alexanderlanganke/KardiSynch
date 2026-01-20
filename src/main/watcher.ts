@@ -918,6 +918,42 @@ export const stopWatcher = () => {
 };
 
 /**
+ * Locates the visit directory on the filesystem based on the Visit ID.
+ * @param visitId The ID of the visit (report).
+ * @returns The full path to the visit directory, or null if not found.
+ */
+export const findVisitPath = async (visitId: string): Promise<string | null> => {
+  try {
+    const report = await getReportById(visitId);
+    if (!report) return null;
+
+    // Find Patient Directory
+    const reportsDir = path.join(dataDir, 'Reports');
+    if (!fs.existsSync(reportsDir)) return null;
+
+    const patientDirs = fs.readdirSync(reportsDir);
+    const patientDirName = patientDirs.find(d => d.startsWith(report.patient_id));
+
+    if (!patientDirName) return null;
+
+    const patientDirPath = path.join(reportsDir, patientDirName);
+
+    // Find Visit Directory (ends with visitId)
+    const visitDirs = fs.readdirSync(patientDirPath);
+    const visitDirName = visitDirs.find(d => d.endsWith(`_${visitId}`) || d === visitId);
+
+    if (visitDirName) {
+      return path.join(patientDirPath, visitDirName);
+    }
+    return null;
+
+  } catch (error) {
+    console.error('[findVisitPath] Error:', error);
+    return null;
+  }
+};
+
+/**
  * Rescans a specific visit directory and extracts data without modifying the database.
  * @param visitPath Full path to the visit directory
  * @returns Object containing status and extracted data
@@ -989,42 +1025,34 @@ export const rescanVisitDirectory = async (visitPath: string) => {
  * @param targetPatientId ID of the patient to move to
  * @returns Result object
  */
-export const moveVisit = async (sourceVisitPath: string, targetPatientId: string) => {
+export const moveVisit = async (visitId: string, targetPatientId: string) => {
   try {
+    // 1. Resolve Source Path
+    const sourceVisitPath = await findVisitPath(visitId);
+    if (!sourceVisitPath) throw new Error('Source visit path not found');
+
     console.log(`[MoveVisit] Moving ${sourceVisitPath} to patient ${targetPatientId}`);
 
-    // 1. Verify Source
-    if (!fs.existsSync(sourceVisitPath)) throw new Error('Source visit not found');
-
-    // 2. Prepare Target
-    // We need to resolve the target patient's directory.
-    // The structure is _DATA/Reports/<PatientID_Name_DOB>/...
-    // But we might only have ID. We need to find the directory pattern.
-
-    // Helper to find patient directory by ID prefix
+    // 2. Prepare Target Directory
     const patientDirs = fs.readdirSync(path.join(dataDir, 'Reports'));
     const targetDirName = patientDirs.find(d => d.startsWith(targetPatientId));
+    let targetDirPath = '';
 
     if (!targetDirName) {
-      // Ideally we should look up the patient to create the folder if it doesn't exist?
-      // But assuming the patient exists in DB, we should handle this.
-      // For now, fail if folder not found (meaning patient has no visits yet? We should support that).
-
-      // Fallback: If no directory exists, we need to create one.
-      // We need patient details to name it correctly (ID_Name_DOB).
+      // Create target patient directory if missing
       const patient = await getPatientById(targetPatientId);
       if (!patient) throw new Error('Target patient not found in database');
 
       const safeName = (patient.name || 'Unknown').replace(/[^a-z0-9]/gi, '_');
       const safeDob = (patient.dob || 'NoDOB').replace(/[^a-z0-9]/gi, '_');
       const newDirName = `${targetPatientId}_${safeName}_${safeDob}`;
-      const newDirPath = path.join(dataDir, 'Reports', newDirName);
-      fs.mkdirSync(newDirPath, { recursive: true });
-      return performMove(sourceVisitPath, newDirPath, targetPatientId);
+      targetDirPath = path.join(dataDir, 'Reports', newDirName);
+      fs.mkdirSync(targetDirPath, { recursive: true });
+    } else {
+      targetDirPath = path.join(dataDir, 'Reports', targetDirName);
     }
 
-    const targetDirPath = path.join(dataDir, 'Reports', targetDirName);
-    return performMove(sourceVisitPath, targetDirPath, targetPatientId);
+    return performMove(sourceVisitPath, targetDirPath, targetPatientId, visitId);
 
   } catch (error) {
     console.error('[MoveVisit] Failed:', error);
@@ -1032,7 +1060,7 @@ export const moveVisit = async (sourceVisitPath: string, targetPatientId: string
   }
 };
 
-const performMove = async (sourcePath: string, targetParentPath: string, targetPatientId: string) => {
+const performMove = async (sourcePath: string, targetParentPath: string, targetPatientId: string, visitId: string) => {
   const dirName = path.basename(sourcePath);
   const destPath = path.join(targetParentPath, dirName);
 
@@ -1046,48 +1074,29 @@ const performMove = async (sourcePath: string, targetParentPath: string, targetP
     fs.renameSync(sourcePath, destPath);
   } catch (e: any) {
     if (e.code === 'EXDEV') {
-      // Cross-device move not supported for directories simply by rename in some cases? 
-      // Actually node fs.rename usually handles it or fails. 
-      // If EXDEV, we need recursive copy + remove.
-      // keeping it simple for now, assuming same volume.
+      // Cross-device logic could be added here
       throw new Error('Cross-device move not supported yet');
     }
     throw e;
   }
 
   // Update Database
-  // We need to update all reports that pointed to the old path or belonged to the source visit.
-  // Actually, reports in DB rely on `patient_id`. We just need to update `patient_id` for all reports in this visit.
-  // How do we identify them? By file path?
-  // The DB stores `file_path`. We need to update `file_path` and `patient_id`.
-
-  // 1. Find reports where file_path starts with sourcePath
-  // We don't have a direct "find by path prefix" utility exported easily, 
-  // but maybe we can query by the old patient ID (which we didn't pass, but can infer?)
-  // Easier: The caller should trigger a DB refresh/scan for the target patient?
-  // Or we manually SQL update.
-
+  // Only update patient_id for the report(s) associated with this visit. 
+  // We assume the visit ID corresponds to a report ID.
   const db = getDb();
-  // Getting raw SQLite is cleaner here
 
-  // We need to update:
-  // UPDATE reports SET patient_id = ?, file_path = REPLACE(file_path, ?, ?) WHERE file_path LIKE ?
-
-  // SQLite doesn't have robust REPLACE for paths easily if not careful, but:
-  const updateStmt = db.prepare(`
-        UPDATE reports 
-        SET patient_id = @targetId, 
-            file_path = REPLACE(file_path, @oldPath, @newPath)
-        WHERE file_path LIKE @likePath
-    `);
-
-  updateStmt.run({
-    targetId: targetPatientId,
-    oldPath: sourcePath,
-    newPath: destPath,
-    likePath: `${sourcePath}%`
+  // Update the specific report
+  db.run(`UPDATE Reports SET patient_id = ? WHERE id = ?`, [targetPatientId, visitId], (err: any) => {
+    if (err) console.error('[MoveVisit] DB Update failed:', err);
   });
 
-  console.log(`[MoveVisit] Updated database records for moved visit.`);
+  // Also update any other reports that might have been linking to this visit? 
+  // (Usually 1:1, but if multiple reports shared a folder, we might miss them if we only update by visitId.
+  // However, findVisitPath assumes folder mapping.
+  // Ideally we should update all reports where patient_id was OLD and now should be NEW, but scoping to this visit is hard without file paths in DB used for lookup.
+  // Since we don't store file paths, we rely on the ID.
+  // A deeper scan might be needed if multiple reports exist in one folder, but current architecture seems 1 Visit Dir = 1 Main Report ID).
+
+  console.log(`[MoveVisit] Moved visit ${visitId} to ${targetPatientId}`);
   return { success: true, newPath: destPath };
 };

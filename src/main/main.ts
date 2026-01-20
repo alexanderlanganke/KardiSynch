@@ -1052,15 +1052,15 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
 ipcMain.handle('rescan-visit', async (event, visitId: string) => {
   try {
     console.log('[IPC] Rescan visit:', visitId);
-    // 1. Get Report to find path
-    const report = await import('./database').then(m => m.getReportById(visitId));
-    if (!report || !report.file_path) {
-      throw new Error('Visit/Report not found or has no file path');
+
+    // Resolve path using watcher helper instead of missing generic file_path
+    const visitPath = await import('./watcher').then(m => m.findVisitPath(visitId));
+
+    if (!visitPath) {
+      throw new Error('Visit directory not found on disk');
     }
 
-    const visitPath = path.dirname(report.file_path);
-
-    // 2. Call Watcher
+    // Call Watcher
     return await import('./watcher').then(m => m.rescanVisitDirectory(visitPath));
   } catch (error) {
     console.error('Rescan failed:', error);
@@ -1070,17 +1070,8 @@ ipcMain.handle('rescan-visit', async (event, visitId: string) => {
 
 ipcMain.handle('move-visit', async (event, visitId: string, targetPatientId: string) => {
   try {
-    console.log('[IPC] Move visit:', visitId, 'to', targetPatientId);
-    // 1. Get Report to find path
-    const report = await import('./database').then(m => m.getReportById(visitId));
-    if (!report || !report.file_path) {
-      throw new Error('Visit/Report not found or has no file path');
-    }
-
-    const visitPath = path.dirname(report.file_path);
-
-    // 2. Call Watcher
-    return await import('./watcher').then(m => m.moveVisit(visitPath, targetPatientId));
+    // Move visit refactored to take ID and find path internally
+    return await import('./watcher').then(m => m.moveVisit(visitId, targetPatientId));
   } catch (error) {
     console.error('Move visit failed:', error);
     throw error;
