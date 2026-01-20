@@ -105,8 +105,8 @@ const ManualSortingModal: React.FC<ManualSortingModalProps> = ({ open, fileInfo,
     }, [selectedPatientId]);
 
     const filteredPatients = patients.filter(p =>
-        p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.patientId.toLowerCase().includes(searchTerm.toLowerCase())
+        (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (p.patientId || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const handleAssign = () => {
