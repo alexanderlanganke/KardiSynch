@@ -68,6 +68,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   triggerMriCheck: (patientId: string) => ipcRenderer.invoke('trigger-mri-check', patientId),
   retriggerAllMriChecks: () => ipcRenderer.invoke('retrigger-all-mri-checks'),
 
+  // Visit Management
+  rescanVisit: (visitId: string) => ipcRenderer.invoke('rescan-visit', visitId),
+  moveVisit: (visitId: string, targetPatientId: string) => ipcRenderer.invoke('move-visit', visitId, targetPatientId),
+
   // Device Selection (Autodetection Fallback)
   sendDeviceSelectionResult: (result: any) => ipcRenderer.invoke('device-selection-result', result),
   onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => {

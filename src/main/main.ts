@@ -1049,6 +1049,44 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
 });
 
 
+ipcMain.handle('rescan-visit', async (event, visitId: string) => {
+  try {
+    console.log('[IPC] Rescan visit:', visitId);
+    // 1. Get Report to find path
+    const report = await import('./database').then(m => m.getReportById(visitId));
+    if (!report || !report.file_path) {
+      throw new Error('Visit/Report not found or has no file path');
+    }
+
+    const visitPath = path.dirname(report.file_path);
+
+    // 2. Call Watcher
+    return await import('./watcher').then(m => m.rescanVisitDirectory(visitPath));
+  } catch (error) {
+    console.error('Rescan failed:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('move-visit', async (event, visitId: string, targetPatientId: string) => {
+  try {
+    console.log('[IPC] Move visit:', visitId, 'to', targetPatientId);
+    // 1. Get Report to find path
+    const report = await import('./database').then(m => m.getReportById(visitId));
+    if (!report || !report.file_path) {
+      throw new Error('Visit/Report not found or has no file path');
+    }
+
+    const visitPath = path.dirname(report.file_path);
+
+    // 2. Call Watcher
+    return await import('./watcher').then(m => m.moveVisit(visitPath, targetPatientId));
+  } catch (error) {
+    console.error('Move visit failed:', error);
+    throw error;
+  }
+});
+
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();

@@ -1,7 +1,8 @@
 import React from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
-import { Calendar, FileText } from 'lucide-react';
+import { Button } from './ui/button';
+import { Calendar, FileText, RefreshCw, FolderInput } from 'lucide-react';
 
 interface Visit {
     id: string;
@@ -13,9 +14,11 @@ interface Visit {
 interface VisitTimelineProps {
     visits: Visit[];
     onVisitSelect: (visit: Visit) => void;
+    onRescan: (visit: Visit) => void;
+    onMove: (visit: Visit) => void;
 }
 
-const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect }) => {
+const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, onRescan, onMove }) => {
     const handleDragStart = (e: React.DragEvent, visit: Visit) => {
         e.dataTransfer.setData('visitId', visit.id);
         e.dataTransfer.effectAllowed = 'copy';
@@ -43,20 +46,44 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect }) 
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, visit)}
                                 onClick={() => onVisitSelect(visit)}
-                                className="glass-card min-w-[140px] cursor-move hover:border-primary/50 transition-all hover:shadow-sm p-2"
+                                className="glass-card min-w-[150px] cursor-pointer hover:border-primary/50 transition-all hover:shadow-sm p-3 group relative"
                             >
-                                <div className="space-y-1">
+                                {/* Hover Actions Overlay */}
+                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-md border p-0.5 shadow-sm">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 hover:text-primary"
+                                        title="Rescan & Update Data"
+                                        onClick={(e) => { e.stopPropagation(); onRescan(visit); }}
+                                    >
+                                        <RefreshCw className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 hover:text-blue-500"
+                                        title="Move to another Patient"
+                                        onClick={(e) => { e.stopPropagation(); onMove(visit); }}
+                                    >
+                                        <FolderInput className="h-3 w-3" />
+                                    </Button>
+                                </div>
+
+                                <div className="space-y-2 pt-1">
                                     <div className="flex items-center justify-between">
-                                        <div className="text-xs font-medium">
+                                        <div className="text-xs font-semibold">
                                             {new Date(visit.interrogation_date).toLocaleDateString()}
                                         </div>
-                                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
-                                            <FileText className="h-2 w-2 mr-1" />
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="text-[10px] text-muted-foreground truncate max-w-[80px]" title={visit.manufacturer}>
+                                            {visit.manufacturer || 'Unknown'}
+                                        </div>
+                                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 bg-secondary/50">
+                                            <FileText className="h-2 w-2 mr-1 opacity-70" />
                                             {visit.fileCount}
                                         </Badge>
-                                    </div>
-                                    <div className="text-[10px] text-muted-foreground truncate">
-                                        {visit.manufacturer || 'Unknown'}
                                     </div>
                                 </div>
                             </Card>

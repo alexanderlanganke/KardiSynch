@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { History, FileText, AlertTriangle, CheckCircle, HelpCircle } from 'lucide-react';
-import ManualSortingModal from './ManualSortingModal';
+import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 
 const ImportHistory: React.FC = () => {
     const [sessions, setSessions] = useState<any[]>([]);
@@ -267,13 +267,15 @@ const ImportHistory: React.FC = () => {
                 </Card>
             </div>
 
-            {/* Replaced Dialog with ManualSortingModal */}
+            {/* Replaced Dialog with PatientAssignmentModal */}
             {
                 moveFileModalOpen && fileInfo && (
-                    <ManualSortingModal
+                    <PatientAssignmentModal
                         open={moveFileModalOpen}
-                        fileInfo={fileInfo}
+                        mode="import"
+                        sourceItem={fileInfo}
                         onResolve={handleManualSortResolve}
+                        onCancel={() => setMoveFileModalOpen(false)}
                     />
                 )
             }

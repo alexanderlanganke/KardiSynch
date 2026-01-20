@@ -916,3 +916,178 @@ export const stopWatcher = () => {
     console.log('File watcher stopped.');
   }
 };
+
+/**
+ * Rescans a specific visit directory and extracts data without modifying the database.
+ * @param visitPath Full path to the visit directory
+ * @returns Object containing status and extracted data
+ */
+export const rescanVisitDirectory = async (visitPath: string) => {
+  try {
+    console.log(`[Rescan] Scanning directory: ${visitPath}`);
+    if (!fs.existsSync(visitPath)) {
+      throw new Error(`Directory not found: ${visitPath}`);
+    }
+
+    const files = fs.readdirSync(visitPath).filter(f => !f.startsWith('.'));
+    const parsedReports: UnifiedReport[] = [];
+
+    // Prioritize PDF and XML
+    for (const file of files) {
+      // Skip unwanted files
+      if (['.pdf', '.xml', '.txt', '.log'].every(ext => !file.toLowerCase().endsWith(ext))) continue;
+
+      const filePath = path.join(visitPath, file);
+      try {
+        const result = await parseFile(filePath);
+        if (result) {
+          parsedReports.push(result);
+        }
+      } catch (e) {
+        console.warn(`[Rescan] Failed to parse file ${file}:`, e);
+      }
+    }
+
+    if (parsedReports.length === 0) {
+      return { status: 'empty', message: 'No parseable files found.' };
+    }
+
+    // Merge strategy: Take the most complete data
+    // For now, we return the first valid report's patient/device data, or a merge if we want to be fancy
+    // Let's assume the first valid report is representative for demographics/device.
+    // We can collect all unique leads found.
+
+    // Sort reports by priority: XML > PDF > Text ? parseFile doesn't give type easily, but we can assume order
+    // Let's just aggregate data.
+
+    const aggregatedData = {
+      patient: parsedReports.find(r => r.patient?.last_name)?.patient || parsedReports[0].patient,
+      device: parsedReports.find(r => r.device?.model)?.device || parsedReports[0].device,
+      leads: parsedReports.flatMap(r => r.leads || []),
+      interrogation_date: parsedReports.find(r => r.interrogation_date)?.interrogation_date
+    };
+
+    // Deduplicate leads by serial
+    const uniqueLeads = Array.from(new Map(aggregatedData.leads.map(l => [l.serial || l.model, l])).values());
+    aggregatedData.leads = uniqueLeads;
+
+    return {
+      status: 'success',
+      scannedData: aggregatedData,
+      fileCount: files.length
+    };
+
+  } catch (error) {
+    console.error('[Rescan] Error:', error);
+    throw error;
+  }
+};
+
+/**
+ * Moves a visit directory to a different patient's folder.
+ * @param sourceVisitPath Full path to the current visit directory
+ * @param targetPatientId ID of the patient to move to
+ * @returns Result object
+ */
+export const moveVisit = async (sourceVisitPath: string, targetPatientId: string) => {
+  try {
+    console.log(`[MoveVisit] Moving ${sourceVisitPath} to patient ${targetPatientId}`);
+
+    // 1. Verify Source
+    if (!fs.existsSync(sourceVisitPath)) throw new Error('Source visit not found');
+
+    // 2. Prepare Target
+    // We need to resolve the target patient's directory.
+    // The structure is _DATA/Reports/<PatientID_Name_DOB>/...
+    // But we might only have ID. We need to find the directory pattern.
+
+    // Helper to find patient directory by ID prefix
+    const patientDirs = fs.readdirSync(path.join(dataDir, 'Reports'));
+    const targetDirName = patientDirs.find(d => d.startsWith(targetPatientId));
+
+    if (!targetDirName) {
+      // Ideally we should look up the patient to create the folder if it doesn't exist?
+      // But assuming the patient exists in DB, we should handle this.
+      // For now, fail if folder not found (meaning patient has no visits yet? We should support that).
+
+      // Fallback: If no directory exists, we need to create one.
+      // We need patient details to name it correctly (ID_Name_DOB).
+      const patient = await getPatientById(targetPatientId);
+      if (!patient) throw new Error('Target patient not found in database');
+
+      const safeName = (patient.name || 'Unknown').replace(/[^a-z0-9]/gi, '_');
+      const safeDob = (patient.dob || 'NoDOB').replace(/[^a-z0-9]/gi, '_');
+      const newDirName = `${targetPatientId}_${safeName}_${safeDob}`;
+      const newDirPath = path.join(dataDir, 'Reports', newDirName);
+      fs.mkdirSync(newDirPath, { recursive: true });
+      return performMove(sourceVisitPath, newDirPath, targetPatientId);
+    }
+
+    const targetDirPath = path.join(dataDir, 'Reports', targetDirName);
+    return performMove(sourceVisitPath, targetDirPath, targetPatientId);
+
+  } catch (error) {
+    console.error('[MoveVisit] Failed:', error);
+    throw error;
+  }
+};
+
+const performMove = async (sourcePath: string, targetParentPath: string, targetPatientId: string) => {
+  const dirName = path.basename(sourcePath);
+  const destPath = path.join(targetParentPath, dirName);
+
+  // Check collision
+  if (fs.existsSync(destPath)) {
+    throw new Error(`Target patient already has a visit folder named ${dirName}`);
+  }
+
+  // Move Directory
+  try {
+    fs.renameSync(sourcePath, destPath);
+  } catch (e: any) {
+    if (e.code === 'EXDEV') {
+      // Cross-device move not supported for directories simply by rename in some cases? 
+      // Actually node fs.rename usually handles it or fails. 
+      // If EXDEV, we need recursive copy + remove.
+      // keeping it simple for now, assuming same volume.
+      throw new Error('Cross-device move not supported yet');
+    }
+    throw e;
+  }
+
+  // Update Database
+  // We need to update all reports that pointed to the old path or belonged to the source visit.
+  // Actually, reports in DB rely on `patient_id`. We just need to update `patient_id` for all reports in this visit.
+  // How do we identify them? By file path?
+  // The DB stores `file_path`. We need to update `file_path` and `patient_id`.
+
+  // 1. Find reports where file_path starts with sourcePath
+  // We don't have a direct "find by path prefix" utility exported easily, 
+  // but maybe we can query by the old patient ID (which we didn't pass, but can infer?)
+  // Easier: The caller should trigger a DB refresh/scan for the target patient?
+  // Or we manually SQL update.
+
+  const db = getDb();
+  // Getting raw SQLite is cleaner here
+
+  // We need to update:
+  // UPDATE reports SET patient_id = ?, file_path = REPLACE(file_path, ?, ?) WHERE file_path LIKE ?
+
+  // SQLite doesn't have robust REPLACE for paths easily if not careful, but:
+  const updateStmt = db.prepare(`
+        UPDATE reports 
+        SET patient_id = @targetId, 
+            file_path = REPLACE(file_path, @oldPath, @newPath)
+        WHERE file_path LIKE @likePath
+    `);
+
+  updateStmt.run({
+    targetId: targetPatientId,
+    oldPath: sourcePath,
+    newPath: destPath,
+    likePath: `${sourcePath}%`
+  });
+
+  console.log(`[MoveVisit] Updated database records for moved visit.`);
+  return { success: true, newPath: destPath };
+};
