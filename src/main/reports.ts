@@ -13,6 +13,7 @@ export interface Measurement {
  */
 export interface LeadData {
   name: string;
+  manufacturer?: string; // ADDED: Manufacturer of the lead
   model?: string;
   serial?: string;
   anatomic_location?: string;
