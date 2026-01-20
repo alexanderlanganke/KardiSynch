@@ -128,22 +128,26 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     };
     window.electronAPI.onPatientListUpdate(handleUpdate);
 
-    // Listen for automation updates
+    // Listen for automation updates (General Spinner)
     const cleanupAutomation = window.electronAPI.onAutomationStatus((status: any) => {
       setProcessingId(status.isProcessing ? status.currentPatientId : null);
-      // Refresh list if an item finished (we can infer this if processingId changes from ID to null, or we can just fetch periodically/on change)
-      // Ideally AutomationManager should emit 'patient-list-update' when done.
-      // For now, let's just show the spinner. 
-      // If we want the result to appear immediately, we need a refresh trigger.
-      // Let's assume onPatientListUpdate is triggered or we rely on spinner for now.
+    });
+
+    // Listen for Granular MRI Status Updates (No Refresh)
+    window.electronAPI.onMRIStatusUpdate(({ patientId, status }) => {
+      console.log('[Dashboard] Granular MRI Update:', patientId, status);
+      setPatients(current => current.map(p => {
+        if (p.id === patientId || p.patientId === patientId) { // Check both to be safe
+          return { ...p, mriStatus: status };
+        }
+        return p;
+      }));
+      // Clear processing state if it matches
+      setProcessingId(prev => (prev === patientId ? null : prev));
     });
 
     return () => {
       window.electronAPI.removeListener('patient-list-update', handleUpdate);
-      // cleanupAutomation is a void return currently based on preload, check preload... 
-      // Preload: return () => ipcRenderer.removeListener... NO, onAutomationStatus just adds listener. it does NOT return cleanup.
-      // I need to fix preload if I want proper cleanup, or just ignore for now as Dashboard is main view.
-      // Actually, I should use `window.electronAPI.removeListener` if I can target the function.
     };
   }, [fetchPatients]);
 

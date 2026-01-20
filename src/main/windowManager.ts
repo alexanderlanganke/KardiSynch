@@ -22,7 +22,14 @@ export function sendNotification(message: string, type: 'info' | 'warning' | 'er
   }
 }
 
-export function sendProcessStatus(status: { type: 'start' | 'progress' | 'complete' | 'error'; message: string; file?: string }) {
+export function sendProcessStatus(status: {
+  type: 'start' | 'progress' | 'complete' | 'error';
+  message: string;
+  taskId?: string;
+  title?: string;
+  progress?: number;
+  file?: string
+}) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('process-status', status);
   }
