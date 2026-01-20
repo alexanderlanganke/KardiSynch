@@ -309,6 +309,7 @@ function findFieldValue(fields: any[], fieldName: string): any {
     return null;
 }
 
+
 /**
  * Parses a Medtronic .pkg archive.
  * Unzips, parses XML, and optionally extracts PDF.
@@ -327,151 +328,7 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
 
         if (fs.existsSync(xmlPath)) {
             const xmlData = fs.readFileSync(xmlPath, 'utf-8');
-            const parser = new XMLParser({
-                ignoreAttributes: false,
-                attributeNamePrefix: "@_"
-            });
-            const xml = parser.parse(xmlData);
-
-            // Traverse XML to find data
-            const root = xml.Composite;
-            const fields = root && root.Field ? (Array.isArray(root.Field) ? root.Field : [root.Field]) : [];
-
-            const savedDate = findFieldValue(fields, 'SavedDateTime');
-
-            // Helper to get text from value which might be object with #text
-            const getText = (val: any): any => {
-                if (val === null || val === undefined) return null;
-                if (typeof val !== 'object') return val;
-                if (val['#text'] !== undefined) return val['#text'];
-                return val;
-            };
-
-            // Helper to find value in nested structure
-            const findInComposite = (composite: any, targetName: string): any => {
-                if (!composite || !composite.Field) return null;
-                const fields = Array.isArray(composite.Field) ? composite.Field : [composite.Field];
-                const field = fields.find((f: any) => f['@_name'] === targetName);
-                if (!field) return null;
-                return field.Composite || field; // Return Composite if exists, else field itself
-            };
-
-            const findValueInComposite = (composite: any, targetName: string): any => {
-                if (!composite || !composite.Field) return null;
-                const fields = Array.isArray(composite.Field) ? composite.Field : [composite.Field];
-                const field = fields.find((f: any) => f['@_name'] === targetName);
-                if (!field) return null;
-
-                if (field.String) return getText(field.String);
-                if (field.Integer) return getText(field.Integer);
-                if (field.Real) return getText(field.Real);
-                if (field.Discrete) return getText(field.Discrete);
-                if (field.Composite) return field.Composite; // Return composite for further traversal
-
-                return null;
-            };
-
-            // Locate "Value" -> "DiscreteDataContent" -> "ContextCollection" -> "NoPendingSettings" -> "NormalizedParameterCollection"
-
-            let params: any[] = [];
-
-            try {
-                const valueField = findInComposite(root, 'Value');
-
-                const contextCollection = findInComposite(valueField, 'ContextCollection');
-
-                // ContextCollection is an Array of Contexts. We want the one named "NoPendingSettings" (usually index 1)
-                let targetContext = null;
-                if (contextCollection && contextCollection.Array && contextCollection.Array.Composite) {
-                    const contexts = Array.isArray(contextCollection.Array.Composite) ? contextCollection.Array.Composite : [contextCollection.Array.Composite];
-
-                    targetContext = contexts.find((c: any) => {
-                        const nameField = findInComposite(c, 'Name');
-                        return nameField && getText(nameField.String) === 'NoPendingSettings';
-                    });
-                }
-
-                if (targetContext) {
-                    const paramCollection = findInComposite(targetContext, 'NormalizedParameterCollection');
-                    if (paramCollection && paramCollection.Array && paramCollection.Array.Composite) {
-                        params = Array.isArray(paramCollection.Array.Composite) ? paramCollection.Array.Composite : [paramCollection.Array.Composite];
-                    }
-                }
-            } catch (e) {
-                console.error(`Error traversing XML structure: ${e}`);
-            }
-
-            // Helper to find parameter by name
-            const findParam = (name: string): any => {
-                const found = params.find((p: any) => {
-                    const n = findInComposite(p, 'Name');
-                    return n && getText(n.String) === name;
-                });
-                return found;
-            };
-
-            // Extract Data
-            const deviceModelParam = findParam('DeviceModelName');
-            const deviceSerialParam = findParam('DeviceSerialNumber');
-            const deviceTypeParam = findParam('DeviceType');
-            const batteryStatusParam = findParam('BatteryStatus');
-
-            let deviceModel = '';
-            let deviceSerial = '';
-            let deviceType = 'Unknown';
-            let batteryVoltage = undefined;
-
-            if (deviceModelParam) {
-                const current = findValueInComposite(deviceModelParam, 'Current'); // Returns Composite
-                if (current) {
-                    const nameField = findInComposite(current, 'Name');
-                    if (nameField && nameField.String) deviceModel = getText(nameField.String);
-                }
-            }
-
-            if (deviceSerialParam) {
-                const val = findValueInComposite(deviceSerialParam, 'Current');
-                if (val) deviceSerial = val;
-            }
-
-            if (deviceTypeParam) {
-                const val = findValueInComposite(deviceTypeParam, 'Current');
-                if (val) deviceType = val;
-            }
-
-            if (batteryStatusParam) {
-                const current = findValueInComposite(batteryStatusParam, 'Current'); // Returns BatteryStatus Composite
-                if (current) {
-                    const voltageStatusField = findInComposite(current, 'VoltageStatus');
-                    if (voltageStatusField) {
-                        const voltageComposite = voltageStatusField.Composite || voltageStatusField; // Handle if it's directly composite or wrapped
-                        const voltageField = findInComposite(voltageComposite, 'Voltage');
-                        if (voltageField && voltageField.Real) {
-                            batteryVoltage = parseFloat(getText(voltageField.Real));
-                        }
-                    }
-                }
-            }
-
-            report = {
-                manufacturer: 'Medtronic',
-                interrogation_date: savedDate ? savedDate.split('T')[0] : new Date().toISOString(),
-                patient: {
-                    first_name: '',
-                    last_name: '',
-                    dob: '',
-                },
-                device: {
-                    type: deviceType,
-                    model: deviceModel,
-                    serial_number: deviceSerial,
-                },
-                battery: {
-                    voltage: batteryVoltage ? { value: batteryVoltage, unit: 'V' } : undefined
-                },
-                leads: [],
-                raw_text: xmlData
-            };
+            report = parseMedtronicXML(xmlData);
         }
 
         // 3. Find PDF
@@ -514,4 +371,211 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
             console.warn("Failed to clean up temp dir:", e);
         }
     }
+};
+
+/**
+ * Parses the PublicDiscreteData.xml content from a Medtronic PKG.
+ */
+export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
+    const parser = new XMLParser({
+        ignoreAttributes: false,
+        attributeNamePrefix: "@_"
+    });
+    const xml = parser.parse(xmlData);
+
+    // Traverse XML to find data
+    const root = xml.Composite;
+    const fields = root && root.Field ? (Array.isArray(root.Field) ? root.Field : [root.Field]) : [];
+
+    const savedDate = findFieldValue(fields, 'SavedDateTime');
+
+    // Helper to get text from value which might be object with #text
+    const getText = (val: any): any => {
+        if (val === null || val === undefined) return null;
+        if (typeof val !== 'object') return val;
+        if (val['#text'] !== undefined) return val['#text'];
+        return val;
+    };
+
+    // Helper to find value in nested structure
+    const findInComposite = (composite: any, targetName: string): any => {
+        if (!composite || !composite.Field) return null;
+        const fields = Array.isArray(composite.Field) ? composite.Field : [composite.Field];
+        const field = fields.find((f: any) => f['@_name'] === targetName);
+        if (!field) return null;
+        return field.Composite || field; // Return Composite if exists, else field itself
+    };
+
+    const findValueInComposite = (composite: any, targetName: string): any => {
+        if (!composite || !composite.Field) return null;
+        const fields = Array.isArray(composite.Field) ? composite.Field : [composite.Field];
+        const field = fields.find((f: any) => f['@_name'] === targetName);
+
+        if (!field) return null;
+
+        if (field.String) return getText(field.String);
+        if (field.Integer) return getText(field.Integer);
+        if (field.Real) return getText(field.Real);
+        if (field.Discrete) return getText(field.Discrete);
+        if (field.Date) return getText(field.Date);
+        if (field.Composite) return field.Composite; // Return composite for further traversal
+
+        return null;
+    };
+
+    // Locate "Value" -> "DiscreteDataContent" -> "ContextCollection" -> "NoPendingSettings" -> "NormalizedParameterCollection"
+
+    let params: any[] = [];
+
+    try {
+        const valueField = findInComposite(root, 'Value');
+
+        const contextCollection = findInComposite(valueField, 'ContextCollection');
+
+        // ContextCollection is an Array of Contexts. We want the one named "NoPendingSettings" (usually index 1)
+        let targetContext = null;
+        if (contextCollection && contextCollection.Array && contextCollection.Array.Composite) {
+            const contexts = Array.isArray(contextCollection.Array.Composite) ? contextCollection.Array.Composite : [contextCollection.Array.Composite];
+
+            targetContext = contexts.find((c: any) => {
+                const nameField = findInComposite(c, 'Name');
+                return nameField && getText(nameField.String) === 'NoPendingSettings';
+            });
+        }
+
+        if (targetContext) {
+            const paramCollection = findInComposite(targetContext, 'NormalizedParameterCollection');
+            if (paramCollection && paramCollection.Array && paramCollection.Array.Composite) {
+                params = Array.isArray(paramCollection.Array.Composite) ? paramCollection.Array.Composite : [paramCollection.Array.Composite];
+            }
+        }
+    } catch (e) {
+        console.error(`Error traversing XML structure: ${e}`);
+    }
+
+    // Helper to find parameter by name
+    const findParam = (name: string): any => {
+        const found = params.find((p: any) => {
+            const n = findInComposite(p, 'Name');
+            return n && getText(n.String) === name;
+        });
+        return found;
+    };
+
+    // Extract Data
+    const deviceModelParam = findParam('DeviceModelName');
+    const deviceSerialParam = findParam('DeviceSerialNumber');
+    const deviceTypeParam = findParam('DeviceType');
+    const batteryStatusParam = findParam('BatteryStatus');
+
+    let deviceModel = '';
+    let deviceSerial = '';
+    let deviceType = 'Unknown';
+    let batteryVoltage = undefined;
+
+    if (deviceModelParam) {
+        const current = findValueInComposite(deviceModelParam, 'Current'); // Returns Composite
+        if (current) {
+            const nameField = findInComposite(current, 'Name');
+            if (nameField && nameField.String) deviceModel = getText(nameField.String);
+        }
+    }
+
+    if (deviceSerialParam) {
+        const val = findValueInComposite(deviceSerialParam, 'Current');
+        if (val) deviceSerial = val;
+    }
+
+    if (deviceTypeParam) {
+        const val = findValueInComposite(deviceTypeParam, 'Current');
+        if (val) deviceType = val;
+    }
+
+    if (batteryStatusParam) {
+        const current = findValueInComposite(batteryStatusParam, 'Current'); // Returns BatteryStatus Composite
+        if (current) {
+            const voltageStatusField = findInComposite(current, 'VoltageStatus');
+            if (voltageStatusField) {
+                const voltageComposite = voltageStatusField.Composite || voltageStatusField; // Handle if it's directly composite or wrapped
+                const voltageField = findInComposite(voltageComposite, 'Voltage');
+                if (voltageField && voltageField.Real) {
+                    batteryVoltage = parseFloat(getText(voltageField.Real));
+                }
+            }
+        }
+    }
+
+    // Extract Lead Data
+    let leads: LeadData[] = [];
+
+    for (let i = 1; i <= 4; i++) { // Check up to 4 leads (usually 1-3)
+        const locationParam = findParam(`Lead${i}Location`);
+        const modelParam = findParam(`Lead${i}Model`);
+        const serialParam = findParam(`Lead${i}SerialNumber`);
+        const mfgParam = findParam(`Lead${i}Manufacturer`);
+        const dateParam = findParam(`ImplantLead${i}Date`);
+
+        let location = '';
+        if (locationParam) {
+            const val = findValueInComposite(locationParam, 'Current');
+            if (val) location = val;
+        }
+
+        // Medtronic sometimes has empty strings for unused leads, check if location or model exists
+        if (location || (modelParam && findValueInComposite(modelParam, 'Current'))) {
+            let model = '';
+            let serial = '';
+            let manufacturer = '';
+            let implantDate = '';
+
+            if (modelParam) {
+                const val = findValueInComposite(modelParam, 'Current');
+                if (val) model = val;
+            }
+            if (serialParam) {
+                const val = findValueInComposite(serialParam, 'Current');
+                if (val) serial = val;
+            }
+            if (mfgParam) {
+                const val = findValueInComposite(mfgParam, 'Current');
+                if (val) manufacturer = val;
+            }
+            if (dateParam) {
+                const val = findValueInComposite(dateParam, 'Current');
+                if (val) implantDate = val;
+            }
+
+            // Only add if we have some minimal info (e.g. Model or Serial)
+            if (model || serial) {
+                leads.push({
+                    name: `${location} Lead`,
+                    anatomic_location: location,
+                    model: model,
+                    serial: serial,
+                    manufacturer: manufacturer || 'Medtronic', // Default if missing
+                    implant_date: implantDate
+                });
+            }
+        }
+    }
+
+    return {
+        manufacturer: 'Medtronic',
+        interrogation_date: savedDate ? savedDate.split('T')[0] : new Date().toISOString(),
+        patient: {
+            first_name: '',
+            last_name: '',
+            dob: '',
+        },
+        device: {
+            type: deviceType,
+            model: deviceModel,
+            serial_number: deviceSerial,
+        },
+        battery: {
+            voltage: batteryVoltage ? { value: batteryVoltage, unit: 'V' } : undefined
+        },
+        leads: leads,
+        raw_text: xmlData
+    };
 };
