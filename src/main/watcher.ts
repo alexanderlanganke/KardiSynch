@@ -229,7 +229,8 @@ const processTempDirectory = async (tempDir: string) => {
             filename: path.basename(file),
             previewData: {
               manufacturer: report.manufacturer,
-              device: report.device
+              device: report.device,
+              leads: report.leads // Pass leads for context
             }
           });
         });
@@ -292,7 +293,10 @@ const processTempDirectory = async (tempDir: string) => {
                 patientName: "UNKNOWN (Missing in Log)",
                 dob: report.patient.dob || "Unknown",
                 date: report.interrogation_date,
-                serial: report.device?.serial_number || "Unknown"
+                serial: report.device?.serial_number || "Unknown",
+                manufacturer: report.manufacturer,
+                deviceModel: report.device?.model,
+                leads: report.leads
               }
             });
           });
@@ -660,7 +664,10 @@ const processTempDirectory = async (tempDir: string) => {
               patientName: `${report.patient.first_name} ${report.patient.last_name}`,
               dob: report.patient.dob,
               date: report.interrogation_date,
-              serial: report.device?.serial_number
+              serial: report.device?.serial_number,
+              manufacturer: report.manufacturer,
+              deviceModel: report.device?.model,
+              leads: report.leads
             }
           });
         });
