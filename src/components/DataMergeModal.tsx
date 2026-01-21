@@ -58,7 +58,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                 const newDevice = {
                     manufacturer: scannedData.device.manufacturer,
                     model: scannedData.device.model,
-                    serial: scannedData.device.serial,
+                    serial: scannedData.device.serial || scannedData.device.serial_number,
                     type: scannedData.device.type
                 };
 
@@ -90,7 +90,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
 
     const deviceDiffers = scannedData.device && (
         !currentPatient.devices?.[0] ||
-        currentPatient.devices[0].serial !== scannedData.device.serial
+        currentPatient.devices[0].serial !== (scannedData.device.serial || scannedData.device.serial_number)
     );
 
     // Leads differ if counts differ or serials differ
@@ -179,7 +179,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                                     {scannedData.device ? (
                                         <>
                                             <div>{scannedData.device.model}</div>
-                                            <div className="text-xs font-mono">{scannedData.device.serial}</div>
+                                            <div className="text-xs font-mono">{scannedData.device.serial || scannedData.device.serial_number}</div>
                                         </>
                                     ) : <span className="text-muted-foreground italic">No data</span>}
                                 </TableCell>
@@ -228,7 +228,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                     </Button>
                 </DialogFooter>
             </DialogContent>
-        </Dialog>
+        </Dialog >
     );
 };
 

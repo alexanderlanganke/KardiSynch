@@ -155,7 +155,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onCancel()}>
-            <DialogContent className="max-w-[95vw] w-[1400px] h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl">
+            <DialogContent className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl">
                 <div className="flex flex-col h-full">
                     {/* Header */}
                     <div className="px-6 py-5 border-b bg-background/50 relative shrink-0">
@@ -181,8 +181,8 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                     <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0 bg-muted/5">
 
                         {/* LEFT PANE: Controls (4 columns) */}
-                        <div className="col-span-4 border-r bg-background flex flex-col h-full overflow-hidden shadow-xl z-10">
-                            <ScrollArea className="flex-1">
+                        <div className="col-span-4 border-r bg-background flex flex-col h-full min-h-0 overflow-hidden shadow-xl z-10">
+                            <ScrollArea className="flex-1 min-h-0">
                                 <div className="p-6 space-y-8">
                                     {/* Info Card */}
                                     <div className="bg-card rounded-xl border p-4 shadow-sm relative overflow-hidden group">
@@ -365,7 +365,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                         <div className="px-4 py-3 border-b bg-muted/30 text-xs font-semibold text-muted-foreground flex justify-between items-center shrink-0">
                                             <span>File Preview</span>
                                         </div>
-                                        <div className="flex-1 bg-gray-50/50 overflow-auto p-1 relative">
+                                        <div className="flex-1 bg-gray-50/50 overflow-auto p-1 relative min-h-0">
                                             {isPdf && sourceItem.tempPath ? (
                                                 <div className="min-h-full w-full flex flex-col items-center justify-center p-4">
                                                     <PdfViewer pdfPath={sourceItem.tempPath} />

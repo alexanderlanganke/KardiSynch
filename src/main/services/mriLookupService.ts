@@ -415,6 +415,15 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
 }
 
 
+async function checkSorin(model: string, leads: any[]): Promise<MRIStatusResult> {
+    return {
+        manufacturer: 'Microport (Sorin/ELA)',
+        status: 'unknown',
+        details: 'Microport/Sorin automation not fully implemented yet. Please check AutoMRI manually.',
+        timestamp: new Date().toISOString()
+    };
+}
+
 export const checkMRIStatus = async (
     manufacturer: string,
     model: string,
@@ -454,6 +463,10 @@ export const checkMRIStatus = async (
 
         if (manu.includes('abbott') || manu.includes('st. jude') || manu.includes('sjm')) {
             return await checkAbbott(model, leads);
+        }
+
+        if (manu.includes('sorin') || manu.includes('ela') || manu.includes('microport')) {
+            return await checkSorin(model, leads);
         }
 
         // Add other manufacturers here
