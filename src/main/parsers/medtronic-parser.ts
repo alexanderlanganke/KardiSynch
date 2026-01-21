@@ -418,6 +418,7 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
         if (field.Real) return getText(field.Real);
         if (field.Discrete) return getText(field.Discrete);
         if (field.Date) return getText(field.Date);
+        if (field.DateTime) return getText(field.DateTime); // Added DateTime support
         if (field.Composite) return field.Composite; // Return composite for further traversal
 
         return null;
@@ -462,16 +463,20 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
         return found;
     };
 
-    // Extract Data
+    // --- Extract Device Data ---
     const deviceModelParam = findParam('DeviceModelName');
     const deviceSerialParam = findParam('DeviceSerialNumber');
     const deviceTypeParam = findParam('DeviceType');
     const batteryStatusParam = findParam('BatteryStatus');
+    const deviceStatusParam = findParam('DeviceStatus');
+    const deviceLongevityParam = findParam('DeviceLongevityStatus');
 
     let deviceModel = '';
     let deviceSerial = '';
     let deviceType = 'Unknown';
     let batteryVoltage = undefined;
+    let implantDate = undefined;
+    let remainingLongevity = undefined;
 
     if (deviceModelParam) {
         const current = findValueInComposite(deviceModelParam, 'Current'); // Returns Composite
@@ -483,12 +488,36 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
 
     if (deviceSerialParam) {
         const val = findValueInComposite(deviceSerialParam, 'Current');
-        if (val) deviceSerial = val;
+        if (val && typeof val === 'string') deviceSerial = val;
     }
 
     if (deviceTypeParam) {
         const val = findValueInComposite(deviceTypeParam, 'Current');
         if (val) deviceType = val;
+    }
+
+    if (deviceStatusParam) {
+        const current = findValueInComposite(deviceStatusParam, 'Current');
+        if (current) {
+            const impDate = findValueInComposite(current, 'ImplantDateTime');
+            if (impDate) implantDate = impDate;
+        }
+    }
+
+    if (deviceLongevityParam) {
+        const current = findValueInComposite(deviceLongevityParam, 'Current');
+        if (current) {
+            // Prefer Years (UserRepresentation) > Months (IDCO)
+            const years = findValueInComposite(current, 'UserRepresentationAverageRemainingDuration');
+            if (years) {
+                remainingLongevity = { value: parseFloat(years), unit: 'years' };
+            } else {
+                const months = findValueInComposite(current, 'IDCORepresentationAverageRemainingDuration');
+                if (months) {
+                    remainingLongevity = { value: parseFloat(months), unit: 'months' };
+                }
+            }
+        }
     }
 
     if (batteryStatusParam) {
@@ -505,7 +534,84 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
         }
     }
 
-    // Extract Lead Data
+    // --- Extract Patient Data ---
+    const patientNameParam = findParam('PatientName');
+    const patientDobParam = findParam('PatientBirthDate');
+
+    let firstName = '';
+    let lastName = '';
+    let dob = '';
+
+    if (patientNameParam) {
+        const val = findValueInComposite(patientNameParam, 'Current');
+        if (val && typeof val === 'string') {
+            // Check for comma first
+            if (val.includes(',')) {
+                const parts = val.split(',').map(s => s.trim());
+                if (parts.length >= 2) {
+                    lastName = parts[0];
+                    firstName = parts[1];
+                } else {
+                    lastName = val;
+                }
+            } else {
+                // Space separated: "KOLKENBROCK RALF" -> Last First
+                const parts = val.split(' ').map(s => s.trim()).filter(Boolean);
+                if (parts.length > 1) {
+                    firstName = parts.pop() || '';
+                    lastName = parts.join(' ');
+                } else {
+                    lastName = val;
+                }
+            }
+        }
+    }
+
+    if (patientDobParam) {
+        const val = findValueInComposite(patientDobParam, 'Current');
+        if (val) dob = val;
+    }
+
+    // --- Extract Electrical / Therapy Data for Leads ---
+    // Helper to get simple numeric current value from a param
+    const getNumericParam = (paramName: string, unitName?: string): { value: number, unit: string } | undefined => {
+        const p = findParam(paramName);
+        if (!p) return undefined;
+        // Current might be directly a Real/Integer or a Composite wrapper
+        // The findValueInComposite handles returning the raw text if it's a value.
+        // But for Real/Integer we might want the unit.
+        // Let's modify logic slightly: we need to look at the Field directly to get the 'unit' attribute if possible,
+        // but our findValueInComposite mostly returns values.
+        // For simplicity: verify structure or just take value.
+        // Most Medtronic XML: <Real unit="V">2.0</Real>
+        // We will assume units based on param name for now or try to extract? 
+        // findValueInComposite returns values. We can infer unit.
+        const val = findValueInComposite(p, 'Current');
+        if (val !== null && val !== undefined) {
+            const num = parseFloat(val);
+            if (!isNaN(num)) return { value: num, unit: unitName || '' };
+        }
+        return undefined;
+    };
+
+    // Helper for Complex Status objects (like VPacingTherapyAdaptRVPacingAmplitudeStatus)
+    const getStatusParamField = (paramName: string, subFieldName: string, unit?: string): { value: number, unit: string } | undefined => {
+        const p = findParam(paramName);
+        if (!p) return undefined;
+        const current = findValueInComposite(p, 'Current');
+        if (!current) return undefined;
+
+        // current is the Status Composite
+        const val = findValueInComposite(current, subFieldName);
+        if (val !== null && val !== undefined) {
+            const num = parseFloat(val);
+            if (!isNaN(num)) return { value: num, unit: unit || '' };
+        }
+        return undefined;
+    }
+
+
+    // --- Extract Lead Data ---
     let leads: LeadData[] = [];
 
     for (let i = 1; i <= 4; i++) { // Check up to 4 leads (usually 1-3)
@@ -547,14 +653,69 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
 
             // Only add if we have some minimal info (e.g. Model or Serial)
             if (model || serial) {
-                leads.push({
+                const lead: LeadData = {
                     name: `${location} Lead`,
                     anatomic_location: location,
                     model: model,
                     serial: serial,
                     manufacturer: manufacturer || 'Medtronic', // Default if missing
                     implant_date: implantDate
-                });
+                };
+
+                // MATCH ELECTRICAL VALUES BASED ON LOCATION
+                // Locations: "RV", "A" or "RA", "LV"
+                const loc = location.toUpperCase();
+
+                if (loc === 'RV' || loc.includes('RIGHT VENTRICLE')) {
+                    // RV Data
+                    // Sensing
+                    const sense = getNumericParam('VSEventDetectionRVSensingThreshold', 'mV');
+                    if (sense) lead.sensing = sense;
+
+                    // Pacing Output
+                    const amp = getNumericParam('VPacingTherapyRVPacingAmplitude', 'V');
+                    const pw = getNumericParam('VPacingTherapyRVPacingPulseWidth', 'ms');
+                    if (amp) lead.pacing_amplitude = amp;
+                    // We don't have separate PulseWidth field in LeadData yet? 
+                    // Usually "Output" is combined or just Amplitude. UnifiedReport has pacing_amplitude.
+                    // We can add pulse width to validation or note? 
+                    // Actually Measurement is {value, unit}. We can maybe store string "2.0 V @ 0.4 ms"?
+                    // Or precise: just Amplitude.
+
+                    // Threshold
+                    // Try Adapt Status first
+                    const thresh = getStatusParamField('VPacingTherapyAdaptRVPacingAmplitudeStatus', 'PacingThreshold', 'V');
+                    if (thresh) {
+                        lead.pacing_threshold = thresh;
+                    }
+                }
+                else if (loc === 'RA' || loc === 'A' || loc.includes('ATRIUM')) {
+                    // RA Data
+                    // Sensing
+                    const sense = getNumericParam('ASEventDetectionRASensingThreshold', 'mV');
+                    if (sense) lead.sensing = sense;
+
+                    // Pacing Output
+                    const amp = getNumericParam('APacingTherapyRAPacingAmplitude', 'V');
+                    if (amp) lead.pacing_amplitude = amp;
+
+                    // Threshold
+                    const thresh = getStatusParamField('APacingTherapyAdaptRAPacingAmplitudeStatus', 'PacingThreshold', 'V');
+                    if (thresh) lead.pacing_threshold = thresh;
+                }
+                else if (loc === 'LV' || loc.includes('LEFT VENTRICLE')) {
+                    // LV Data
+                    // Pacing Output
+                    // Medtronic has complex LV pacing (vectors).
+                    // VPacingTherapyLVPacingPathwayAAmplitude
+                    const amp = getNumericParam('VPacingTherapyLVPacingPathwayAAmplitude', 'V');
+                    if (amp) lead.pacing_amplitude = amp;
+
+                    const thresh = getStatusParamField('VPacingTherapyAdaptLVPacingAmplitudeStatus', 'PacingThreshold', 'V');
+                    if (thresh) lead.pacing_threshold = thresh;
+                }
+
+                leads.push(lead);
             }
         }
     }
@@ -563,17 +724,19 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
         manufacturer: 'Medtronic',
         interrogation_date: savedDate ? savedDate.split('T')[0] : new Date().toISOString(),
         patient: {
-            first_name: '',
-            last_name: '',
-            dob: '',
+            first_name: firstName,
+            last_name: lastName,
+            dob: dob,
         },
         device: {
             type: deviceType,
             model: deviceModel,
             serial_number: deviceSerial,
+            implant_date: implantDate
         },
         battery: {
-            voltage: batteryVoltage ? { value: batteryVoltage, unit: 'V' } : undefined
+            voltage: batteryVoltage ? { value: batteryVoltage, unit: 'V' } : undefined,
+            remaining_longevity: remainingLongevity
         },
         leads: leads,
         raw_text: xmlData

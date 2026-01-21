@@ -115,9 +115,9 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
 
     // 1. Try to parse from Filename first (High confidence for Medtronic)
     // Format: UUID_LASTNAME_FIRSTNAME-SERIAL-TYPE-DD_MMM_YYYY_...
-    // Example: ..._KOLKENBROCK_RALF-PMZ629976S-SmartSyncPDF-06_Nov_2025...
+    // Example: ...Mueller_Michael-PMZ629976S-SmartSyncPDF-06_Nov_2025...
     // New Format: Prefix_Lastname,_Firstname-Serial-Type-Date...
-    // Example: Kuba_Szitar,_Elisabeth-RSH604898S-SmartSyncPDF-24_Jul_2024...
+    // Example: De_Silva,_Elisabeth-RSH604898S-SmartSyncPDF-24_Jul_2024...
     if (filename) {
         // Try original format
         let filenameMatch = filename.match(/_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)(?:_|, ?)(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)-(?<serial>[A-Z0-9]+)-(?<type>[A-Za-z0-9]+)-(?<day>\d{2})_(?<month>[A-Za-z]{3})_(?<year>\d{4})/);
@@ -136,7 +136,7 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
             report.interrogation_date = formatDate(filenameMatch.groups.month, filenameMatch.groups.day, filenameMatch.groups.year);
         } else {
             // Check for Biotronik Format: BIOSTD_YYYY-MM-DD_HH-MM-SS_Lastname_Firstname_Serial.PDF
-            // Example: BIOSTD_2025-11-03_14-21-46_SepulvedaSantana_A_88763967
+            // Example: BIOSTD_2025-11-03_14-21-46_Doe_John_8763967
             const bioMatch = filename.match(/BIOSTD_(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})_(?<hour>\d{2})-(?<minute>\d{2})-(?<second>\d{2})_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<serial>[A-Z0-9]+)/);
 
             if (bioMatch?.groups) {
