@@ -378,6 +378,9 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                 <div className="text-center p-12 text-muted-foreground">
                                                     <FileText className="h-16 w-16 opacity-20 mx-auto" />
                                                     <p>Preview Unavailable</p>
+                                                    <p className="text-xs mt-2 opacity-50 font-mono">
+                                                        {!sourceItem.tempPath ? 'Error: Temp path missing' : 'Content loading or empty'}
+                                                    </p>
                                                 </div>
                                             )}
                                         </div>
