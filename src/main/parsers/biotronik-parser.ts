@@ -17,8 +17,22 @@ import { UnifiedReport, LeadData, BatteryData, Measurement } from '../reports';
 */
 function findTable(data: any, tableName: string): any[] | null {
     try {
-        const rawTables = data['InterfaceData']['Examination']['Measurements']['Table'];
-        const tables = Array.isArray(rawTables) ? rawTables : [rawTables];
+        const examination = data['InterfaceData']?.['Examination'];
+        if (!examination) return null;
+
+        let tables: any[] = [];
+
+        // Collect tables from Measurements
+        if (examination['Measurements']?.['Table']) {
+            const mTables = examination['Measurements']['Table'];
+            tables = tables.concat(Array.isArray(mTables) ? mTables : [mTables]);
+        }
+
+        // Collect tables from AdditionalMeasurements
+        if (examination['AdditionalMeasurements']?.['Table']) {
+            const amTables = examination['AdditionalMeasurements']['Table'];
+            tables = tables.concat(Array.isArray(amTables) ? amTables : [amTables]);
+        }
 
         for (const table of tables) {
             // String conversion handles cases where '9002' is parsed as number
@@ -94,7 +108,10 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         const xml = parser.parse(xmlData);
 
         // Get the main data tables
-        const summaryTable = findTable(xml, 'TBU_DEFI_DATA');
+        let summaryTable = findTable(xml, 'TBU_DEFI_DATA');
+        if (!summaryTable) {
+            summaryTable = findTable(xml, 'TBU_HSM_DATEN');
+        }
         const settingsTable = findTable(xml, '9002'); // Contains programmed settings
         const statsTable = findTable(xml, '9473'); // Contains arrhythmia stats
 
