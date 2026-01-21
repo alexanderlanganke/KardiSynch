@@ -259,9 +259,9 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
             manufacturer: findEntry(summaryTable, 'MANUFACTURERDESCR') || 'Biotronik',
             interrogation_date: xml['InterfaceData']['Examination']['ExaminationDate'],
             patient: {
-                first_name: personalData?.['FirstName'] || '',
-                last_name: personalData?.['Name'] || personalData?.['LastName'] || '',
-                dob: personalData?.['DOB'] || personalData?.['DateOfBirth'] || '',
+                first_name: personalData?.['FirstName'] || personalData?.['Vorname'] || '',
+                last_name: personalData?.['Name'] || personalData?.['LastName'] || personalData?.['Nachname'] || '',
+                dob: personalData?.['DOB'] || personalData?.['DateOfBirth'] || personalData?.['Geburtsdatum'] || personalData?.['BirthDate'] || '',
             },
             device: {
                 type: 'Unknown',
