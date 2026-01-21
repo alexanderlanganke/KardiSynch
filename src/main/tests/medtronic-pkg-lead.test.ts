@@ -43,7 +43,7 @@ const sampleXML = `<Composite domain="PersistedContent">
 </Composite>
 <Composite domain="NormalizedParameter">
 <Field name="Name"><String charset="UCS-2">Lead1SerialNumber</String></Field>
-<Field name="Current"><String charset="UCS-2">TDL205622G</String></Field>
+<Field name="Current"><String charset="UCS-2">LEAD123456</String></Field>
 </Composite>
 <Composite domain="NormalizedParameter">
 <Field name="Name"><String charset="UCS-2">ImplantLead1Date</String></Field>
@@ -61,7 +61,7 @@ const sampleXML = `<Composite domain="PersistedContent">
 </Composite>
 <Composite domain="NormalizedParameter">
 <Field name="Name"><String charset="UCS-2">DeviceSerialNumber</String></Field>
-<Field name="Current"><String charset="UCS-2">PMZ629976S</String></Field>
+<Field name="Current"><String charset="UCS-2">DEV123456</String></Field>
 </Composite>
 </Array>
 </Field>
@@ -82,7 +82,7 @@ describe('Medtronic XML Parser (Leads)', () => {
         const rvLead = report.leads?.find(l => l.anatomic_location === 'RV');
         expect(rvLead).toBeDefined();
         expect(rvLead?.model).toBe('6935 SprintQuattroSecureS MRI');
-        expect(rvLead?.serial).toBe('TDL205622G');
+        expect(rvLead?.serial).toBe('LEAD123456');
         expect(rvLead?.manufacturer).toBe('Medtronic');
         expect(rvLead?.implant_date).toBe('2021-07-21');
     });
