@@ -93,6 +93,47 @@ function findAllEntries(rawTableEntries: any[] | any | null, attributeName: stri
 }
 
 /**
+ * Finds the first table that contains a specific attribute name.
+ * Useful when table names vary (e.g. 9002 vs 9006) but content schema is consistent.
+ */
+function findTableByAttribute(data: any, attributeName: string): any[] | null {
+    try {
+        const examination = data['InterfaceData']?.['Examination'];
+        if (!examination) return null;
+
+        let tables: any[] = [];
+        // Collect tables from Measurements
+        if (examination['Measurements']?.['Table']) {
+            const mTables = examination['Measurements']['Table'];
+            tables = tables.concat(Array.isArray(mTables) ? mTables : [mTables]);
+        }
+        // Collect tables from AdditionalMeasurements
+        if (examination['AdditionalMeasurements']?.['Table']) {
+            const amTables = examination['AdditionalMeasurements']['Table'];
+            tables = tables.concat(Array.isArray(amTables) ? amTables : [amTables]);
+        }
+
+        for (const table of tables) {
+            const entries = table['TableEntry'];
+            if (!entries) continue;
+
+            const entriesArr = Array.isArray(entries) ? entries : [entries];
+            const hasAttribute = entriesArr.some((e: any) =>
+                e['AttributeName']?.toLowerCase() === attributeName.toLowerCase()
+            );
+
+            if (hasAttribute) {
+                console.log(`[Biotronik Parser] Found '${attributeName}' in table '${table['TableName']}'`);
+                return entries; // Return the entries of the matching table
+            }
+        }
+    } catch (e) {
+        console.error(`Error searching table for attribute: ${attributeName}`, e);
+    }
+    return null;
+}
+
+/**
 * The main parser function.
 * @param xmlData The raw XML string content from the .xml file.
 * @returns Our standardized JSON object, or null if parsing fails.
@@ -108,11 +149,20 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         const xml = parser.parse(xmlData);
 
         // Get the main data tables
-        let summaryTable = findTable(xml, 'TBU_DEFI_DATA');
+        // Dynamic search for device summary table (replaces TBU_DEFI_DATA / TBU_HSM_DATEN)
+        let summaryTable = findTableByAttribute(xml, 'MANUFACTURERDESCR');
         if (!summaryTable) {
-            summaryTable = findTable(xml, 'TBU_HSM_DATEN');
+            summaryTable = findTableByAttribute(xml, 'CATAGGREGATDESCR');
         }
-        const settingsTable = findTable(xml, '9002'); // Contains programmed settings
+
+        // --- Settings / Lead Data Table ---
+        // Instead of hardcoding '9002', we look for the table containing 'Elektrodenmodell' or 'Kanäle'
+        let settingsTable = findTableByAttribute(xml, 'Elektrodenmodell');
+        if (!settingsTable) {
+            // Fallback: try searching for 'Kanäle' if Elektrodenmodell is missing
+            settingsTable = findTableByAttribute(xml, 'Kanäle');
+        }
+
         const statsTable = findTable(xml, '9473'); // Contains arrhythmia stats
 
         // Count 'nsT' episodes from the episode list (if it exists)
