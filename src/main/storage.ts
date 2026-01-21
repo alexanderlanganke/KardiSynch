@@ -261,7 +261,7 @@ export const storeFile = async (
     }
 
     // Append new device if from a report
-    if (report && report.device && report.device.serial_number) {
+    if (report && report.device && report.device.serial_number && report.manufacturer !== 'Unknown') {
       const newDevice = {
         model: report.device.model,
         serial: report.device.serial_number,
@@ -269,17 +269,26 @@ export const storeFile = async (
         implant_date: report.device.implant_date || 'Unknown'
       };
 
-      // Check if already exists (by serial)
-      const exists = existingDevices.some(d => d.serial === newDevice.serial);
-      if (!exists) {
-        existingDevices.push(newDevice);
+      // Sanity check: Don't add if THIS device is Unknown
+      if (newDevice.serial !== 'Unknown' && newDevice.serial !== '') {
+        // 1. CLEANUP: Remove any existing "Unknown" placeholders
+        existingDevices = existingDevices.filter(d => d.serial && String(d.serial) !== 'Unknown');
+
+        // 2. DEDUPLICATE: Check if already exists (by serial)
+        const index = existingDevices.findIndex(d => String(d.serial) === String(newDevice.serial));
+        if (index !== -1) {
+          // Update existing entry with potentially newer metadata (e.g. better model name)
+          existingDevices[index] = { ...existingDevices[index], ...newDevice };
+        } else {
+          existingDevices.push(newDevice);
+        }
       }
     }
 
     // Append new leads if from a report
     if (report && report.leads) {
       report.leads.forEach(l => {
-        if (l.serial) { // Only track leads with serials
+        if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
           const newLead = {
             model: l.model,
             serial: l.serial,
@@ -287,8 +296,14 @@ export const storeFile = async (
             implant_date: l.implant_date || 'Unknown'
           };
 
-          const exists = existingLeads.some(existing => existing.serial === newLead.serial);
-          if (!exists) {
+          // 1. CLEANUP: Remove "Unknown" leads? (Less critical for leads, but consistency is good)
+          existingLeads = existingLeads.filter(lead => lead.serial && String(lead.serial) !== 'Unknown');
+
+          // 2. DEDUPLICATE
+          const index = existingLeads.findIndex(existing => String(existing.serial) === String(newLead.serial));
+          if (index !== -1) {
+            existingLeads[index] = { ...existingLeads[index], ...newLead };
+          } else {
             existingLeads.push(newLead);
           }
         }
