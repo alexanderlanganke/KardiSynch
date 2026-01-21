@@ -555,7 +555,7 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
                     lastName = val;
                 }
             } else {
-                // Space separated: "KOLKENBROCK RALF" -> Last First
+                // Space separated: "DOE JOHN" -> Last First
                 const parts = val.split(' ').map(s => s.trim()).filter(Boolean);
                 if (parts.length > 1) {
                     firstName = parts.pop() || '';

@@ -103,8 +103,8 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     }, [selectedPatientId, mode]);
 
     const filteredPatients = patients.filter(p =>
-        (p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (p.patientId || '').toLowerCase().includes(searchTerm.toLowerCase())
+        String(p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(p.patientId || '').toLowerCase().includes(searchTerm.toLowerCase())
     );
 
     const handleConfirm = () => {
