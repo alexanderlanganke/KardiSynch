@@ -88,12 +88,11 @@ const ImportHistory: React.FC = () => {
             }
 
             if (finalPatientId) {
-                await window.electronAPI.moveImportedFile(
-                    fileToMove.id,
+                fileToMove.id,
                     finalPatientId,
                     decision.visitId, // might be undefined if creating new visit
-                    decision.visitDate // defined if new visit or new patient
-                );
+                    decision.visitDate, // defined if new visit or new patient
+                    previewPath || undefined // Pass the active preview path as confirmed source
 
                 setMoveFileModalOpen(false);
                 setFileToMove(null);

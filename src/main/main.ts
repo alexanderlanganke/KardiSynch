@@ -887,7 +887,7 @@ ipcMain.handle('get-import-session-events', async (event, sessionId) => {
   }
 });
 
-ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, targetVisitId?: string, newVisitDate?: string) => {
+ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, targetVisitId?: string, newVisitDate?: string, confirmedFilePath?: string) => {
   try {
     const { getImportEvent, updateImportEvent, getPatientById, getReportById, createReport, updateReportPatient } = await import('./database');
     const { moveReport, storeFile } = await import('./storage');
@@ -932,7 +932,7 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
 
     if (importEvent.status === 'unmatched') {
       // 1. Handle Unmatched File Move
-      const filePath = importEvent.file_path;
+      const filePath = confirmedFilePath || importEvent.file_path;
       if (!filePath) throw new Error('File path missing');
 
       let parsedReport = null;

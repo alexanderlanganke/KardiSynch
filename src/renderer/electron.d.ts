@@ -39,7 +39,7 @@ export interface IElectronAPI {
   manualSortingResponse: (response: any) => Promise<void>;
   getImportHistory: () => Promise<any[]>;
   getImportSessionEvents: (sessionId: string) => Promise<any[]>;
-  moveImportedFile: (eventId: string, newPatientId: string, targetVisitId?: string, newVisitDate?: string) => Promise<void>;
+  moveImportedFile: (eventId: string, newPatientId: string, targetVisitId?: string, newVisitDate?: string, confirmedFilePath?: string) => Promise<void>;
   onRequestManualSorting: (callback: (fileInfo: any) => void) => void;
   onImportSessionUpdate: (callback: (session: any) => void) => void;
 

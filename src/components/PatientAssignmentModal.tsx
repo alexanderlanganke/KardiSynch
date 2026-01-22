@@ -43,24 +43,42 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
         hospitalPatientId: ''
     });
 
+    // Track previous source item to prevent unnecessary resets
+    const [prevSourceItemJson, setPrevSourceItemJson] = useState<string>('');
+
     useEffect(() => {
         if (open && sourceItem) {
+            const currentJson = JSON.stringify(sourceItem);
+            if (currentJson === prevSourceItemJson) return; // Skip if content hasn't changed
+            setPrevSourceItemJson(currentJson);
+
             // Pre-fill form from preview data
             if (mode === 'import' && sourceItem.previewData) {
                 const { patientName, dob, date } = sourceItem.previewData;
-                if (patientName) {
+                let first = '';
+                let last = '';
+
+                if (patientName && patientName !== 'Unknown Unknown') {
                     const parts = patientName.split(' ');
                     if (parts.length > 1) {
-                        setNewPatient(prev => ({ ...prev, last_name: parts.pop(), first_name: parts.join(' ') }));
+                        last = parts.pop() || '';
+                        first = parts.join(' ');
                     } else {
-                        setNewPatient(prev => ({ ...prev, last_name: patientName }));
+                        last = patientName || '';
+                        first = '';
                     }
                 }
-                if (dob) setNewPatient(prev => ({ ...prev, dob: dob }));
+
+                setNewPatient({
+                    first_name: first,
+                    last_name: last,
+                    dob: dob || '',
+                    hospitalPatientId: ''
+                });
+
                 if (date) setNewVisitDate(date.split('T')[0]);
             } else if (mode === 'move') {
                 // Move Mode: sourceItem is Visit object
-                // Maybe pre-fill date?
                 if (sourceItem.interrogation_date) {
                     setNewVisitDate(sourceItem.interrogation_date.split('T')[0]);
                 }
@@ -71,7 +89,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                 setPatients(data);
             });
         }
-    }, [open, sourceItem, mode]);
+    }, [open, sourceItem, mode, prevSourceItemJson]);
 
     // Fetch visits when patient selected (Only relevant for Import mode)
     useEffect(() => {
@@ -142,7 +160,10 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onCancel()}>
-            <DialogContent className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl">
+            <DialogContent
+                className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl"
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
                 <div className="flex flex-col h-full overflow-hidden">
                     {/* Header */}
                     <div className="px-6 py-5 border-b bg-background/50 relative shrink-0">
