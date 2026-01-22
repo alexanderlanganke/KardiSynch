@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Search, UserPlus, FileText, AlertCircle, ArrowRight, FolderInput } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import PdfViewer from '@/renderer/PdfViewer';
+import ReportViewer from './ReportViewer';
 
 interface Patient {
     id: string;
@@ -34,7 +34,6 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     const [visitMode, setVisitMode] = useState<'existing' | 'new'>('existing');
     const [selectedVisitId, setSelectedVisitId] = useState<string | null>(null);
     const [newVisitDate, setNewVisitDate] = useState('');
-    const [textContent, setTextContent] = useState<string | null>(null);
 
     // New Patient Form
     const [newPatient, setNewPatient] = useState({
@@ -46,36 +45,19 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
     useEffect(() => {
         if (open && sourceItem) {
-            setTextContent(null);
-
-            if (mode === 'import') {
-                // Check for XML/Text files
-                const ext = sourceItem.filename?.toLowerCase().split('.').pop();
-                const isPdf = ext === 'pdf';
-
-                if (!isPdf && sourceItem.tempPath) {
-                    window.electronAPI.readFileText(sourceItem.tempPath)
-                        .then(setTextContent)
-                        .catch(e => {
-                            console.error('Failed to read file text', e);
-                            setTextContent(`Preview parsing failed: ${e}`);
-                        });
-                }
-
-                // Pre-fill form from preview data
-                if (sourceItem.previewData) {
-                    const { patientName, dob, date } = sourceItem.previewData;
-                    if (patientName) {
-                        const parts = patientName.split(' ');
-                        if (parts.length > 1) {
-                            setNewPatient(prev => ({ ...prev, last_name: parts.pop(), first_name: parts.join(' ') }));
-                        } else {
-                            setNewPatient(prev => ({ ...prev, last_name: patientName }));
-                        }
+            // Pre-fill form from preview data
+            if (mode === 'import' && sourceItem.previewData) {
+                const { patientName, dob, date } = sourceItem.previewData;
+                if (patientName) {
+                    const parts = patientName.split(' ');
+                    if (parts.length > 1) {
+                        setNewPatient(prev => ({ ...prev, last_name: parts.pop(), first_name: parts.join(' ') }));
+                    } else {
+                        setNewPatient(prev => ({ ...prev, last_name: patientName }));
                     }
-                    if (dob) setNewPatient(prev => ({ ...prev, dob: dob }));
-                    if (date) setNewVisitDate(date.split('T')[0]);
                 }
+                if (dob) setNewPatient(prev => ({ ...prev, dob: dob }));
+                if (date) setNewVisitDate(date.split('T')[0]);
             } else if (mode === 'move') {
                 // Move Mode: sourceItem is Visit object
                 // Maybe pre-fill date?
@@ -149,14 +131,19 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
         onResolve({ action: 'unmatched' });
     };
 
-    if (!sourceItem) return null;
+    const getFileType = (filename: string): 'xml' | 'pdf' | 'text' => {
+        const lower = filename.toLowerCase();
+        if (lower.endsWith('.xml')) return 'xml';
+        if (lower.endsWith('.pdf')) return 'pdf';
+        return 'text';
+    };
 
-    const isPdf = mode === 'import' && sourceItem.filename?.toLowerCase().endsWith('.pdf');
+    if (!sourceItem) return null;
 
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onCancel()}>
             <DialogContent className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl">
-                <div className="flex flex-col h-full">
+                <div className="flex flex-col h-full overflow-hidden">
                     {/* Header */}
                     <div className="px-6 py-5 border-b bg-background/50 relative shrink-0">
                         <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
@@ -178,7 +165,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                     </div>
 
                     {/* Main Content */}
-                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0 bg-muted/5">
+                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0 bg-muted/5 min-h-0">
 
                         {/* LEFT PANE: Controls (4 columns) */}
                         <div className="col-span-4 border-r bg-background flex flex-col h-full min-h-0 overflow-hidden shadow-xl z-10">
@@ -336,7 +323,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                 </div>
                             </ScrollArea>
 
-                            {/* Footer */}
+                            {/* Footer - FIXED at bottom of left pane */}
                             <div className="p-5 border-t bg-background shrink-0 flex flex-col gap-3">
                                 <div className="flex gap-3 w-full">
                                     <Button
@@ -357,30 +344,25 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                         </div>
 
                         {/* RIGHT PANE: Preview (Import) or Summary (Move) */}
-                        <div className="col-span-8 h-full bg-muted/10 p-6 flex flex-col">
+                        <div className="col-span-8 h-full bg-muted/10 p-6 flex flex-col min-h-0 overflow-hidden">
                             <div className="h-full w-full rounded-xl border bg-background shadow-xl overflow-hidden flex flex-col relative">
                                 {mode === 'import' ? (
                                     <>
-                                        {/* Import Mode Preview */}
+                                        {/* Import Mode Preview Header */}
                                         <div className="px-4 py-3 border-b bg-muted/30 text-xs font-semibold text-muted-foreground flex justify-between items-center shrink-0">
                                             <span>File Preview</span>
                                         </div>
-                                        <div className="flex-1 bg-gray-50/50 overflow-auto p-1 relative min-h-0">
-                                            {isPdf && sourceItem.tempPath ? (
-                                                <div className="min-h-full w-full flex flex-col items-center justify-center p-4">
-                                                    <PdfViewer pdfPath={sourceItem.tempPath} />
-                                                </div>
-                                            ) : (textContent || isPdf === false) ? (
-                                                <div className="w-full h-full p-6 bg-white shadow-sm border rounded m-4 font-mono text-xs whitespace-pre-wrap">
-                                                    {textContent || 'Loading content...'}
-                                                </div>
+                                        {/* Report Viewer for Full Feature Preview */}
+                                        <div className="flex-1 overflow-hidden relative">
+                                            {sourceItem.tempPath ? (
+                                                <ReportViewer
+                                                    report={null} // We don't have a report entry yet
+                                                    type={getFileType(sourceItem.filename)}
+                                                    filePath={sourceItem.tempPath}
+                                                />
                                             ) : (
-                                                <div className="text-center p-12 text-muted-foreground">
-                                                    <FileText className="h-16 w-16 opacity-20 mx-auto" />
-                                                    <p>Preview Unavailable</p>
-                                                    <p className="text-xs mt-2 opacity-50 font-mono">
-                                                        {!sourceItem.tempPath ? 'Error: Temp path missing' : 'Content loading or empty'}
-                                                    </p>
+                                                <div className="flex items-center justify-center h-full text-muted-foreground">
+                                                    Preview Unavailable (Missing path)
                                                 </div>
                                             )}
                                         </div>

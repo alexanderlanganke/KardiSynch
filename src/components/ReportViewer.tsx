@@ -6,13 +6,15 @@ import { Button } from './ui/button';
 
 interface ReportViewerProps {
     report: any;
-    type: 'xml' | 'pdf' | 'image';
+    type: 'xml' | 'pdf' | 'image' | 'text';
     filePath?: string;
 }
 
 const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) => {
     const [xmlData, setXmlData] = React.useState<any>(null);
     const [loading, setLoading] = React.useState(false);
+
+    const [textContent, setTextContent] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         if (type === 'xml' && filePath) {
@@ -28,8 +30,22 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
                 }
             };
             loadXml();
+        } else if (type === 'text' && filePath) {
+            const loadText = async () => {
+                setLoading(true);
+                try {
+                    const text = await window.electronAPI.readFileText(filePath);
+                    setTextContent(text);
+                } catch (error) {
+                    console.error('Failed to load text data:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+            loadText();
         } else {
             setXmlData(null);
+            setTextContent(null);
         }
     }, [type, filePath]);
 
@@ -55,6 +71,14 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
 
     if (type === 'image' && filePath) {
         return <ImageViewer filePath={filePath} />;
+    }
+
+    if (type === 'text' && textContent) {
+        return (
+            <div className="w-full h-full p-6 bg-white overflow-auto font-mono text-xs whitespace-pre-wrap">
+                {textContent}
+            </div>
+        );
     }
 
     return (
