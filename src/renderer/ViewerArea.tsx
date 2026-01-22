@@ -1,6 +1,5 @@
 import React from 'react';
-import PdfViewer from './PdfViewer';
-import UnifiedDataViewer from './UnifiedDataViewer';
+import ReportViewer from '@/components/ReportViewer';
 import { ViewerSlot } from './AppContext';
 
 interface ViewerAreaProps {
@@ -19,11 +18,11 @@ const ViewerArea: React.FC<ViewerAreaProps> = ({ slot, onClose, onViewModeChange
       </div>
 
       <div className="content">
-        {slot.viewMode === 'pdf' ? (
-          <PdfViewer pdfPath={slot.report.pdf_path} />
-        ) : (
-          <UnifiedDataViewer reportData={slot.report} />
-        )}
+        <ReportViewer
+          report={slot.report}
+          type={slot.viewMode === 'pdf' ? 'pdf' : 'xml'}
+          filePath={slot.report.pdf_path} // Pass PDF path. For 'data' mode, ReportViewer uses 'report' prop or fetches if filePath provided.
+        />
       </div>
     </div>
   );

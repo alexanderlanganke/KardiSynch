@@ -21,7 +21,7 @@ interface DeviceSelectionModalProps {
     onResolve: (result: { action: 'save' | 'skip'; deviceData?: DeviceData }) => void;
 }
 
-import PdfViewer from '../PdfViewer';
+import ReportViewer from '@/components/ReportViewer';
 import { Badge } from '@/components/ui/badge';
 import { FileText } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -224,9 +224,13 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
                                         {isPdf && <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px]">PDF Viewer</span>}
                                     </div>
                                     <div className="flex-1 bg-gray-50 overflow-auto relative flex items-center justify-center">
-                                        {isPdf && fileInfo.tempPath ? (
-                                            <div className="min-h-full w-full flex justify-center p-4">
-                                                <PdfViewer pdfPath={fileInfo.tempPath} />
+                                        {fileInfo.tempPath ? (
+                                            <div className="w-full h-full">
+                                                <ReportViewer
+                                                    report={null}
+                                                    type={isPdf ? 'pdf' : 'text'} // Fallback to text if not PDF (assuming auto-detection)
+                                                    filePath={fileInfo.tempPath}
+                                                />
                                             </div>
                                         ) : (
                                             <div className="text-center p-8 text-muted-foreground">
