@@ -969,18 +969,29 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
         }
         // Don't interrupt manual sorting
         if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
+
+          // Check for PDF files to determine timeout duration
+          const currentFiles = getFilesRecursively(importDir);
+          const hasPdf = currentFiles.some(f => f.toLowerCase().endsWith('.pdf'));
+
+          // Medtronic programmers write PDFs in "waves", taking >10s to finalize.
+          // If a PDF is present, we wait 15s. Otherwise 2s is enough.
+          const stabilizationTime = hasPdf ? 15000 : 2000;
+
+          console.log(`Watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
+
           watcherTimeout = setTimeout(() => {
             console.log('Watcher timeout triggered. Checking for files...');
-            const currentFiles = getFilesRecursively(importDir);
-            console.log(`Found ${currentFiles.length} files in import directory.`);
-            if (currentFiles.length === 0) {
+            const finalFiles = getFilesRecursively(importDir); // Re-check
+            console.log(`Found ${finalFiles.length} files in import directory.`);
+            if (finalFiles.length === 0) {
               console.log('No files found, skipping processing.');
               return;
             }
             console.log('File changes stabilized. Starting processing...');
             executeBatchProcessing();
             watcherTimeout = null;
-          }, 2000); // 2 seconds stabilization
+          }, stabilizationTime);
         }
       }
     });
