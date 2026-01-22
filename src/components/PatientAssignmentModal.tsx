@@ -337,6 +337,19 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                         <Label>MRN (Optional)</Label>
                                                         <Input value={newPatient.hospitalPatientId} onChange={e => setNewPatient({ ...newPatient, hospitalPatientId: e.target.value })} />
                                                     </div>
+
+                                                    {/* Visit Date - Only for Import Mode */}
+                                                    {mode === 'import' && (
+                                                        <div className="space-y-2 pt-2 border-t">
+                                                            <Label>Visit Date *</Label>
+                                                            <Input
+                                                                type="date"
+                                                                value={newVisitDate}
+                                                                onChange={e => setNewVisitDate(e.target.value)}
+                                                            />
+                                                            <p className="text-[10px] text-muted-foreground">The date this interrogation occurred.</p>
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </TabsContent>
                                         </Tabs>
