@@ -115,10 +115,25 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   };
 
   const handleMoveConfirm = async (decision: any) => {
-    if (!visitToMove || decision.action !== 'move-visit') return;
+    if (!visitToMove) return;
 
     try {
-      await window.electronAPI.moveVisit(visitToMove.id, decision.targetPatientId);
+      let targetPatientId = decision.targetPatientId;
+
+      // Handle Create New Patient flow during Move
+      if (decision.action === 'create-patient') {
+        const newPatient = await window.electronAPI.createPatient({
+          first_name: decision.patientData.first_name,
+          last_name: decision.patientData.last_name,
+          dob: decision.patientData.dob,
+          hospitalPatientId: decision.patientData.hospitalPatientId
+        });
+        targetPatientId = newPatient.id;
+      } else if (decision.action !== 'move-visit') {
+        return;
+      }
+
+      await window.electronAPI.moveVisit(visitToMove.id, targetPatientId);
       setIsAssignmentOpen(false);
       setVisitToMove(null);
       // Reload to reflect removal of visit

@@ -11,50 +11,40 @@ interface ReportViewerProps {
 }
 
 const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) => {
-    const [xmlBlobUrl, setXmlBlobUrl] = React.useState<string | null>(null);
+    const [contentBlobUrl, setContentBlobUrl] = React.useState<string | null>(null);
     const [loading, setLoading] = React.useState(false);
-    const [textContent, setTextContent] = React.useState<string | null>(null);
 
     React.useEffect(() => {
         // Cleanup function to revoke Blob URLs
         return () => {
-            if (xmlBlobUrl) URL.revokeObjectURL(xmlBlobUrl);
+            if (contentBlobUrl) URL.revokeObjectURL(contentBlobUrl);
         };
-    }, [xmlBlobUrl]);
+    }, [contentBlobUrl]);
 
     React.useEffect(() => {
-        if (type === 'xml' && filePath) {
-            const loadXml = async () => {
+        if ((type === 'xml' || type === 'text') && filePath) {
+            const loadContent = async () => {
                 setLoading(true);
                 try {
-                    // Fetch as text to display nicely in browser's native XML viewer
+                    // Fetch as text to display nicely in browser's native viewer
                     const text = await window.electronAPI.readFileText(filePath);
-                    const blob = new Blob([text], { type: 'text/xml' });
+
+                    // Determine MIME type based on current 'type' prop or file extension if needed
+                    // For now, strict: xml -> text/xml, text -> text/plain
+                    const mimeType = type === 'xml' ? 'text/xml' : 'text/plain';
+
+                    const blob = new Blob([text], { type: mimeType });
                     const url = URL.createObjectURL(blob);
-                    setXmlBlobUrl(url);
+                    setContentBlobUrl(url);
                 } catch (error) {
-                    console.error('Failed to load XML data:', error);
+                    console.error(`Failed to load ${type} data:`, error);
                 } finally {
                     setLoading(false);
                 }
             };
-            loadXml();
-        } else if (type === 'text' && filePath) {
-            const loadText = async () => {
-                setLoading(true);
-                try {
-                    const text = await window.electronAPI.readFileText(filePath);
-                    setTextContent(text);
-                } catch (error) {
-                    console.error('Failed to load text data:', error);
-                } finally {
-                    setLoading(false);
-                }
-            };
-            loadText();
+            loadContent();
         } else {
-            setXmlBlobUrl(null);
-            setTextContent(null);
+            setContentBlobUrl(null);
         }
     }, [type, filePath]);
 
@@ -66,13 +56,13 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
         );
     }
 
-    if (type === 'xml' && xmlBlobUrl) {
+    if ((type === 'xml' || type === 'text') && contentBlobUrl) {
         return (
             <div className="w-full h-full bg-white">
                 <iframe
-                    src={xmlBlobUrl}
-                    className="w-full h-full border-none"
-                    title="XML Preview"
+                    src={contentBlobUrl}
+                    className="w-full h-full border-none block"
+                    title={`${type.toUpperCase()} Preview`}
                 />
             </div>
         );
@@ -84,14 +74,6 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
 
     if (type === 'image' && filePath) {
         return <ImageViewer filePath={filePath} />;
-    }
-
-    if (type === 'text' && textContent) {
-        return (
-            <div className="w-full h-full p-6 bg-white overflow-auto font-mono text-xs whitespace-pre-wrap">
-                {textContent}
-            </div>
-        );
     }
 
     return (

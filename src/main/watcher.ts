@@ -603,14 +603,36 @@ const processTempDirectory = async (tempDir: string) => {
               try {
                 const { getPatientById } = await import('./database');
                 const targetPatient = await getPatientById(userDecision.patientId);
-                const datePrefix = report.interrogation_date.split('T')[0];
-                const { findReportByDate } = await import('./database');
-                const existingReportByUser = await findReportByDate(targetPatient.id, datePrefix);
+                let targetVisitId: string | undefined = undefined;
 
-                if (existingReportByUser) {
-                  await storeFile(file, existingReportByUser.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
+                if (userDecision.visitMode === 'existing' && userDecision.visitId) {
+                  // User explicitly selected a visit
+                  targetVisitId = userDecision.visitId;
+                  console.log(`[Watcher] Manually assigning to selected visit ID: ${targetVisitId}`);
+                } else if (userDecision.visitMode === 'new') {
+                  // User explicitly requested NEW visit
+                  console.log(`[Watcher] Manually creating NEW visit with date: ${userDecision.visitDate}`);
+                  targetVisitId = undefined; // Force new 
+                  report.interrogation_date = userDecision.visitDate || report.interrogation_date;
+                } else {
+                  // Auto-resolve by date (fallback)
+                  const datePrefix = report.interrogation_date.split('T')[0];
+                  const { findReportByDate } = await import('./database');
+                  const existingReportByUser = await findReportByDate(targetPatient.id, datePrefix);
+                  if (existingReportByUser) {
+                    targetVisitId = existingReportByUser.id;
+                  }
+                }
+
+                if (targetVisitId) {
+                  await storeFile(file, targetVisitId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
                 } else {
                   report.patient_id = targetPatient.id;
+                  // If visit mode is new, use the specific date
+                  if (userDecision.visitMode === 'new' && userDecision.visitDate) {
+                    report.interrogation_date = userDecision.visitDate;
+                  }
+
                   const { storeReport } = await import('./storage');
                   const { reportId } = await storeReport(report);
                   await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
