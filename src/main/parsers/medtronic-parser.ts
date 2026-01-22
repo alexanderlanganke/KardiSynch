@@ -621,14 +621,23 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
         const mfgParam = findParam(`Lead${i}Manufacturer`);
         const dateParam = findParam(`ImplantLead${i}Date`);
 
-        let location = '';
+        let leadLocation = '';
         if (locationParam) {
             const val = findValueInComposite(locationParam, 'Current');
-            if (val) location = val;
+            if (val) {
+                if (typeof val === 'string') {
+                    leadLocation = val;
+                } else if (typeof val === 'number') {
+                    leadLocation = String(val);
+                } else {
+                    // If it's an object, try to find a meaningful string or ignore
+                    console.warn(`Unexpected type for Lead${i}Location:`, typeof val);
+                }
+            }
         }
 
         // Medtronic sometimes has empty strings for unused leads, check if location or model exists
-        if (location || (modelParam && findValueInComposite(modelParam, 'Current'))) {
+        if (leadLocation || (modelParam && findValueInComposite(modelParam, 'Current'))) {
             let model = '';
             let serial = '';
             let manufacturer = '';
@@ -654,8 +663,8 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
             // Only add if we have some minimal info (e.g. Model or Serial)
             if (model || serial) {
                 const lead: LeadData = {
-                    name: `${location} Lead`,
-                    anatomic_location: location,
+                    name: `${leadLocation} Lead`,
+                    anatomic_location: leadLocation,
                     model: model,
                     serial: serial,
                     manufacturer: manufacturer || 'Medtronic', // Default if missing
@@ -664,7 +673,7 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
 
                 // MATCH ELECTRICAL VALUES BASED ON LOCATION
                 // Locations: "RV", "A" or "RA", "LV"
-                const loc = location.toUpperCase();
+                const loc = typeof leadLocation === 'string' ? leadLocation.toUpperCase() : '';
 
                 if (loc === 'RV' || loc.includes('RIGHT VENTRICLE')) {
                     // RV Data
