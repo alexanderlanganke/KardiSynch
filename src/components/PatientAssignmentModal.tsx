@@ -109,6 +109,12 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
     const handleConfirm = () => {
         if (selectedPatientId) {
+            // Validate "Create New Visit" date
+            if (mode === 'import' && visitMode === 'new' && !newVisitDate) {
+                alert('Please specify a date for the new visit.');
+                return;
+            }
+
             if (mode === 'import') {
                 onResolve({
                     action: 'assign-patient',
