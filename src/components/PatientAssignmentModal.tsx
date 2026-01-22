@@ -207,6 +207,27 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Serial</span>
                                                             <p className="font-mono text-xs">{sourceItem.previewData?.serial || 'Unknown'}</p>
                                                         </div>
+                                                        <div>
+                                                            <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Manufacturer</span>
+                                                            <p className="font-medium truncate">{sourceItem.previewData?.manufacturer || 'Unknown'}</p>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Model</span>
+                                                            <p className="text-xs truncate">{sourceItem.previewData?.deviceModel || 'Unknown'}</p>
+                                                        </div>
+                                                        {sourceItem.previewData?.leads && sourceItem.previewData.leads.length > 0 && (
+                                                            <div className="col-span-2 border-t pt-2 mt-2">
+                                                                <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Leads</span>
+                                                                <div className="space-y-1">
+                                                                    {sourceItem.previewData.leads.map((l: any, i: number) => (
+                                                                        <div key={i} className="text-xs flex justify-between">
+                                                                            <span className="text-muted-foreground">{l.name || 'Lead'}:</span>
+                                                                            <span className="font-mono">{l.model} ({l.serial})</span>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </>
                                             ) : (

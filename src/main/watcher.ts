@@ -343,34 +343,66 @@ const processTempDirectory = async (tempDir: string) => {
           }
         }
 
-        // Store the report (creates patient/visit if needed)
-        const { reportId, patient } = await storeReport(report);
+        // Defined here to be accessible for internal PDF processing
+        let reportId: string;
+        let patient: any;
 
-        // Store the structured file itself
-        await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
-
-        logImportEvent({
-          id: uuidv4(),
-          session_id: sessionId,
-          file_path: file,
-          status: 'imported',
-          patient_id: patient.id,
-          report_id: reportId
-        });
-        sessionSummary.imported++;
-
-
-        // Generate a key for this visit
+        // Check if we already have an active visit for this patient/date/serial in this batch
         const key = getReportKey(report);
-        if (key) {
-          activeVisits.set(key, {
-            reportId,
-            patientId: patient.id,
-            patient,
-            date: report.interrogation_date,
-            serial: report.device?.serial_number,
-            sessionId: report.session_id
+        const existingVisit = key ? activeVisits.get(key) : null;
+
+        if (existingVisit) {
+          console.log(`[Watcher] Merging file ${path.basename(file)} into existing visit ${existingVisit.reportId}`);
+
+          // Reuse existing IDs
+          reportId = existingVisit.reportId;
+          patient = existingVisit.patient;
+
+          // Store file and MERGE data (storeFile now handles additive visit.xml)
+          await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'imported',
+            patient_id: patient.id,
+            report_id: reportId,
+            message: 'Merged into active visit'
           });
+          sessionSummary.imported++;
+
+        } else {
+          // New Visit Case
+          // Store the report (creates patient/visit if needed)
+          const result = await storeReport(report);
+          reportId = result.reportId;
+          patient = result.patient;
+
+          // Store the structured file itself
+          await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
+
+          logImportEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: file,
+            status: 'imported',
+            patient_id: patient.id,
+            report_id: reportId
+          });
+          sessionSummary.imported++;
+
+          // Register as active visit
+          if (key) {
+            activeVisits.set(key, {
+              reportId,
+              patientId: patient.id,
+              patient,
+              date: report.interrogation_date,
+              serial: report.device?.serial_number,
+              sessionId: report.session_id
+            });
+          }
         }
 
         // --- STEP 2: Handle Internal PDFs (extracted from .pkg) ---

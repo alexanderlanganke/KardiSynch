@@ -314,10 +314,48 @@ export const storeFile = async (
     fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads));
   }
 
-  // Generate visit.xml if report data provided
+  // Generate or update visit.xml if report data provided
   if (report) {
     const visitXmlPath = path.join(visitDir, 'visit.xml');
-    fs.writeFileSync(visitXmlPath, generateVisitXML(report, reportId));
+    let finalReport = report;
+    let existingLeads: any[] = [];
+
+    // Read existing visit.xml to merge logic
+    if (fs.existsSync(visitXmlPath)) {
+      try {
+        const xmlContent = fs.readFileSync(visitXmlPath, 'utf-8');
+        const parser = new XMLParser({ ignoreAttributes: false });
+        const parsed = parser.parse(xmlContent);
+        if (parsed.visit && parsed.visit.leads && parsed.visit.leads.lead) {
+          existingLeads = Array.isArray(parsed.visit.leads.lead)
+            ? parsed.visit.leads.lead
+            : [parsed.visit.leads.lead];
+        }
+      } catch (e) {
+        console.error('Error reading existing visit.xml for merge:', e);
+      }
+    }
+
+    // Merge new leads with existing leads
+    if (report.leads && report.leads.length > 0) {
+      report.leads.forEach(l => {
+        // Deduplicate by serial/model
+        const exists = existingLeads.some(ex =>
+          (ex.serial && String(ex.serial) === String(l.serial)) ||
+          (ex.model && String(ex.model) === String(l.model) && ex.name === l.name)
+        );
+        if (!exists) {
+          existingLeads.push(l);
+        }
+      });
+      // Update the report object used for generation to include ALL leads
+      finalReport = { ...report, leads: existingLeads };
+    } else if (existingLeads.length > 0) {
+      // If current report has no leads but existing one did, preserve them
+      finalReport = { ...report, leads: existingLeads };
+    }
+
+    fs.writeFileSync(visitXmlPath, generateVisitXML(finalReport, reportId));
   }
 
 };
