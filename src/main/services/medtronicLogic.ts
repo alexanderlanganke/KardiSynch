@@ -33,7 +33,7 @@ const getMedtronicData = () => {
 export async function checkMedtronic(model: string, leads: any[] = []): Promise<MRIStatusResult> {
 
     // Normalize Input Model
-    const modelInput = model.toLowerCase().trim();
+    const modelInput = String(model || '').toLowerCase().trim();
     const cleanModelInput = modelInput.replace(/[^a-z0-9]/g, '');
 
     // 1. Find Device Support
