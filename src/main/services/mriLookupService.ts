@@ -65,33 +65,173 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
     await wait(1000);
 }
 
-async function checkAbbott(model: string, leads: any[]): Promise<MRIStatusResult> {
-    const modelLower = model.toLowerCase();
+// Helper to interact with Select2 components (common in Abbott site)
+async function interactWithSelect2(win: BrowserWindow, selectId: string, text: string) {
+    // 1. Open the dropdown using jQuery (safest on this site)
+    const openResult = await win.webContents.executeJavaScript(`
+        (function() {
+            try {
+                const $el = $('#' + '${selectId}');
+                if (!$el.length) return 'Select element not found';
+                $el.select2('open');
+                return 'OK';
+            } catch(e) { return 'Error opening select2: ' + e.toString(); }
+        })()
+    `);
 
-    // Direct Exceptions for Leadless / ILR
-    if (modelLower.includes('aveir') || modelLower.includes('nanostim') || modelLower.includes('lcp')) {
-        return {
-            manufacturer: 'Abbott',
-            status: 'conditional',
-            details: `System is MR Conditional (Leadless Pacemaker). Device: ${model}.`,
-            timestamp: new Date().toISOString()
-        };
-    }
-    if (modelLower.includes('confirm rx')) {
-        return {
-            manufacturer: 'Abbott',
-            status: 'conditional',
-            details: `System is MR Conditional (Insertable Cardiac Monitor). Device: ${model}.`,
-            timestamp: new Date().toISOString()
-        };
+    if (openResult !== 'OK') {
+        throw new Error(`Failed to open Select2 #${selectId}: ${openResult}`);
     }
 
-    return {
-        manufacturer: 'Abbott',
-        status: 'unknown',
-        details: 'Abbott automation not fully implemented yet.',
-        timestamp: new Date().toISOString()
-    };
+    await wait(500);
+
+    // 2. Type into the search field (which is dynamically added to body)
+    // Select2 usually adds a global .select2-search__field input when opened
+    const searchSelector = '.select2-container--open input.select2-search__field';
+    const typeResult = await win.webContents.executeJavaScript(`
+        (function() {
+            const input = document.querySelector('${searchSelector}');
+            if (!input) return 'Search input not found';
+            input.value = '${text}';
+            // Trigger input event to filter
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            return 'OK';
+        })()
+    `);
+
+    if (typeResult !== 'OK') {
+        // Fallback: Try typing via keypresses if direct value set doesn't trigger filter
+        console.log(`[Abbott] Direct input failed, trying keystrokes for ${selectId}`);
+        for (const char of text) {
+            await win.webContents.sendInputEvent({ type: 'char', keyCode: char });
+            await wait(50);
+        }
+    } else {
+        // Even if we set value, we need to trigger Select2's internal filtering often?
+        // Let's send a fake keyup just in case
+        await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'End' });
+    }
+
+    await wait(1000); // Wait for filtering
+
+    // 3. Select the first result
+    await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
+    await wait(1000); // Wait for selection to apply
+}
+
+async function checkAbbott(model: string, leads: any[], country: string = 'Germany'): Promise<MRIStatusResult> {
+    console.log(`[MRI Service] Abbott Check: ${model} with ${leads.length} leads...`);
+
+    let win: BrowserWindow | null = new BrowserWindow({
+        show: false,
+        width: 1280,
+        height: 900,
+        webPreferences: {
+            offscreen: true,
+            nodeIntegration: false, // Security
+            contextIsolation: true
+        }
+    });
+
+    try {
+        await win.loadURL('https://mri.merlin.net/');
+
+        // 1. Select Country (Mandatory first step)
+        console.log('[Abbott] Measuring Country...');
+        await interactWithSelect2(win, 'country', country);
+
+        // 2. Select Device
+        console.log(`[Abbott] Setting Device: ${model}...`);
+        await interactWithSelect2(win, 'device', model);
+
+        // 3. Select Leads
+        // The site has lead1, lead2, lead3.
+        // We need to map our leads to these slots.
+        // Logic: Try to find each patient lead in the dropdown.
+        // If we have more leads than slots (3), warn.
+
+        const slots = ['lead1', 'lead2', 'lead3'];
+        let leadsMatched = 0;
+
+        for (let i = 0; i < leads.length && i < slots.length; i++) {
+            const leadModel = leads[i].model || leads[i].name || '';
+            if (!leadModel) continue;
+
+            console.log(`[Abbott] Setting Lead ${i + 1}: ${leadModel}...`);
+            try {
+                // Check if lead exists in options before trying to select?
+                // interactWithSelect2 will try to filter. If not found, it might select matched "nothing" or first irrelevant option.
+                // Robustness: We should check if the search resulted in a match.
+                // For now, let's try to select it.
+                await interactWithSelect2(win, slots[i], leadModel);
+                leadsMatched++;
+            } catch (e) {
+                console.warn(`[Abbott] Failed to set lead ${leadModel}`, e);
+            }
+        }
+
+        // 4. Check Results
+        // Look for result table
+        await wait(2000);
+
+        const resultData = await win.webContents.executeJavaScript(`
+            (function() {
+                const table = document.querySelector('table.table-striped'); // Heuristic class
+                if (!table) {
+                    // Check for "No MR Conditional" messages?
+                    return { found: false, text: document.body.innerText };
+                }
+                return { found: true, text: table.innerText };
+            })()
+        `);
+
+        if (!resultData.found) {
+            // If we selected devices but no table appeared, it usually means "Not MRI Conditional"
+            // Or inputs were invalid.
+            return {
+                manufacturer: 'Abbott',
+                status: 'unsafe',
+                details: 'Device combination not found or not MRI Conditional (no results table appeared).',
+                timestamp: new Date().toISOString()
+            };
+        }
+
+        const text = resultData.text.toLowerCase();
+        let status: 'conditional' | 'unsafe' | 'unknown' = 'conditional';
+        let details = resultData.text.substring(0, 200).replace(/\s+/g, ' ').trim(); // Summary
+
+        // Analyze text for keywords
+        // "MR Conditional" is usually implied by the presence of the table with scan parameters.
+        // Look for specific exclusions or "Non-Conditional" text?
+        // Usually the table *lists* the conditional zones.
+        // e.g. "Full Body", "Exclusion Zone", etc.
+
+        if (text.includes('non-mri') || text.includes('unsafe') || text.includes('conditional not met')) {
+            status = 'unsafe';
+        }
+
+        // Capture specific scan parameters if possible
+        const scanRegion = text.includes('ganzkörper') || text.includes('full body') ? 'Full Body' : 'Restricted';
+        details = `System is MR Conditional (${scanRegion}). Table data found.`;
+
+        return {
+            manufacturer: 'Abbott',
+            status: status,
+            details: details,
+            timestamp: new Date().toISOString()
+        };
+
+    } catch (e: any) {
+        console.error('[Abbott] Check failed:', e);
+        return {
+            manufacturer: 'Abbott',
+            status: 'unknown',
+            details: `Abbott online check failed: ${e.message}`,
+            timestamp: new Date().toISOString()
+        };
+    } finally {
+        if (win) win.destroy();
+    }
 }
 
 async function checkBiotronik(model: string, leads: any[] = [], country: string = 'Germany', onProgress?: (msg: string) => void): Promise<MRIStatusResult> {
