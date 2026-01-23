@@ -591,7 +591,10 @@ const processTempDirectory = async (tempDir: string) => {
                   patientName: `${patient.first_name} ${patient.last_name}`,
                   dob: patient.dob,
                   date: report.interrogation_date,
-                  serial: report.device?.serial_number
+                  serial: report.device?.serial_number,
+                  manufacturer: report.manufacturer,
+                  deviceModel: report.device?.model,
+                  leads: report.leads
                 }
               });
             });
