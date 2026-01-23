@@ -368,7 +368,7 @@ function validateMRIPrerequisites(manufacturer: string, model: string, leads: an
 
     // 4. Manufacturer Mismatch (General Rule)
     const mismatchedLead = leads.find(l => {
-        const leadManu = l.manufacturer ? l.manufacturer.toLowerCase() : '';
+        const leadManu = String(l.manufacturer || '').toLowerCase();
         return leadManu && !leadManu.includes(manuLower) && !manuLower.includes(leadManu);
     });
 
