@@ -676,6 +676,12 @@ const processTempDirectory = async (tempDir: string) => {
                 });
                 const newPatient = await getPatientById(newId);
 
+                // Ensure report has valid patient data
+                report.patient = {
+                  first_name: newPatient.first_name,
+                  last_name: newPatient.last_name,
+                  dob: newPatient.dob
+                };
                 report.patient_id = newPatient.id;
                 const { storeReport } = await import('./storage');
                 const { reportId } = await storeReport(report);
@@ -817,6 +823,12 @@ const processTempDirectory = async (tempDir: string) => {
               report.interrogation_date = userDecision.visitDate;
             }
 
+            // Ensure report has valid patient data
+            report.patient = {
+              first_name: newPatient.first_name,
+              last_name: newPatient.last_name,
+              dob: newPatient.dob
+            };
             report.patient_id = newPatient.id;
             const { storeReport } = await import('./storage');
             const { reportId } = await storeReport(report);
