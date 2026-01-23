@@ -630,6 +630,12 @@ const processTempDirectory = async (tempDir: string) => {
                 if (targetVisitId) {
                   await storeFile(file, targetVisitId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
                 } else {
+                  // Ensure report has valid patient data from the target patient
+                  report.patient = {
+                    first_name: targetPatient.first_name,
+                    last_name: targetPatient.last_name,
+                    dob: targetPatient.dob
+                  };
                   report.patient_id = targetPatient.id;
                   // If visit mode is new, use the specific date
                   if (userDecision.visitMode === 'new' && userDecision.visitDate) {
@@ -766,7 +772,14 @@ const processTempDirectory = async (tempDir: string) => {
               if (targetReportId) {
                 await storeFile(file, targetReportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetDate, targetPatient, undefined);
               } else {
+                // Ensure report has valid patient data from the target patient
+                report.patient = {
+                  first_name: targetPatient.first_name,
+                  last_name: targetPatient.last_name,
+                  dob: targetPatient.dob
+                };
                 report.patient_id = targetPatient.id;
+
                 const { storeReport } = await import('./storage');
                 const { reportId } = await storeReport(report);
                 await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
