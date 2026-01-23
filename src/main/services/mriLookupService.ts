@@ -308,8 +308,8 @@ function getEstimatedPortCount(modelName: string): number | null {
 
 // Helper: Pre-validate MRI prerequisites
 function validateMRIPrerequisites(manufacturer: string, model: string, leads: any[]): { valid: boolean; result?: MRIStatusResult } {
-    const manuLower = manufacturer.toLowerCase();
-    const modelLower = model.toLowerCase();
+    const manuLower = String(manufacturer || '').toLowerCase();
+    const modelLower = String(model || '').toLowerCase();
 
     // 1. Leadless Systems (Manufacturer Specific) -> Must have 0 leads
     let isLeadlessPacer = false;
@@ -432,11 +432,15 @@ export const checkMRIStatus = async (
     country: string = 'Germany',
     onProgress?: (msg: string) => void
 ): Promise<MRIStatusResult> => {
-    console.log(`[MRI Service] Checking status for ${manufacturer} ${model}...`);
+    // Ensure inputs are strings (handle potential parsing artifacts)
+    const safeManu = String(manufacturer || '').trim();
+    const safeModel = String(model || '').trim();
 
-    if (!manufacturer || !model) {
+    console.log(`[MRI Service] Checking status for ${safeManu} ${safeModel}...`);
+
+    if (!safeManu || !safeModel || safeManu === 'Unknown' || safeManu === 'undefined') {
         return {
-            manufacturer: manufacturer || 'Unknown',
+            manufacturer: safeManu || 'Unknown',
             status: 'unknown',
             details: 'Device manufacturer or model information is missing.',
             timestamp: new Date().toISOString()
@@ -444,14 +448,14 @@ export const checkMRIStatus = async (
     }
 
     // 1. Run Pre-Validation
-    const preCheck = validateMRIPrerequisites(manufacturer, model, leads);
+    const preCheck = validateMRIPrerequisites(safeManu, safeModel, leads);
     if (!preCheck.valid && preCheck.result) {
         console.warn('[MRI Service] Pre-validation failed:', preCheck.result.details);
         return preCheck.result;
     }
 
     try {
-        const manu = manufacturer.toLowerCase();
+        const manu = safeManu.toLowerCase();
 
         if (manu.includes('biotronik')) {
             return await checkBiotronik(model, leads, country, onProgress);

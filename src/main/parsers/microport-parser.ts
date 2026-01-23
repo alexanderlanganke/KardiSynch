@@ -104,7 +104,7 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
 
             leadList.forEach((l: any) => {
                 const implantInfo = l.ImplantInformation;
-                const chamber = implantInfo?.Chamber; // e.g. "Atrium", "Ventricle"
+                const chamber = String(implantInfo?.Chamber || ''); // e.g. "Atrium", "Ventricle"
                 // Map "Atrium" -> "RA", "Ventricle" -> "RV" for matching measurements
                 const measureChamber = chamber === 'Atrium' ? 'RA' : (chamber === 'Ventricle' ? 'RV' : chamber);
 
