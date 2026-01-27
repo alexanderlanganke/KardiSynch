@@ -7,7 +7,7 @@ export interface AppSettings {
     importDir: string;
     unmatchedDir: string;
     dataPath: string;
-    dbPath: string;
+    // dbPath removed - fixed location
     theme?: 'light' | 'dark' | 'system';
     usbSourceDirectories: string[];
     usbTargetDirectory: string;
@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     importDir: isDev ? path.join(process.cwd(), '_IMPORT') : path.join(app.getPath('userData'), '_IMPORT'),
     unmatchedDir: isDev ? path.join(process.cwd(), '_UNMATCHED') : path.join(app.getPath('userData'), '_UNMATCHED'),
     dataPath: isDev ? path.join(process.cwd(), '_DATA') : path.join(app.getPath('userData'), '_DATA'),
-    dbPath: isDev ? path.join(process.cwd(), '_DATA', 'database.db') : path.join(app.getPath('userData'), '_DATA', 'database.db'),
+    // dbPath removed
     theme: 'system',
     usbSourceDirectories: [],
     usbTargetDirectory: '',
@@ -64,7 +64,7 @@ export const getAllSettings = async (): Promise<AppSettings> => {
         return {
             ...DEFAULT_SETTINGS,
             ...parsedDbSettings,
-            dbPath: config.dbPath || DEFAULT_SETTINGS.dbPath,
+            // dbPath removed
         };
     } catch (error) {
         console.error('Error retrieving settings:', error);
@@ -74,14 +74,9 @@ export const getAllSettings = async (): Promise<AppSettings> => {
 
 export const saveSettings = async (settings: Partial<AppSettings>): Promise<void> => {
     try {
-        const { dbPath, ...otherSettings } = settings;
+        const { ...otherSettings } = settings;
 
-        // Save DB path to config file if it changed
-        if (dbPath) {
-            const config = getConfig();
-            config.dbPath = dbPath;
-            saveConfig(config);
-        }
+        // dbPath is no longer saved to config
 
         // Save other settings to SQLite
         if (Object.keys(otherSettings).length > 0) {
@@ -105,12 +100,12 @@ export const resetSettings = async (): Promise<AppSettings> => {
     try {
         // Reset config file
         const config = getConfig();
-        config.dbPath = DEFAULT_SETTINGS.dbPath;
+        if (config.dbPath) delete config.dbPath; // Clean up legacy
         saveConfig(config);
 
         // Reset SQLite settings
         // We need to manually set each default value to ensure it overrides existing data
-        const { dbPath, ...settingsToSave } = DEFAULT_SETTINGS;
+        const { ...settingsToSave } = DEFAULT_SETTINGS;
 
         // Stringify arrays
         const dbReadySettings: any = { ...settingsToSave };

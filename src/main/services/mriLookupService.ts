@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { checkMedtronic } from './medtronicLogic';
+import { checkBoston } from './bostonLogic';
 
 export interface MRIStatusResult {
     manufacturer: string;
@@ -607,6 +608,10 @@ export const checkMRIStatus = async (
 
         if (manu.includes('abbott') || manu.includes('st. jude') || manu.includes('sjm')) {
             return await checkAbbott(model, leads);
+        }
+
+        if (manu.includes('boston') || manu.includes('guidant')) {
+            return await checkBoston(model, leads);
         }
 
         if (manu.includes('sorin') || manu.includes('ela') || manu.includes('microport')) {

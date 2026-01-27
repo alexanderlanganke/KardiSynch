@@ -6,7 +6,8 @@ import fs from 'fs';
 const configPath = path.join(app.getPath('userData'), 'settings.json');
 
 interface AppConfig {
-  dbPath?: string;
+  // dbPath removed - database is always at fixed location
+  [key: string]: any;
 }
 
 export const getConfig = (): AppConfig => {
