@@ -2,7 +2,8 @@ import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs/promises';
-import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports, closeDatabase } from './database';
+import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports, closeDatabase, syncDatabase } from './database';
+import { ensureDatabaseLocation } from './databaseMigration';
 import { initializeWatcher, stopWatcher } from './watcher';
 import { startUsbWatcher, stopUsbWatcher } from './usbWatcher';
 import { initializeStorage } from './storage';
@@ -72,10 +73,33 @@ app.whenReady().then(async () => {
 
   // 1. Try to initialize critical components
   try {
-    // Initialize Database
-    const config = getConfig();
-    const dbPath = config.dbPath;
-    initializeDatabase(dbPath);
+    // Initialize Database (Robust & Migrated)
+    // 1. Ensure correct DB location (Standard local path)
+    const dbPath = ensureDatabaseLocation();
+
+    // 2. Initialize connection
+    await initializeDatabase(dbPath).catch(async (err) => {
+      console.error('[Critical] Parsing failed. Attempting recovery...', err);
+      // Fallback: Rename corrupt file and retry with fresh DB
+      const corruptPath = dbPath.replace('.db', `_corrupt_${Date.now()}.db`);
+      if (await fs.stat(dbPath).then(() => true).catch(() => false)) {
+        await fs.rename(dbPath, corruptPath);
+        console.warn(`[Critical] Corrupt database moved to ${corruptPath}. Creating fresh DB.`);
+        return initializeDatabase(dbPath);
+      }
+      throw err;
+    });
+
+    // 3. Start Background Sync (Efficient)
+    // Run immediately
+    syncDatabase().then(({ newPatients, newReports }) => {
+      console.log(`[Startup Sync] Added ${newPatients} patients and ${newReports} reports.`);
+    });
+
+    // Run periodically (every 5 minutes)
+    setInterval(() => {
+      syncDatabase().catch(e => console.error('[Periodic Sync] Failed:', e));
+    }, 5 * 60 * 1000);
 
     // Get settings
     settings = await getAllSettings();
@@ -140,7 +164,7 @@ app.whenReady().then(async () => {
   // 3. Initialize rest of the app (Storage, Watchers)
   try {
     // If we have valid settings from step 1
-    if (settings && settings.dbPath) { // Check if we got real settings
+    if (settings) { // Check if we got real settings
       await initializeStorage();
       initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
       startUsbWatcher(settings);
@@ -418,7 +442,7 @@ ipcMain.handle('clear-all-data', async () => {
     const settings = await getAllSettings();
     const dataPath = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
     const unmatchedDir = settings.unmatchedDir || path.join(app.getPath('userData'), '_UNMATCHED');
-    const dbPath = settings.dbPath || path.join(dataPath, 'database.db');
+    const dbPath = path.join(app.getPath('userData'), 'database.db'); // Fixed path now
 
     // 1. Stop Watchers
     stopWatcher();
@@ -819,12 +843,22 @@ ipcMain.handle('quit-and-install', () => {
   autoUpdater.quitAndInstall();
 });
 import { checkForMedtronicUpdates } from './services/medtronicScraper';
+import { checkForBostonUpdates } from './services/bostonScraper';
 
 ipcMain.handle('check-medtronic-updates', async () => {
   try {
     return await checkForMedtronicUpdates();
   } catch (error: any) {
     console.error('Failed to check Medtronic updates:', error);
+    return { updated: false, count: 0, error: error.message };
+  }
+});
+
+ipcMain.handle('check-boston-updates', async () => {
+  try {
+    return await checkForBostonUpdates();
+  } catch (error: any) {
+    console.error('Failed to check Boston updates:', error);
     return { updated: false, count: 0, error: error.message };
   }
 });

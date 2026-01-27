@@ -30,15 +30,17 @@ const Settings: React.FC = () => {
     importDir: string;
     unmatchedDir: string;
     dataPath: string;
-    dbPath: string;
+    // dbPath removed
     usbSourceDirectories: string[];
     usbTargetDirectory: string;
     updateChannel: string;
+    mriCountry: string;
+    mriManufacturers: Record<string, boolean>;
   }>({
     importDir: '',
     unmatchedDir: '',
     dataPath: '',
-    dbPath: '',
+    // dbPath removed
     usbSourceDirectories: [],
     usbTargetDirectory: '',
     updateChannel: 'stable',
@@ -239,31 +241,7 @@ const Settings: React.FC = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="db-path">Database File Path</Label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="db-path"
-                      name="dbPath"
-                      value={settings.dbPath}
-                      onChange={handleInputChange}
-                      placeholder="Select database file..."
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      onClick={() => handleDirectorySelection('dbPath')}
-                    >
-                      <FolderOpen className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Location of the SQLite database file. Changing this requires a restart.
-                  </p>
-                </div>
-
-                <div className="pt-4 border-t">
+                <div className="pt-2">
                   <h3 className="text-sm font-medium mb-2">Maintenance</h3>
                   <div className="flex items-center justify-between">
                     <div className="space-y-1">
@@ -442,8 +420,33 @@ const Settings: React.FC = () => {
                   <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                     {Object.entries(LOGO_MAP).map(([name, logo]) => {
                       const enabled = settings.mriManufacturers?.[name] ?? false;
-                      const isUnavailable = name !== 'Biotronik' && name !== 'Medtronic';
+                      const isUnavailable = name !== 'Biotronik' && name !== 'Medtronic' && name !== 'Boston Scientific' && name !== 'Abbott' && name !== 'St. Jude Medical' && name !== 'SJM';
                       const isMedtronic = name === 'Medtronic';
+
+                      const handleToggle = (valOrEvent: boolean | any) => {
+                        let newValue: boolean | undefined;
+
+                        if (typeof valOrEvent === 'boolean') {
+                          newValue = valOrEvent;
+                        } else if (valOrEvent && typeof valOrEvent.stopPropagation === 'function') {
+                          valOrEvent.stopPropagation();
+                        }
+
+                        setSettings(prev => {
+                          const currentMap = prev.mriManufacturers || {};
+                          const currentVal = currentMap[name] ?? false;
+                          // If explicit boolean provided (from Switch), use it. Else toggle (from Card click).
+                          const finalVal = newValue !== undefined ? newValue : !currentVal;
+
+                          return {
+                            ...prev,
+                            mriManufacturers: {
+                              ...currentMap,
+                              [name]: finalVal
+                            }
+                          };
+                        });
+                      };
 
                       return (
                         <div
@@ -452,19 +455,10 @@ const Settings: React.FC = () => {
                             relative border rounded-lg p-4 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all
                             ${enabled ? 'border-primary ring-1 ring-primary bg-primary/5' : 'bg-muted/30 opacity-70 hover:opacity-100'}
                           `}
-                          onClick={() => {
-                            // Toggle settings
-                            setSettings(prev => ({
-                              ...prev,
-                              mriManufacturers: {
-                                ...prev.mriManufacturers,
-                                [name]: !enabled
-                              }
-                            }));
-                          }}
+                          onClick={handleToggle}
                         >
-                          <div className="absolute top-2 right-2">
-                            <Switch checked={enabled} onCheckedChange={() => { }} />
+                          <div className="absolute top-2 right-2" onClick={(e) => e.stopPropagation()}>
+                            <Switch checked={enabled} onCheckedChange={handleToggle} />
                           </div>
 
                           <img src={logo} alt={name} className="h-8 max-w-[120px] object-contain my-2" />
@@ -492,6 +486,34 @@ const Settings: React.FC = () => {
                                 try {
                                   const res = await window.electronAPI.checkMedtronicUpdates();
                                   if (res.updated) alert(`Medtronic Data Updated! ${res.count} items.`);
+                                  else if (res.error) alert(`Update Failed: ${res.error}`);
+                                  else alert(`Up to date. (${res.count} items)`);
+                                } catch (err) {
+                                  alert('Error checking updates');
+                                } finally {
+                                  btn.innerText = 'Check Updates';
+                                  btn.disabled = false;
+                                }
+                              }}
+                            >
+                              Check Updates
+                            </Button>
+                          )}
+
+                          {name === 'Boston Scientific' && enabled && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="h-6 text-[10px] px-2 mt-1"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const btn = e.currentTarget;
+                                btn.innerText = 'Checking...';
+                                btn.disabled = true;
+                                try {
+                                  // Mock for now or real
+                                  const res = await window.electronAPI.checkBostonUpdates();
+                                  if (res.updated) alert(`Boston Data Updated! ${res.count} items.`);
                                   else if (res.error) alert(`Update Failed: ${res.error}`);
                                   else alert(`Up to date. (${res.count} items)`);
                                 } catch (err) {

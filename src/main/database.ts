@@ -108,13 +108,37 @@ const createTables = (db: sqlite3.Database) => {
   });
 };
 
-export const initializeDatabase = (customDbPath?: string) => {
-  if (!dbInstance) {
-    const dbPath = customDbPath || path.join(app.getPath('userData'), '_DATA', 'database.db');
-    dbInstance = createDbConnection(dbPath);
-    createTables(dbInstance);
-  }
-  return dbInstance;
+export const initializeDatabase = (customDbPath: string): Promise<sqlite3.Database> => {
+  return new Promise((resolve, reject) => {
+    if (dbInstance) {
+      resolve(dbInstance);
+      return;
+    }
+
+    const dbPath = customDbPath;
+    const dir = path.dirname(dbPath);
+
+    if (!fs.existsSync(dir)) {
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+      } catch (err) {
+        reject(new Error(`Failed to create database directory: ${err}`));
+        return;
+      }
+    }
+
+    const db = new sqlite3.Database(dbPath, (err) => {
+      if (err) {
+        console.error('[Database] Connection failed:', err.message);
+        reject(err);
+      } else {
+        console.log(`[Database] Connected to ${dbPath}`);
+        createTables(db);
+        dbInstance = db;
+        resolve(db);
+      }
+    });
+  });
 };
 
 export const getDb = () => {
@@ -1027,3 +1051,164 @@ export const updatePatientMRIStatus = async (patientId: string, status: any, has
   });
 };
 
+import { XMLParser } from 'fast-xml-parser';
+
+export const syncDatabase = async (): Promise<{ newPatients: number; newReports: number }> => {
+  console.log('[syncDatabase] Starting efficient background sync...');
+  const start = Date.now();
+
+  let newPatients = 0;
+  let newReports = 0;
+
+  try {
+    const db = getDb();
+
+    // 1. Get existing IDs in memory for fast checking
+    const existingPatientIds = new Set<string>();
+    const existingReportIds = new Set<string>();
+
+    await new Promise<void>((resolve, reject) => {
+      db.all('SELECT id FROM Patients', (err, rows: any[]) => {
+        if (err) reject(err);
+        else {
+          rows.forEach(r => existingPatientIds.add(r.id));
+          resolve();
+        }
+      });
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      db.all('SELECT id FROM Reports', (err, rows: any[]) => {
+        if (err) reject(err);
+        else {
+          rows.forEach(r => existingReportIds.add(r.id));
+          resolve();
+        }
+      });
+    });
+
+    // 2. Scan Filesystem
+    const settings = await getSettings();
+    const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+    const reportsDir = path.join(dataDir, 'Reports');
+
+    if (!fs.existsSync(reportsDir)) {
+      return { newPatients: 0, newReports: 0 };
+    }
+
+    const parser = new XMLParser({ ignoreAttributes: false });
+
+    // Read Patient Dirs
+    const patientDirs = await fs.promises.readdir(reportsDir, { withFileTypes: true });
+
+    for (const pDir of patientDirs) {
+      if (!pDir.isDirectory()) continue;
+
+      // Extract Patient ID from Folder Name (heuristic: it's usually the ID, or starts with it)
+      // Actually, folder name IS the patient ID in this system.
+      const patientIdCandidate = pDir.name;
+
+      // Check if Patient Exists
+      let patientExists = existingPatientIds.has(patientIdCandidate);
+      const patientPath = path.join(reportsDir, pDir.name);
+
+      if (!patientExists) {
+        // [NEW PATIENT FOUND] -> Import
+        const patientXmlPath = path.join(patientPath, 'patient.xml');
+        if (fs.existsSync(patientXmlPath)) {
+          try {
+            const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
+            const parsed = parser.parse(xmlContent);
+            const p = parsed.patient;
+
+            if (p) {
+              await new Promise<void>((resolve, reject) => {
+                db.run(
+                  `INSERT OR REPLACE INTO Patients (
+                     id, first_name, last_name, dob, hospitalPatientId,
+                     device_manufacturer, device_model, device_serial, leads, devices, last_indexed_mtime
+                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                  [
+                    p.id,
+                    p.first_name,
+                    p.last_name,
+                    p.dob,
+                    p.hospitalPatientId || null,
+                    p.device_manufacturer || null,
+                    p.device_model || null,
+                    p.device_serial || null,
+                    p.leads ? JSON.stringify(p.leads) : null,
+                    p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
+                    Date.now()
+                  ],
+                  (err) => {
+                    if (err) reject(err);
+                    else resolve();
+                  }
+                );
+              });
+              newPatients++;
+              existingPatientIds.add(p.id); // Add to set so we don't re-add
+            }
+          } catch (e) {
+            console.warn(`[syncDatabase] Failed to import new patient ${pDir.name}:`, e);
+          }
+        }
+      }
+
+      // Check for New Visits (Reports)
+      // Only if patient is effectively known (was known or just added)
+      // Scan visit directories
+      const visitDirs = await fs.promises.readdir(patientPath, { withFileTypes: true });
+
+      for (const vDir of visitDirs) {
+        if (!vDir.isDirectory()) continue;
+
+        // Visit ID is the last part of "YYYY_MM_DD_UUID"
+        const visitId = vDir.name.split('_').pop();
+        if (!visitId) continue;
+
+        if (!existingReportIds.has(visitId)) {
+          // [NEW VISIT FOUND] -> Import
+          // Use the Deep Scan logic from rebuildDatabase... simplified here
+          // We need to parse a file to get details.
+          const visitAbsPath = path.join(patientPath, vDir.name);
+          const visitFiles = await fs.promises.readdir(visitAbsPath);
+          const rawFile = visitFiles.find(f =>
+            ['.pkg', '.xml', '.bnk', '.log'].includes(path.extname(f).toLowerCase()) &&
+            !f.startsWith('patient') && !f.startsWith('visit')
+          ) || visitFiles.find(f => path.extname(f).toLowerCase() === '.pdf');
+
+          if (rawFile) {
+            try {
+              // Dynamic import parser
+              const parserModule = await import('./parser');
+              const report = await parserModule.parseFile(path.join(visitAbsPath, rawFile));
+
+              if (report) {
+                // Ensure IDs match what we expect
+                if (!report.id) report.id = visitId;
+                if (!report.patient_id) report.patient_id = patientIdCandidate;
+
+                await createReport(report as any);
+                newReports++;
+                existingReportIds.add(visitId);
+              }
+            } catch (e) {
+              console.warn(`[syncDatabase] Failed to import new visit ${vDir.name}:`, e);
+            }
+          }
+        }
+      }
+    }
+
+  } catch (error) {
+    console.error('[syncDatabase] Error:', error);
+  }
+
+  if (newPatients > 0 || newReports > 0) {
+    console.log(`[syncDatabase] Complete in ${Date.now() - start}ms. Added ${newPatients} patients, ${newReports} reports.`);
+  }
+
+  return { newPatients, newReports };
+};

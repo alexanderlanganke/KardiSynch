@@ -21,6 +21,7 @@ export interface IElectronAPI {
   clearAllData: () => Promise<boolean>;
   checkForUpdates: () => Promise<any>;
   checkMedtronicUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;
+  checkBostonUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;
   getDeviceNews: () => Promise<any[]>;
   onNewsStatus: (callback: (message: string) => void) => void;
   quitAndInstall: () => Promise<void>;
