@@ -20,7 +20,7 @@ describe('File Management', () => {
     beforeEach(async () => {
         if (fs.existsSync(testDataPath)) fs.rmSync(testDataPath, { recursive: true, force: true });
         fs.mkdirSync(testDataPath);
-        initializeDatabase(testDbPath);
+        await initializeDatabase(testDbPath);
         await setSettings({ dataPath: testDataPath });
         await initializeStorage();
     });

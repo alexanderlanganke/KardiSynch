@@ -27,7 +27,7 @@ describe('App Startup', () => {
     });
 
     it('should initialize the database correctly', async () => {
-        initializeDatabase(testDbPath);
+        await initializeDatabase(testDbPath);
         const db = getDb();
         expect(db).toBeDefined();
 
@@ -43,7 +43,7 @@ describe('App Startup', () => {
 
     it('should load settings', async () => {
         // Initialize DB first as settings depend on it
-        initializeDatabase(testDbPath);
+        await initializeDatabase(testDbPath);
 
         const settings = await getAllSettings();
         expect(settings).toBeDefined();
