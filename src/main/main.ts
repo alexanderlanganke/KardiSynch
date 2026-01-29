@@ -177,6 +177,20 @@ app.whenReady().then(async () => {
   createWindow();
   console.log('Electron app is ready.');
 
+  // Check for missing Boston Data and update if needed
+  const bostonPath = path.join(app.getPath('userData'), 'boston_data.json');
+  fs.access(bostonPath).then(() => {
+    console.log('[Startup] Boston data present.');
+  }).catch(() => {
+    console.log('[Startup] Boston data missing. Triggering background update...');
+    checkForBostonUpdates().then(res => {
+      console.log('[Startup] Boston update result:', res);
+    }).catch(err => {
+      console.error('[Startup] Boston update failed:', err);
+    });
+  });
+
+
   // Start automated background tasks
   setTimeout(() => {
     AutomationManager.getInstance().startMonitoring();
@@ -393,6 +407,7 @@ ipcMain.handle('get-settings', async () => {
 
 ipcMain.handle('set-settings', async (event, settings) => {
   try {
+    console.log('[IPC Main] Received set-settings request with:', JSON.stringify(settings, null, 2));
     const oldSettings = await getAllSettings();
     await saveSettings(settings);
     const newSettings = await getAllSettings();
