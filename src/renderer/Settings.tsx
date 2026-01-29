@@ -435,16 +435,20 @@ const Settings: React.FC = () => {
                         setSettings(prev => {
                           const currentMap = prev.mriManufacturers || {};
                           const currentVal = currentMap[name] ?? false;
-                          // If explicit boolean provided (from Switch), use it. Else toggle (from Card click).
                           const finalVal = newValue !== undefined ? newValue : !currentVal;
 
-                          return {
+                          const newSettings = {
                             ...prev,
                             mriManufacturers: {
                               ...currentMap,
                               [name]: finalVal
                             }
                           };
+
+                          // Auto-save immediately for better UX
+                          window.electronAPI.setSettings(newSettings).catch(err => console.error('Failed to auto-save settings:', err));
+
+                          return newSettings;
                         });
                       };
 

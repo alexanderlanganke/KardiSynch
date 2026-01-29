@@ -54,11 +54,23 @@ export const getAllSettings = async (): Promise<AppSettings> => {
         }
         if (parsedDbSettings.mriManufacturers) {
             try {
-                parsedDbSettings.mriManufacturers = JSON.parse(parsedDbSettings.mriManufacturers);
+                // Check if it's the corrupted [object Object] string
+                if (parsedDbSettings.mriManufacturers === '[object Object]') {
+                    console.warn('[getAllSettings] Found corrupted mriManufacturers (object Object). Resetting to default.');
+                    parsedDbSettings.mriManufacturers = DEFAULT_SETTINGS.mriManufacturers;
+                } else {
+                    parsedDbSettings.mriManufacturers = JSON.parse(parsedDbSettings.mriManufacturers);
+                }
             } catch (e) {
+                console.error('[getAllSettings] Failed to parse mriManufacturers:', e, parsedDbSettings.mriManufacturers);
                 parsedDbSettings.mriManufacturers = DEFAULT_SETTINGS.mriManufacturers;
             }
         }
+
+        console.log('[getAllSettings] Retrieved settings:', JSON.stringify({
+            ...DEFAULT_SETTINGS,
+            ...parsedDbSettings
+        }, null, 2));
 
         // Merge defaults, DB settings, and Config (config takes precedence for dbPath)
         return {
@@ -88,6 +100,8 @@ export const saveSettings = async (settings: Partial<AppSettings>): Promise<void
             if (settingsToSave.mriManufacturers) {
                 settingsToSave.mriManufacturers = JSON.stringify(settingsToSave.mriManufacturers);
             }
+
+            console.log('[saveSettings] Saving settings to DB:', JSON.stringify(settingsToSave, null, 2));
             await setDbSettings(settingsToSave);
         }
     } catch (error) {
@@ -108,9 +122,13 @@ export const resetSettings = async (): Promise<AppSettings> => {
         const { ...settingsToSave } = DEFAULT_SETTINGS;
 
         // Stringify arrays
+        // Stringify arrays/objects for DB
         const dbReadySettings: any = { ...settingsToSave };
         if (dbReadySettings.usbSourceDirectories) {
             dbReadySettings.usbSourceDirectories = JSON.stringify(dbReadySettings.usbSourceDirectories);
+        }
+        if (dbReadySettings.mriManufacturers) {
+            dbReadySettings.mriManufacturers = JSON.stringify(dbReadySettings.mriManufacturers);
         }
 
         await setDbSettings(dbReadySettings);

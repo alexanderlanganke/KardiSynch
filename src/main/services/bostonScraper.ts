@@ -30,6 +30,11 @@ export async function checkForBostonUpdates(): Promise<{ updated: boolean; count
         }
     });
 
+    // Bridge console logs from the page directly to the terminal
+    win.webContents.on('console-message', (event, level, message, line, sourceId) => {
+        console.log(`[Boston Page Log] ${message}`);
+    });
+
     try {
         await win.loadURL(BOSTON_URL);
 
@@ -50,10 +55,13 @@ export async function checkForBostonUpdates(): Promise<{ updated: boolean; count
             (function() {
                 try {
                     const items = [];
-                    const clean = (t) => t ? t.innerText.trim().replace(/\\n/g, ' ') : '';
+                    const clean = (t) => t ? t.innerText.trim().replace(/[\u2122\u00AE\u00A9]/g, '').replace(/\\n/g, ' ') : '';
 
                     // 1. Scrape Tables with Grid Expansion for Rowspan
                     const tables = document.querySelectorAll('table');
+                    console.log('[Boston Updater] Found ' + tables.length + ' tables.');
+
+                    let tableCount = 0;
                     
                     tables.forEach((table, tableIdx) => {
                         const rows = Array.from(table.querySelectorAll('tr'));
@@ -102,12 +110,19 @@ export async function checkForBostonUpdates(): Promise<{ updated: boolean; count
                         if (grid.length < 2) return;
                         
                         const headerRow = grid[0].map(c => c ? c.text.toLowerCase() : '');
-                        const modelIdx = headerRow.findIndex(h => h.includes('model numbers'));
-                        const nameIdx = headerRow.findIndex(h => h.includes('device name'));
-                        // 'configuration' matches 'mri system configuration'
-                        const mriIdx = headerRow.findIndex(h => h.includes('mri') || h.includes('configuration'));
 
-                        if (modelIdx === -1 || nameIdx === -1) return; // Not a relevant table
+                        const modelIdx = headerRow.findIndex(h => h.includes('model') || h.includes('number') || h.includes('#')); // Broader model match
+                        const nameIdx = headerRow.findIndex(h => h.includes('name') || h.includes('device') || h.includes('lead') || h.includes('family')); // Broader name match
+                        // 'configuration' matches 'mri system configuration'
+                        const mriIdx = headerRow.findIndex(h => h.includes('mri') || h.includes('configuration') || h.includes('status'));
+
+                        if (modelIdx === -1 || nameIdx === -1) {
+                             console.log('[Boston Updater] Skipping Table ' + (tableIdx + 1) + ' (Headers: ' + headerRow.join('|') + ')');
+                             return; 
+                        }
+
+                        tableCount++;
+                        console.log('[Boston Updater] Processing Table ' + (tableIdx + 1) + ' (Headers found: Model=' + modelIdx + ', Name=' + nameIdx + ', MRI=' + mriIdx + ')');
 
                         // Iterate data rows
                         for (let i = 1; i < grid.length; i++) {
@@ -149,33 +164,73 @@ export async function checkForBostonUpdates(): Promise<{ updated: boolean; count
                     });
 
                     // 2. Text Block Parsing for Leads (Fallback/Supplementary)
-                    const mainContent = document.querySelector('main') || document.body;
-                    const textBlocks = mainContent.querySelectorAll('p, li');
-                    textBlocks.forEach(block => {
-                         const txt = clean(block);
-                         if (txt.includes(':') && /[0-9]+/.test(txt)) {
-                             const parts = txt.split(':');
-                             if (parts.length >= 2) {
-                                  const namePart = parts[0].trim();
-                                  const output = parts[1].trim(); 
-                                  if (output.length > 0 && output.length < 200) { 
-                                      const models = output.split(',').map(s => s.trim()).filter(Boolean);
-                                      if (models.length > 0) {
-                                          const isClean = models.every(m => m.split(' ').length < 3); 
-                                          if (isClean && namePart.length < 50) {
-                                              items.push({
-                                                  modelName: namePart,
-                                                  modelNumbers: models,
-                                                  mriModality: 'Conditional (See Manual)', 
-                                                  type: 'lead'
-                                              });
-                                          }
-                                      }
-                                  }
-                             }
-                         }
-                     });
+                    // Endotak and other leads are in format: <p><b>NAME:</b> Models...</p>
+                    // We scan ALL <p> tags to be safe, as class names might change or be inconsistent.
+                    const allPTags = document.querySelectorAll('p');
+                    console.log('[Boston Updater] Checking ' + allPTags.length + ' paragraph tags for lead data...');
 
+                    allPTags.forEach(p => {
+                        const bTags = p.querySelectorAll('b, strong');
+                        bTags.forEach(b => {
+                            // Header is usually "LEAD NAME (Connection):"
+                            let headerText = clean(b).trim();
+                            
+                            // Check for colon logic
+                            const hasColon = headerText.endsWith(':') || (b.nextSibling && b.nextSibling.textContent && b.nextSibling.textContent.trim().startsWith(':'));
+                            
+                            if (!hasColon) return;
+                            
+                            headerText = headerText.replace(/:$/, '').trim();
+                            if (!headerText || headerText.length > 80 || headerText.length < 3) return;
+
+                            // Get models from subsequent text nodes
+                            let nextNode = b.nextSibling;
+                            let modelText = '';
+                            
+                            while (nextNode) {
+                                if (nextNode.nodeType === 3) { // Text
+                                    modelText += nextNode.textContent;
+                                } else if (nextNode.nodeName === 'BR') {
+                                    // BR usually separates entries, so we stop unless it's just a spacer? 
+                                    // In the Endotak example: <b>...</b> models <br> <b>...</b>
+                                    // So yes, break on BR.
+                                    break;
+                                } else if (['B', 'STRONG', 'DIV', 'P'].includes(nextNode.nodeName)) {
+                                    break;
+                                }
+                                nextNode = nextNode.nextSibling;
+                            }
+
+                            modelText = modelText.trim().replace(/^:/, '').trim();
+
+                            // Heuristic: Must contain digits to be models
+                            if (modelText.length > 0 && /\\d/.test(modelText)) {
+                                
+                                let mriCond = 'Conditional (See Manual)';
+                                if (modelText.toLowerCase().includes('1.5') && modelText.toLowerCase().includes('only')) mriCond = '1.5T Only';
+
+                                // Cleanup: Remove parentheticals if they aren't models?
+                                // "0127, 0128 ... (1.5 T only applies to all)" -> Remove the text note
+                                const cleanModelsText = modelText.replace(/\\([^)]*T only[^)]*\\)/gi, '').replace(/\\([^)]*apply[^)]*\\)/gi, '');
+
+                                const models = cleanModelsText.split(/[,;\\n]/)
+                                    .map(s => s.trim())
+                                    .filter(s => s.length > 0 && /\\d/.test(s) && s.length < 25 && !s.toLowerCase().includes('only'));
+
+                                if (models.length > 0) {
+                                    console.log('[Boston Updater] Found lead: ' + headerText + ' (' + models.length + ' models)');
+                                    items.push({
+                                        modelName: headerText,
+                                        modelNumbers: models,
+                                        mriModality: mriCond,
+                                        type: 'lead'
+                                    });
+                                }
+                            }
+                        });
+                    });
+
+                    console.log('[Boston Updater] Extraction complete. Found ' + items.length + ' items total.');
                     return items;
 
                 } catch (err) {
