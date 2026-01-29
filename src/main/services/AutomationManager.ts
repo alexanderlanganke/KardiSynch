@@ -198,9 +198,33 @@ export class AutomationManager {
             db.run(
                 'UPDATE Patients SET mri_status = ?, mri_data_hash = ? WHERE id = ?',
                 [JSON.stringify(result), item.hash, item.patientId],
-                (err) => {
+                async (err) => {
                     if (err) console.error('[AutomationManager] Failed to update DB:', err);
                     else {
+                        // Persist to XML
+                        try {
+                            const { getPatientById } = await import('../database');
+                            const { updatePatientXML } = await import('../storage');
+
+                            const patient = await getPatientById(item.patientId);
+                            if (patient) {
+                                await updatePatientXML(patient.id, {
+                                    first_name: patient.first_name,
+                                    last_name: patient.last_name,
+                                    dob: patient.dob,
+                                    hospitalPatientId: patient.hospitalPatientId,
+                                    // Use data from DB/Patient object as it's the source of truth now
+                                    devices: patient.devices,
+                                    leads: patient.leads,
+                                    mriStatus: result,
+                                    mriDataHash: item.hash
+                                });
+                                console.log(`[AutomationManager] Persisted MRI status for ${patient.name} to XML.`);
+                            }
+                        } catch (e) {
+                            console.error('[AutomationManager] Failed to persist XML:', e);
+                        }
+
                         // Notify Store/UI
                         this.broadcastUpdate(item.patientId, result);
                     }

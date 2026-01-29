@@ -29,7 +29,9 @@ export const initializeStorage = async () => {
 const generatePatientXML = (
   patient: { id: string; first_name: string; last_name: string; dob: string; hospitalPatientId: string | null },
   devices: any[] = [],
-  leads: any[] = []
+  leads: any[] = [],
+  mriStatus: any = null,
+  mriDataHash: string | null = null
 ): string => {
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <patient>
@@ -72,6 +74,16 @@ const generatePatientXML = (
     });
     xml += `
   </leads>`;
+  }
+
+  if (mriStatus) {
+    xml += `
+  <mri_status>${JSON.stringify(mriStatus)}</mri_status>`;
+  }
+
+  if (mriDataHash) {
+    xml += `
+  <mri_data_hash>${mriDataHash}</mri_data_hash>`;
   }
 
   xml += `
@@ -311,7 +323,32 @@ export const storeFile = async (
     }
 
     // Write updated XML
-    fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads));
+    // NOTE: This might overwrite MRI status if we don't preserve it. 
+    // We should read it first.
+    let mriStatus = null;
+    let mriDataHash = null;
+
+    // We already read the file above to get existingDevices/Leads. 
+    // Let's re-use that logic but slightly refactor or just read again to be safe/quick fix.
+    // Ideally we should have pulled *everything* from parsed.patient earlier.
+    // Let's assume we can re-read or just update the logic above.
+    // ACTUALLY, the logic above is inside a `if (fs.existsSync)` block but `parsed` is local scope.
+    // Let's refactor this section slightly to capture MRI data.
+
+    // RE-READ for safety/simplicity as 'parsed' is not available here.
+    if (fs.existsSync(patientXmlPath)) {
+      try {
+        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+        const parser = new XMLParser({ ignoreAttributes: false });
+        const parsed = parser.parse(xmlContent);
+        if (parsed.patient) {
+          mriStatus = parsed.patient.mri_status ? JSON.parse(parsed.patient.mri_status) : null;
+          mriDataHash = parsed.patient.mri_data_hash || null;
+        }
+      } catch (e) { }
+    }
+
+    fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash));
   }
 
   // Generate or update visit.xml if report data provided
@@ -372,6 +409,8 @@ export const updatePatientXML = async (
     hospitalPatientId: string | null;
     devices?: any[];
     leads?: any[];
+    mriStatus?: any;
+    mriDataHash?: string;
   }
 ): Promise<void> => {
   const settings = await getSettings();
@@ -391,9 +430,11 @@ export const updatePatientXML = async (
 
   let devices = updatedData.devices;
   let leads = updatedData.leads;
+  let mriStatus = updatedData.mriStatus;
+  let mriDataHash = updatedData.mriDataHash;
 
-  // If devices or leads NOT provided, read existing data to preserve it
-  if (!devices || !leads) {
+  // If devices, leads, or MRI data NOT provided, read existing data to preserve it
+  if (!devices || !leads || !mriStatus || !mriDataHash) {
     let existingDevices: any[] = [];
     let existingLeads: any[] = [];
 
@@ -413,6 +454,16 @@ export const updatePatientXML = async (
             existingLeads = Array.isArray(parsed.patient.leads.lead)
               ? parsed.patient.leads.lead
               : [parsed.patient.leads.lead];
+          }
+
+          // Preserve existing MRI data if not provided
+          if (!mriStatus && parsed.patient.mri_status) {
+            try {
+              mriStatus = JSON.parse(parsed.patient.mri_status);
+            } catch (e) { }
+          }
+          if (!mriDataHash && parsed.patient.mri_data_hash) {
+            mriDataHash = parsed.patient.mri_data_hash;
           }
         }
       } catch (e) {
@@ -434,7 +485,9 @@ export const updatePatientXML = async (
       hospitalPatientId: updatedData.hospitalPatientId
     },
     devices,
-    leads
+    leads,
+    mriStatus,
+    mriDataHash
   );
 
   fs.writeFileSync(patientXmlPath, newXml);
