@@ -380,8 +380,6 @@ export const getPatientById = (patientId: string): Promise<any> => {
                     p.device_serial || (Array.isArray(p.devices?.device) ? p.devices.device[0].serial : p.devices?.device?.serial) || null,
                     p.leads ? JSON.stringify(p.leads) : null,
                     p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
-                    p.leads ? JSON.stringify(p.leads) : null,
-                    p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
                     fileStats?.mtimeMs || Date.now(),
                     p.mri_status || null,
                     p.mri_data_hash || null
@@ -756,8 +754,9 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
               `INSERT OR REPLACE INTO Patients (
                  id, first_name, last_name, dob, hospitalPatientId,
                  device_manufacturer, device_model, device_serial, leads, devices,
-                 mri_status, mri_data_hash
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 mri_status, mri_data_hash,
+                 last_indexed_mtime
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 p.id,
                 p.first_name,
@@ -770,7 +769,8 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
                 p.leads ? JSON.stringify(p.leads) : null,
                 p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
                 p.mri_status || null,
-                p.mri_data_hash || null
+                p.mri_data_hash || null,
+                Date.now()
               ],
               (err) => {
                 if (err) reject(err);
@@ -1148,8 +1148,7 @@ export const syncDatabase = async (): Promise<{ newPatients: number; newReports:
                     p.device_serial || null,
                     p.leads ? JSON.stringify(p.leads) : null,
                     p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
-                    p.leads ? JSON.stringify(p.leads) : null,
-                    p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
+
                     Date.now(),
                     p.mri_status || null,
                     p.mri_data_hash || null
