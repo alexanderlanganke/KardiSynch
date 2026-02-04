@@ -138,7 +138,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     // Listen for Granular MRI Status Updates (No Refresh)
     // Listen for Granular MRI / Warning Updates
     window.electronAPI.onMRIStatusUpdate((data: any) => {
-      console.log('[Dashboard] Granular Status Update:', data);
+      console.log('[Dashboard] Raw Event Data:', data); // DEBUG
       const { patientId, type, status } = data;
 
       setPatients(current => current.map(p => {
