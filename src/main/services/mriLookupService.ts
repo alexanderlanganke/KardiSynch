@@ -128,14 +128,25 @@ async function checkAbbott(model: string, leads: any[], country: string = 'Germa
         width: 1280,
         height: 900,
         webPreferences: {
-            offscreen: true,
+            offscreen: false, // Changed from true to stability in headless envs
             nodeIntegration: false, // Security
             contextIsolation: true
         }
     });
 
     try {
-        await win.loadURL('https://mri.merlin.net/');
+        // Safe Load URL
+        try {
+            await win.loadURL('https://mri.merlin.net/');
+        } catch (loadErr: any) {
+            console.error('[Abbott] Load failed (Network/Env issue):', loadErr.message);
+            return {
+                manufacturer: 'Abbott',
+                status: 'unknown',
+                details: `Network/Connection failure: ${loadErr.message}. Cannot verify MRI status online.`,
+                timestamp: new Date().toISOString()
+            };
+        }
 
         // 1. Select Country (Mandatory first step)
         console.log('[Abbott] Measuring Country...');
@@ -231,7 +242,16 @@ async function checkAbbott(model: string, leads: any[], country: string = 'Germa
             timestamp: new Date().toISOString()
         };
     } finally {
-        if (win) win.destroy();
+        if (win) {
+            try {
+                if (!win.isDestroyed()) {
+                    win.destroy();
+                }
+            } catch (closeErr) {
+                console.warn('Error closing Abbott check window:', closeErr);
+            }
+            win = null;
+        }
     }
 }
 
@@ -251,18 +271,30 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
         width: 1280,
         height: 900,
         webPreferences: {
-            offscreen: true,
+            offscreen: false, // Changed for stability
             nodeIntegration: false,
             contextIsolation: true
         }
     });
+
     // ... rest of function ...
 
 
     try {
         console.log('[MRI Service] Navigate to ProMRI Check...');
         if (onProgress) onProgress('Connecting to ProMRI Check...');
-        await win.loadURL('https://www.promricheck.com');
+
+        try {
+            await win.loadURL('https://www.promricheck.com');
+        } catch (loadErr: any) {
+            console.error('[Biotronik] Load failed (Network/Env issue):', loadErr.message);
+            return {
+                manufacturer: 'Biotronik',
+                status: 'unknown',
+                details: `Network/Connection failure: ${loadErr.message}. Cannot verify MRI status online.`,
+                timestamp: new Date().toISOString()
+            };
+        }
 
         // 1. Enter System Check
         await waitForElement(win, 'openSystemCheck');
@@ -430,7 +462,13 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
         throw err;
     } finally {
         if (win) {
-            win.destroy();
+            try {
+                if (!win.isDestroyed()) {
+                    win.destroy();
+                }
+            } catch (cleanupErr) {
+                console.warn('Error cleaning up Biotronik window:', cleanupErr);
+            }
             win = null;
         }
     }

@@ -4,6 +4,7 @@ import App from './App';
 import './index.css';
 import './theme.css';
 import { AppProvider } from './AppContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 function mountApp() {
   const target = document.getElementById('app');
@@ -15,7 +16,9 @@ function mountApp() {
   root.render(
     <React.StrictMode>
       <AppProvider>
-        <App />
+        <ErrorBoundary>
+          <App />
+        </ErrorBoundary>
       </AppProvider>
     </React.StrictMode>
   );

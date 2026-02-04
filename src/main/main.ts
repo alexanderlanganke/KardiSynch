@@ -797,20 +797,24 @@ ipcMain.handle('get-visit-files', async (event, patientId: string, visitDirName:
 
     const visitPath = path.join(reportsDir, patientDir, visitDirName);
     const files = await fs.readdir(visitPath);
-
-    // Filter to displayable types
-    const displayableExts = ['.pdf', '.png', '.jpg', '.jpeg', '.xml'];
-    const displayableFiles = files
-      .filter(f => displayableExts.includes(path.extname(f).toLowerCase()))
-      // .filter(f => f !== 'visit.xml') // Allow metadata file to be viewed
-      .map(f => path.join(visitPath, f));
-
-    return displayableFiles;
+    console.log('[get-visit-files] Found files:', files);
+    return files.map(file => path.join(visitPath, file)); // Return file list for frontend if needed
   } catch (error) {
     console.error('[get-visit-files] Failed:', error);
     return [];
   }
 });
+
+ipcMain.handle('export-visit-files', async (event, patientId: string, visitId: string, targetDirectory: string) => {
+  try {
+    const result = await import('./storage').then(m => m.exportVisitFiles(patientId, visitId, targetDirectory));
+    return result;
+  } catch (error) {
+    console.error('[export-visit-files] Failed:', error);
+    throw error;
+  }
+});
+
 
 ipcMain.handle('get-parsed-xml', async (event, filePath: string) => {
   try {
