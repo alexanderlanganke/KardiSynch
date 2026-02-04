@@ -57,6 +57,7 @@ export interface IElectronAPI {
   // Visit Management
   rescanVisit: (visitId: string) => Promise<any>;
   moveVisit: (visitId: string, targetPatientId: string) => Promise<any>;
+  exportVisitFiles: (patientId: string, visitId: string, targetDirectory: string) => Promise<any>;
 }
 
 declare global {

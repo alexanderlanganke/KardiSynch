@@ -543,3 +543,63 @@ export const moveReport = async (reportId: string, oldPatientId: string, newPati
   // Update Database
   await updateReportPatient(reportId, newPatientId);
 };
+
+/**
+ * Exports all files from a visit directory to a target directory, excluding visit.xml.
+ */
+export const exportVisitFiles = async (
+  patientId: string,
+  visitId: string,
+  targetDirectory: string
+): Promise<{ count: number; success: boolean; message?: string }> => {
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  // Find patient directory
+  const dirs = await fs.promises.readdir(reportsDir);
+  const patientDirName = dirs.find(dir => dir.startsWith(patientId));
+
+  if (!patientDirName) {
+    throw new Error(`Patient directory not found for ID: ${patientId}`);
+  }
+
+  const patientPath = path.join(reportsDir, patientDirName);
+
+  // Find visit directory
+  const visitDirs = await fs.promises.readdir(patientPath);
+  const visitDirName = visitDirs.find(dir => dir.includes(visitId));
+
+  if (!visitDirName) {
+    throw new Error(`Visit directory not found for ID: ${visitId}`);
+  }
+
+  const visitPath = path.join(patientPath, visitDirName);
+
+  // Validate target directory
+  if (!fs.existsSync(targetDirectory)) {
+    try {
+      await fs.promises.mkdir(targetDirectory, { recursive: true });
+    } catch {
+      throw new Error(`Target directory does not exist and could not be created: ${targetDirectory}`);
+    }
+  }
+
+  const files = await fs.promises.readdir(visitPath);
+  let copiedCount = 0;
+
+  for (const file of files) {
+    if (file === 'visit.xml') continue;
+
+    const sourceFile = path.join(visitPath, file);
+    const destFile = path.join(targetDirectory, file);
+
+    const stats = await fs.promises.stat(sourceFile);
+    if (stats.isFile()) {
+      await fs.promises.copyFile(sourceFile, destFile);
+      copiedCount++;
+    }
+  }
+
+  return { count: copiedCount, success: true };
+};

@@ -26,6 +26,8 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
             const loadContent = async () => {
                 setLoading(true);
                 try {
+                    if (!window.electronAPI) throw new Error('Electron API not available');
+
                     // Fetch as text to display nicely in browser's native viewer
                     const text = await window.electronAPI.readFileText(filePath);
 
@@ -38,6 +40,7 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
                     setContentBlobUrl(url);
                 } catch (error) {
                     console.error(`Failed to load ${type} data:`, error);
+                    setContentBlobUrl(null);
                 } finally {
                     setLoading(false);
                 }

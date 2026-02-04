@@ -93,5 +93,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   removeListener: (channel: string, func: (...args: any[]) => void) => {
     ipcRenderer.removeListener(channel, func);
-  }
+  },
+  exportVisitFiles: (patientId: string, visitId: string, targetDirectory: string) => ipcRenderer.invoke('export-visit-files', patientId, visitId, targetDirectory),
 });

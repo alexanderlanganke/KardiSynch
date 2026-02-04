@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { ErrorBoundary } from '../renderer/components/ErrorBoundary';
 import { Card } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import ReportViewer from './ReportViewer';
@@ -35,11 +36,13 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             if (selectedReport && selectedReport.directoryName) {
                 try {
                     const files = await window.electronAPI.getVisitFiles(patientId, selectedReport.directoryName);
-                    setAvailableFiles(files);
+                    // Ensure files is an array
+                    const safeFiles = Array.isArray(files) ? files : [];
+                    setAvailableFiles(safeFiles);
 
                     // Auto-select best file
-                    if (files.length > 0 && !selectedFile) {
-                        setSelectedFile(getBestFile(files));
+                    if (safeFiles.length > 0 && !selectedFile) {
+                        setSelectedFile(getBestFile(safeFiles));
                     }
                 } catch (error) {
                     console.error('Failed to load visit files:', error);
@@ -316,11 +319,13 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             {/* Content area */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 {selectedReport ? (
-                    <ReportViewer
-                        report={selectedReport}
-                        type={effectiveSelectedFile ? getFileType(effectiveSelectedFile) : 'xml'}
-                        filePath={effectiveSelectedFile || undefined}
-                    />
+                    <ErrorBoundary>
+                        <ReportViewer
+                            report={selectedReport}
+                            type={effectiveSelectedFile ? getFileType(effectiveSelectedFile) : 'xml'}
+                            filePath={effectiveSelectedFile || undefined}
+                        />
+                    </ErrorBoundary>
                 ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
                         <div className="text-6xl mb-4 opacity-20">📊</div>

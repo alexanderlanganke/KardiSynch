@@ -2,7 +2,7 @@ import React from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Calendar, FileText, RefreshCw, FolderInput } from 'lucide-react';
+import { Calendar, FileText, RefreshCw, FolderInput, Download } from 'lucide-react';
 
 interface Visit {
     id: string;
@@ -16,9 +16,10 @@ interface VisitTimelineProps {
     onVisitSelect: (visit: Visit) => void;
     onRescan: (visit: Visit) => void;
     onMove: (visit: Visit) => void;
+    onExport: (visit: Visit) => void;
 }
 
-const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, onRescan, onMove }) => {
+const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, onRescan, onMove, onExport }) => {
     const handleDragStart = (e: React.DragEvent, visit: Visit) => {
         e.dataTransfer.setData('visitId', visit.id);
         e.dataTransfer.effectAllowed = 'copy';
@@ -67,6 +68,15 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                         onClick={(e) => { e.stopPropagation(); onMove(visit); }}
                                     >
                                         <FolderInput className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6 hover:text-green-500"
+                                        title="Export Visit Files"
+                                        onClick={(e) => { e.stopPropagation(); onExport(visit); }}
+                                    >
+                                        <Download className="h-3 w-3" />
                                     </Button>
                                 </div>
 

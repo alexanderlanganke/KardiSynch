@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, User, Calendar, Activity, Battery, Zap, Pencil } from 'lucide-react';
 import ViewPane from '@/components/ViewPane';
+import { ErrorBoundary } from '@/renderer/components/ErrorBoundary';
 import VisitTimeline from '@/components/VisitTimeline';
 import DeviceLeadEditor from '@/components/DeviceLeadEditor';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
@@ -144,6 +145,34 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     }
   };
 
+  // --- Export Logic ---
+  const handleExport = async (visit: any) => {
+    try {
+      const settings = await window.electronAPI.getSettings();
+      let targetDir = settings.usbTargetDirectory;
+
+      if (!targetDir) {
+        // If no default target is set, prompt one time or suggest setting it
+        // For now, let's fallback to asking the user
+        // alert('No export directory configured in settings. Please select a folder.');
+        targetDir = await window.electronAPI.selectDirectory();
+      }
+
+      if (!targetDir) return; // User cancelled
+
+      const result = await window.electronAPI.exportVisitFiles(patientId, visit.id, targetDir);
+
+      if (result.success) {
+        alert(`Successfully exported ${result.count} files to:\n${targetDir}`);
+      } else {
+        alert(`Export failed: ${result.message}`);
+      }
+    } catch (error) {
+      console.error('Export failed:', error);
+      alert('Failed to export files. Check console.');
+    }
+  };
+
   // Get latest report for header data
   const latestReport = reports[0];
 
@@ -200,13 +229,13 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         {/* Middle: Scrollable History (Devices & Leads) */}
         <div className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-2 mask-linear-fade">
           {/* Devices */}
-          {patient?.devices && patient.devices.length > 0 && patient.devices.map((device: any, idx: number) => (
+          {patient?.devices && Array.isArray(patient.devices) && patient.devices.length > 0 && patient.devices.map((device: any, idx: number) => (
             <div key={`dev-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 border border-primary/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
               <Activity className="h-3 w-3 text-primary/70" />
               <div className="flex flex-col leading-none gap-0.5">
                 <div className="flex items-center gap-1">
-                  <span className="font-semibold text-foreground/80">{device.model}</span>
-                  <span className="font-mono text-muted-foreground opacity-70">({device.serial})</span>
+                  <span className="font-semibold text-foreground/80">{device.model || 'Unknown'}</span>
+                  <span className="font-mono text-muted-foreground opacity-70">({device.serial || 'Unknown'})</span>
                 </div>
                 {device.type && <span className="text-[9px] text-muted-foreground opacity-60 uppercase tracking-tighter">{device.type}</span>}
               </div>
@@ -214,13 +243,13 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           ))}
 
           {/* Leads */}
-          {patient?.leads && patient.leads.length > 0 && patient.leads.map((lead: any, idx: number) => (
+          {patient?.leads && Array.isArray(patient.leads) && patient.leads.length > 0 && patient.leads.map((lead: any, idx: number) => (
             <div key={`lead-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/5 border border-yellow-500/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
               <Zap className="h-3 w-3 text-yellow-600/70" />
               <div className="flex flex-col leading-none gap-0.5">
                 <div className="flex items-center gap-1">
-                  <span className="font-semibold text-foreground/80">{lead.model}</span>
-                  <span className="font-mono text-muted-foreground opacity-70">({lead.serial})</span>
+                  <span className="font-semibold text-foreground/80">{lead.model || 'Unknown'}</span>
+                  <span className="font-mono text-muted-foreground opacity-70">({lead.serial || 'Unknown'})</span>
                 </div>
                 <div className="flex items-center gap-1 text-[9px] text-muted-foreground opacity-60 uppercase tracking-tighter">
                   {lead.type && <span>{lead.type}</span>}
@@ -246,24 +275,28 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       {/* Main Content - 2 Pane Viewer */}
       <div className="flex-1 overflow-hidden">
         <div className="grid grid-cols-2 h-full">
-          <ViewPane
-            paneId={0}
-            patientId={patientId}
-            selectedReport={selectedReports[0]}
-            availableReports={reports}
-            onReportSelect={handleReportSelect}
-            isActive={activePaneId === 0}
-            onActivate={() => setActivePaneId(0)}
-          />
-          <ViewPane
-            paneId={1}
-            patientId={patientId}
-            selectedReport={selectedReports[1]}
-            availableReports={reports}
-            onReportSelect={handleReportSelect}
-            isActive={activePaneId === 1}
-            onActivate={() => setActivePaneId(1)}
-          />
+          <ErrorBoundary>
+            <ViewPane
+              paneId={0}
+              patientId={patientId}
+              selectedReport={selectedReports[0]}
+              availableReports={reports}
+              onReportSelect={handleReportSelect}
+              isActive={activePaneId === 0}
+              onActivate={() => setActivePaneId(0)}
+            />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <ViewPane
+              paneId={1}
+              patientId={patientId}
+              selectedReport={selectedReports[1]}
+              availableReports={reports}
+              onReportSelect={handleReportSelect}
+              isActive={activePaneId === 1}
+              onActivate={() => setActivePaneId(1)}
+            />
+          </ErrorBoundary>
         </div>
       </div>
 
@@ -278,6 +311,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         onVisitSelect={handleVisitSelect}
         onRescan={handleRescan}
         onMove={handleMove}
+        onExport={handleExport}
       />
 
       {/* Editor Modal */}
