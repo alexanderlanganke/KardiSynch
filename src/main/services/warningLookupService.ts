@@ -142,14 +142,41 @@ async function checkBiotronikWarning(serial: string): Promise<WarningStatusResul
         const scraping = await win.webContents.executeJavaScript(`
             (function() {
                 const results = document.querySelector('.results-container') || document.body;
-                const text = results.innerText;
+                const rawText = results.innerText;
+                const text = rawText.replace(/\\s+/g, ' ').trim().toLowerCase();
                 
-                // FIXED LOGIC: Explicitly check for "could not be associated" as SAFE.
-                if (text.includes('No advisories') || text.includes('not affected') || text.includes('could not be associated')) return { status: 'safe', text };
+                // HEURISTICS
+                // Safe Phrases
+                if (
+                    text.includes('no advisories') || 
+                    text.includes('not affected') || 
+                    text.includes('could not be associated') ||
+                    text.includes('no product advisory') 
+                ) {
+                    return { status: 'safe', text: rawText };
+                }
                 
-                if (text.includes('Advisory') || text.includes('Recall') || text.includes('affected')) return { status: 'advisory', text };
-                if (text.includes('not found') || text.includes('invalid')) return { status: 'unknown', text };
-                return { status: 'manual_check', text };
+                // Advisory Phrases
+                // Be careful: "product advisory" might appear in the safe message!
+                // We rely on the Safe check returning *first* above.
+                if (
+                    text.includes('advisory') || 
+                    text.includes('recall') || 
+                    text.includes('affected')
+                ) {
+                    return { status: 'advisory', text: rawText };
+                }
+
+                // Fallback
+                if (text.includes('not found') || text.includes('invalid')) {
+                     return { status: 'unknown', text: rawText };
+                }
+
+                // If we see text but can't classify, default to manual for safety, but log it.
+                // If the text is very short, maybe we missed the load.
+                if (text.length < 20) return { status: 'manual_check', text: 'Error: Content too short/empty' };
+
+                return { status: 'manual_check', text: rawText };
             })()
         `);
 
