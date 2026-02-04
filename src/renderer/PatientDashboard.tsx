@@ -597,7 +597,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                           }
                           if (status === 'manual_check') {
                             return (
-                              <div className="text-blue-500 cursor-pointer hover:text-blue-600" title={`Manual Check Required: ${details}\nClick to open manufacturer portal.`} onClick={openLink}>
+                              <div className="text-gray-400 cursor-pointer hover:text-gray-600" title={`Manual Check Required: ${details}\nClick to open manufacturer portal.`} onClick={openLink}>
                                 <ShieldQuestion className="h-5 w-5" />
                               </div>
                             );
