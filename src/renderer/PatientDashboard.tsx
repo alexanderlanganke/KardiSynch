@@ -37,6 +37,7 @@ interface Patient {
   deviceModel?: string;
   leads?: string[];
   mriStatus?: { status: string; details: string; timestamp?: string };
+  manufacturerWarningStatus?: { status: string; details: string; link?: string; timestamp?: string };
 }
 
 
@@ -130,24 +131,32 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
     // Listen for automation updates (General Spinner)
     const cleanupAutomation = window.electronAPI.onAutomationStatus((status: any) => {
+      // Differentiate check types if needed, or just spin
       setProcessingId(status.isProcessing ? status.currentPatientId : null);
     });
 
     // Listen for Granular MRI Status Updates (No Refresh)
-    window.electronAPI.onMRIStatusUpdate(({ patientId, status }) => {
-      console.log('[Dashboard] Granular MRI Update:', patientId, status);
+    // Listen for Granular MRI / Warning Updates
+    window.electronAPI.onMRIStatusUpdate((data: any) => {
+      console.log('[Dashboard] Granular Status Update:', data);
+      const { patientId, type, status } = data;
+
       setPatients(current => current.map(p => {
-        if (p.id === patientId || p.patientId === patientId) { // Check both to be safe
+        if (p.id === patientId || p.patientId === patientId || p.hospitalPatientId === patientId) {
+          if (type === 'warning') {
+            return { ...p, manufacturerWarningStatus: status };
+          }
+          // Default to MRI if type is missing or 'mri'
           return { ...p, mriStatus: status };
         }
         return p;
       }));
-      // Clear processing state if it matches
       setProcessingId(prev => (prev === patientId ? null : prev));
     });
 
     return () => {
       window.electronAPI.removeListener('patient-list-update', handleUpdate);
+      // cleanups
     };
   }, [fetchPatients]);
 
@@ -390,9 +399,10 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             <SortIcon field="deviceManufacturer" />
             <span className="sr-only">Manufacturer</span>
           </div>
-          {/* Warning Column Placeholder */}
-          <div className="w-[8%] flex justify-center">
-            <HelpCircle className="h-4 w-4 opacity-50" />
+          {/* Warning Column */}
+          <div className="w-[8%] flex justify-center cursor-pointer group" onClick={() => handleSort('deviceManufacturer')}>
+            <ShieldAlert className="h-4 w-4 opacity-50 group-hover:opacity-100" />
+            <span className="sr-only">Warning Status</span>
           </div>
           <div
             className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
@@ -487,7 +497,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
                       {/* Warning Column (Edit: Placeholder) */}
                       <div className="w-[8%] flex justify-center opacity-30">
-                        <ShieldAlert className="h-4 w-4" />
+                        <ShieldQuestion className="h-4 w-4" />
                       </div>
 
                       {/* Model Column */}
@@ -557,9 +567,50 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                         />
                       </div>
 
-                      {/* Warning Column (Placeholder) */}
-                      <div className="w-[8%] flex justify-center items-center opacity-10 group-hover:opacity-40 transition-opacity">
-                        <HelpCircle className="h-4 w-4" />
+                      {/* Warning Column */}
+                      <div className="w-[8%] flex justify-center items-center">
+                        {(() => {
+                          const status = patient.manufacturerWarningStatus?.status || 'unknown';
+                          const details = patient.manufacturerWarningStatus?.details || 'Status Unknown';
+                          const link = patient.manufacturerWarningStatus?.link;
+
+                          const openLink = (e: React.MouseEvent) => {
+                            e.stopPropagation();
+                            if (link) window.open(link, '_blank'); // Electron needs shell.openExternal usually, but target=_blank works in some configs or we need preload handler
+                            // For robustness, we should use a window.electronAPI.openExternal(link)
+                            // If not available, we fall back to standard window.open or just no-op if strict.
+                            // I will assume standard window.open works or add `openExternal` to preload in next step.
+                            if (link) window.electronAPI.openExternal?.(link);
+                          };
+
+                          if (status === 'safe') {
+                            return (
+                              <div className="text-green-500 cursor-help" title={`Safe: ${details}`}>
+                                <ShieldCheck className="h-5 w-5" />
+                              </div>
+                            );
+                          }
+                          if (status === 'advisory' || status === 'recall') {
+                            return (
+                              <div className="text-red-500 cursor-pointer animate-pulse" title={`WARNING: ${details}`} onClick={openLink}>
+                                <ShieldAlert className="h-5 w-5" />
+                              </div>
+                            );
+                          }
+                          if (status === 'manual_check') {
+                            return (
+                              <div className="text-blue-500 cursor-pointer hover:text-blue-600" title={`Manual Check Required: ${details}\nClick to open manufacturer portal.`} onClick={openLink}>
+                                <ShieldQuestion className="h-5 w-5" />
+                              </div>
+                            );
+                          }
+                          // Unknown
+                          return (
+                            <div className="text-muted-foreground/30" title="Warning Status Unknown">
+                              <ShieldQuestion className="h-4 w-4" />
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       {/* Model Column */}
@@ -574,7 +625,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                             const manu = (patient.deviceManufacturer || '').toLowerCase();
 
                             // Force unknown status for Unknown/Missing manufacturers
-                            if (manu === 'unknown' || !manu) {
+                            if ((manu === 'unknown' || !manu) && !patient.devices?.length && !patient.leads?.length) {
                               status = 'unknown';
                             }
 

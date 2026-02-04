@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import { checkMRIStatus } from './mriLookupService';
+import { checkWarningStatus } from './warningLookupService';
 import { getDb } from '../database';
 import { sendNotification, sendProcessStatus } from '../windowManager';
 
@@ -10,6 +11,7 @@ export class AutomationManager {
     private mainWindow: BrowserWindow | null = null;
     private monitoringInterval: NodeJS.Timeout | null = null;
     private processedHashes: Set<string> = new Set();
+    private processedWarningHashes: Set<string> = new Set();
 
     // Leadless keywords alignment with mriLookupService
     private LEADLESS_KEYWORDS = ['Micra', 'Leadless', 'Nanostim', 'Aveir', 'MC1', 'MC2', 'LCP'];
@@ -55,6 +57,7 @@ export class AutomationManager {
 
         let query = `
             SELECT p.id, p.first_name, p.last_name, p.mri_status, p.mri_data_hash, 
+                   p.manufacturer_warning_status, p.manufacturer_warning_hash,
                    r.manufacturer, r.device_model, r.device_serial_number, r.data
             FROM Patients p
             LEFT JOIN Reports r ON r.patient_id = p.id
@@ -62,7 +65,8 @@ export class AutomationManager {
 
         // If NOT forcing, only check unknown/missing
         if (!force) {
-            query += ` WHERE p.mri_status IS NULL OR p.mri_status = '{"status":"unknown"}' OR p.mri_status = '' `;
+            query += ` WHERE (p.mri_status IS NULL OR p.mri_status = '{"status":"unknown"}' OR p.mri_status = '') 
+                        OR (p.manufacturer_warning_status IS NULL OR p.manufacturer_warning_status = '{"status":"unknown"}' OR p.manufacturer_warning_status = '') `;
         }
 
         query += ` ORDER BY r.interrogation_date DESC`;
@@ -88,27 +92,45 @@ export class AutomationManager {
                 } catch (e) { /* ignore */ }
 
                 const hash = this.calculateHash(row.manufacturer, row.device_model, row.device_serial_number || '', leads);
+                const warningHash = this.calculateWarningHash(row.manufacturer, row.device_model, row.device_serial_number || '');
 
-                // If hash matches what we already checked, skip (unless mri_status is missing/unknown which logic above selected)
-                // Actually, the main purpose of hash is to see if DATA changed since last check.
-                // If DB says mri_data_hash == current hash, AND status is unknown, maybe we failed before? 
-                // Let's retry anyway if unknown.
-                if (!force && row.mri_data_hash === hash && row.mri_status && row.mri_status !== '{"status":"unknown"}') {
-                    return;
+                // 1. MRI Check Logic
+                let mriNeeded = false;
+                if (force || (row.mri_status === '{"status":"unknown"}' || !row.mri_status) || row.mri_data_hash !== hash) {
+                    if (!this.processedHashes.has(hash)) mriNeeded = true;
                 }
 
-                if (this.processedHashes.has(hash)) return; // Already queued in this session
+                if (mriNeeded) {
+                    this.addToQueue({
+                        type: 'mri',
+                        patientId: row.id,
+                        patientName: `${row.last_name}, ${row.first_name}`,
+                        manufacturer: row.manufacturer,
+                        model: row.device_model,
+                        serial: row.device_serial_number,
+                        leads,
+                        hash
+                    });
+                }
 
-                // Queue it
-                this.addToQueue({
-                    patientId: row.id,
-                    patientName: `${row.last_name}, ${row.first_name}`,
-                    manufacturer: row.manufacturer,
-                    model: row.device_model,
-                    serial: row.device_serial_number,
-                    leads,
-                    hash
-                });
+                // 2. Warning Check Logic
+                let warningNeeded = false;
+                // If warning hash mismatches OR status unknown OR force
+                if (force || (row.manufacturer_warning_status === '{"status":"unknown"}' || !row.manufacturer_warning_status) || row.manufacturer_warning_hash !== warningHash) {
+                    if (!this.processedWarningHashes.has(warningHash)) warningNeeded = true;
+                }
+
+                if (warningNeeded) {
+                    this.addToQueue({
+                        type: 'warning',
+                        patientId: row.id,
+                        patientName: `${row.last_name}, ${row.first_name}`,
+                        manufacturer: row.manufacturer,
+                        model: row.device_model,
+                        serial: row.device_serial_number, // leads not needed for warning usually
+                        hash: warningHash
+                    });
+                }
             });
         });
     }
@@ -118,12 +140,20 @@ export class AutomationManager {
         return Buffer.from(data).toString('base64');
     }
 
-    addToQueue(item: any) {
-        if (this.checkQueue.some(i => i.patientId === item.patientId)) return; // Already queued
+    private calculateWarningHash(manufacturer: string, model: string, serial: string): string {
+        const data = `${manufacturer}|${model}|${serial}`;
+        return Buffer.from(data).toString('base64');
+    }
 
-        console.log(`[AutomationManager] Queueing ${item.patientId} (${item.hash ? 'Hash mismatch' : 'Force'})`);
+    addToQueue(item: any) {
+        if (this.checkQueue.some(i => i.patientId === item.patientId && i.type === item.type)) return; // Already queued
+
+        console.log(`[AutomationManager] Queueing ${item.type.toUpperCase()} check for ${item.patientId}`);
         this.checkQueue.push(item);
-        this.processedHashes.add(item.hash);
+
+        if (item.type === 'mri') this.processedHashes.add(item.hash);
+        if (item.type === 'warning') this.processedWarningHashes.add(item.hash);
+
         this.broadcastStatus();
 
         if (!this.isProcessing) {
@@ -135,6 +165,7 @@ export class AutomationManager {
     forceCheckAll() {
         console.log('[AutomationManager] Re-triggering all checks...');
         this.processedHashes.clear();
+        this.processedWarningHashes.clear();
         this.scanForPendingPatients(true);
     }
 
@@ -150,86 +181,88 @@ export class AutomationManager {
         const item = this.checkQueue.shift();
         this.broadcastStatus();
 
+        const checkType = item.type || 'mri'; // Default for backward compat
+
         // 1. Start Task
-        const taskId = `mri-${item.patientId}-${Date.now()}`;
+        const taskId = `${checkType}-${item.patientId}-${Date.now()}`;
         sendProcessStatus({
             type: 'start',
-            message: taskId, // Protocol: message handles title/id sometimes, but let's stick to standard if possible
+            message: taskId,
             taskId: taskId,
-            title: `MRI Check: ${item.patientName}`,
+            title: `${checkType.toUpperCase()} Check: ${item.patientName}`,
             progress: 0
         });
 
         try {
-            console.log(`[MRI Service] Checking status for ${item.manufacturer} ${item.model}...`);
-            const result = await checkMRIStatus(
-                item.manufacturer,
-                item.model,
-                item.serial,
-                item.leads || [],
-                'Germany', // Default country
-                (msg) => {
-                    // Update Progress
-                    sendProcessStatus({
-                        type: 'progress',
-                        taskId: taskId,
-                        message: msg,
-                        progress: 0 // We assume unknown progress unless we map messages to %
-                        // Ideally we'd improve mriLookupService to pass % back
-                    });
-                }
-            );
-
-            // Notify result
-            const notifType = (result.status === 'unsafe' || result.status === 'unknown') ? 'warning' : 'info';
-            // Only send toast on completion
-            sendNotification(`MRI Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
-
-            // Complete Task
-            sendProcessStatus({
-                type: 'complete',
-                taskId: taskId,
-                progress: 100,
-                message: `Result: ${result.status}`
-            });
-
-            // Update DB
-            const db = getDb();
-            db.run(
-                'UPDATE Patients SET mri_status = ?, mri_data_hash = ? WHERE id = ?',
-                [JSON.stringify(result), item.hash, item.patientId],
-                async (err) => {
-                    if (err) console.error('[AutomationManager] Failed to update DB:', err);
-                    else {
-                        // Persist to XML
-                        try {
-                            const { getPatientById } = await import('../database');
-                            const { updatePatientXML } = await import('../storage');
-
-                            const patient = await getPatientById(item.patientId);
-                            if (patient) {
-                                await updatePatientXML(patient.id, {
-                                    first_name: patient.first_name,
-                                    last_name: patient.last_name,
-                                    dob: patient.dob,
-                                    hospitalPatientId: patient.hospitalPatientId,
-                                    // Use data from DB/Patient object as it's the source of truth now
-                                    devices: patient.devices,
-                                    leads: patient.leads,
-                                    mriStatus: result,
-                                    mriDataHash: item.hash
-                                });
-                                console.log(`[AutomationManager] Persisted MRI status for ${patient.name} to XML.`);
-                            }
-                        } catch (e) {
-                            console.error('[AutomationManager] Failed to persist XML:', e);
-                        }
-
-                        // Notify Store/UI
-                        this.broadcastUpdate(item.patientId, result);
+            if (checkType === 'mri') {
+                console.log(`[MRI Service] Checking status for ${item.manufacturer} ${item.model}...`);
+                const result = await checkMRIStatus(
+                    item.manufacturer,
+                    item.model,
+                    item.serial,
+                    item.leads || [],
+                    'Germany',
+                    (msg) => {
+                        sendProcessStatus({
+                            type: 'progress',
+                            taskId: taskId,
+                            message: msg,
+                            progress: 0
+                        });
                     }
+                );
+
+                const notifType = (result.status === 'unsafe' || result.status === 'unknown') ? 'warning' : 'info';
+                sendNotification(`MRI Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
+
+                sendProcessStatus({
+                    type: 'complete',
+                    taskId: taskId,
+                    progress: 100,
+                    message: `Result: ${result.status}`
+                });
+
+                const db = getDb();
+                db.run(
+                    'UPDATE Patients SET mri_status = ?, mri_data_hash = ? WHERE id = ?',
+                    [JSON.stringify(result), item.hash, item.patientId],
+                    async (err) => {
+                        if (!err) this.persistToXML(item.patientId, { mriStatus: result, mriDataHash: item.hash });
+                        this.broadcastUpdate(item.patientId, { type: 'mri', status: result });
+                    }
+                );
+
+            } else if (checkType === 'warning') {
+                console.log(`[Warning Service] Checking status for ${item.manufacturer} ${item.model}...`);
+                const result = await checkWarningStatus(
+                    item.manufacturer,
+                    item.model,
+                    item.serial
+                );
+
+                const notifType = (result.status === 'recall' || result.status === 'advisory') ? 'error' : (result.status === 'manual_check' ? 'info' : 'info');
+                // Only notify if significant?
+                if (result.status !== 'safe') {
+                    sendNotification(`Warning Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
                 }
-            );
+
+                sendProcessStatus({
+                    type: 'complete',
+                    taskId: taskId,
+                    progress: 100,
+                    message: `Result: ${result.status}`
+                });
+
+                const db = getDb();
+                db.run(
+                    'UPDATE Patients SET manufacturer_warning_status = ?, manufacturer_warning_hash = ? WHERE id = ?',
+                    [JSON.stringify(result), item.hash, item.patientId],
+                    async (err) => {
+                        if (!err) this.persistToXML(item.patientId, { manufacturerWarningStatus: result, manufacturerWarningHash: item.hash });
+                        this.broadcastUpdate(item.patientId, { type: 'warning', status: result });
+                    }
+                );
+            }
 
         } catch (error: any) {
             console.error(`[AutomationManager] Error processing ${item.patientId}:`, error);
@@ -262,8 +295,36 @@ export class AutomationManager {
         if (this.mainWindow) {
             this.mainWindow.webContents.send('mri-status-update', {
                 patientId,
-                status: result
+                type: result.type, // 'mri' or 'warning'
+                status: result.status
             });
+        }
+    }
+
+    async persistToXML(patientId: string, updates: any) {
+        try {
+            const { getPatientById } = await import('../database');
+            const { updatePatientXML } = await import('../storage');
+
+            const patient = await getPatientById(patientId);
+            if (patient) {
+                await updatePatientXML(patient.id, {
+                    first_name: patient.first_name,
+                    last_name: patient.last_name,
+                    dob: patient.dob,
+                    hospitalPatientId: patient.hospitalPatientId,
+                    devices: patient.devices,
+                    leads: patient.leads,
+                    // Merge existing with updates
+                    mriStatus: updates.mriStatus !== undefined ? updates.mriStatus : patient.mriStatus,
+                    mriDataHash: updates.mriDataHash !== undefined ? updates.mriDataHash : patient.mriDataHash, // Note: patient object might not have hash exposed, check DB
+                    manufacturerWarningStatus: updates.manufacturerWarningStatus !== undefined ? updates.manufacturerWarningStatus : patient.manufacturerWarningStatus,
+                    manufacturerWarningHash: updates.manufacturerWarningHash !== undefined ? updates.manufacturerWarningHash : patient.manufacturerWarningHash
+                });
+                console.log(`[AutomationManager] Persisted updates for ${patient.name} to XML.`);
+            }
+        } catch (e) {
+            console.error('[AutomationManager] Failed to persist XML:', e);
         }
     }
 
@@ -271,34 +332,36 @@ export class AutomationManager {
         console.log(`[AutomationManager] Force checking ${patientId}...`);
 
         try {
-            // Updated import path
             const { getPatientById } = await import('../database');
-
-            // 1. Get Patient (Triggers Read-Repair if stale, returns Normalized Data)
             const patient = await getPatientById(patientId);
-            console.log(`[AutomationManager] Force Check Debug - Patient:`, JSON.stringify(patient, null, 2));
 
-            // 2. Use Data Directly from Database (Lazy Load System source of truth)
-            const manufacturer = patient.deviceManufacturer;
-            const model = patient.deviceModel;
-            const serial = patient.deviceSerial;
-            const leads = patient.leads || [];
-
-            if (!manufacturer || !model) {
+            if (!patient.deviceManufacturer || !patient.deviceModel) {
                 console.warn(`[AutomationManager] Cannot force check ${patientId}: Missing manufacturer/model.`);
                 return;
             }
 
-            // 3. Hash & Queue
-            const hash = this.calculateHash(manufacturer, model, serial || '', leads);
+            // Queue Both
+            const mriHash = this.calculateHash(patient.deviceManufacturer, patient.deviceModel, patient.deviceSerial || '', patient.leads || []);
             this.addToQueue({
+                type: 'mri',
                 patientId: patient.id,
                 patientName: patient.name,
-                manufacturer: manufacturer,
-                model: model,
-                serial: serial,
-                leads,
-                hash
+                manufacturer: patient.deviceManufacturer,
+                model: patient.deviceModel,
+                serial: patient.deviceSerial,
+                leads: patient.leads || [],
+                hash: mriHash
+            });
+
+            const warningHash = this.calculateWarningHash(patient.deviceManufacturer, patient.deviceModel, patient.deviceSerial || '');
+            this.addToQueue({
+                type: 'warning',
+                patientId: patient.id,
+                patientName: patient.name,
+                manufacturer: patient.deviceManufacturer,
+                model: patient.deviceModel,
+                serial: patient.deviceSerial,
+                hash: warningHash
             });
 
         } catch (e) {

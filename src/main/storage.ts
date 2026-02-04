@@ -31,7 +31,9 @@ const generatePatientXML = (
   devices: any[] = [],
   leads: any[] = [],
   mriStatus: any = null,
-  mriDataHash: string | null = null
+  mriDataHash: string | null = null,
+  manufacturerWarningStatus: any = null,
+  manufacturerWarningHash: string | null = null
 ): string => {
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <patient>
@@ -84,6 +86,16 @@ const generatePatientXML = (
   if (mriDataHash) {
     xml += `
   <mri_data_hash>${mriDataHash}</mri_data_hash>`;
+  }
+
+  if (manufacturerWarningStatus) {
+    xml += `
+  <manufacturer_warning_status>${JSON.stringify(manufacturerWarningStatus)}</manufacturer_warning_status>`;
+  }
+
+  if (manufacturerWarningHash) {
+    xml += `
+  <manufacturer_warning_hash>${manufacturerWarningHash}</manufacturer_warning_hash>`;
   }
 
   xml += `
@@ -348,7 +360,7 @@ export const storeFile = async (
       } catch (e) { }
     }
 
-    fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash));
+    fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash, null, null)); // TODO: Read warning status too if preserving
   }
 
   // Generate or update visit.xml if report data provided
@@ -411,6 +423,8 @@ export const updatePatientXML = async (
     leads?: any[];
     mriStatus?: any;
     mriDataHash?: string;
+    manufacturerWarningStatus?: any;
+    manufacturerWarningHash?: string;
   }
 ): Promise<void> => {
   const settings = await getSettings();
@@ -432,9 +446,11 @@ export const updatePatientXML = async (
   let leads = updatedData.leads;
   let mriStatus = updatedData.mriStatus;
   let mriDataHash = updatedData.mriDataHash;
+  let manufacturerWarningStatus = updatedData.manufacturerWarningStatus;
+  let manufacturerWarningHash = updatedData.manufacturerWarningHash;
 
-  // If devices, leads, or MRI data NOT provided, read existing data to preserve it
-  if (!devices || !leads || !mriStatus || !mriDataHash) {
+  // If devices, leads, MRI, or Warning data NOT provided, read existing data to preserve it
+  if (!devices || !leads || !mriStatus || !mriDataHash || !manufacturerWarningStatus || !manufacturerWarningHash) {
     let existingDevices: any[] = [];
     let existingLeads: any[] = [];
 
@@ -465,6 +481,15 @@ export const updatePatientXML = async (
           if (!mriDataHash && parsed.patient.mri_data_hash) {
             mriDataHash = parsed.patient.mri_data_hash;
           }
+          // Preserve Warning Data
+          if (!manufacturerWarningStatus && parsed.patient.manufacturer_warning_status) {
+            try {
+              manufacturerWarningStatus = JSON.parse(parsed.patient.manufacturer_warning_status);
+            } catch (e) { }
+          }
+          if (!manufacturerWarningHash && parsed.patient.manufacturer_warning_hash) {
+            manufacturerWarningHash = parsed.patient.manufacturer_warning_hash;
+          }
         }
       } catch (e) {
         console.error('Error reading existing patient.xml during update:', e);
@@ -487,7 +512,9 @@ export const updatePatientXML = async (
     devices,
     leads,
     mriStatus,
-    mriDataHash
+    mriDataHash,
+    manufacturerWarningStatus,
+    manufacturerWarningHash
   );
 
   fs.writeFileSync(patientXmlPath, newXml);
