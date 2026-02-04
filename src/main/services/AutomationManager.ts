@@ -246,6 +246,8 @@ export class AutomationManager {
                     sendNotification(`Warning Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
                 }
 
+                console.log(`[AutomationManager] Warning Check Complete for ${item.patientName}:`, result); // DEBUG
+
                 sendProcessStatus({
                     type: 'complete',
                     taskId: taskId,
@@ -293,6 +295,7 @@ export class AutomationManager {
 
     private broadcastUpdate(patientId: string, result: any) {
         if (this.mainWindow) {
+            console.log(`[AutomationManager] Broadcasting update for ${patientId} type=${result.type || 'mri'}`); // DEBUG
             this.mainWindow.webContents.send('mri-status-update', {
                 patientId,
                 type: result.type, // 'mri' or 'warning'
