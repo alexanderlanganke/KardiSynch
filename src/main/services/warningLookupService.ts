@@ -8,6 +8,7 @@ export interface WarningStatusResult {
     details: string;
     link?: string; // Link to the specific advisory page or general lookup
     timestamp: string;
+    components?: { type: 'device' | 'lead'; model: string; serial: string; status: string }[];
 }
 
 // Helper: Wait function
@@ -86,70 +87,14 @@ async function checkAbbottWarning(model: string, serial: string): Promise<Warnin
 
 async function checkBostonWarning(model: string, serial: string): Promise<WarningStatusResult> {
     // Strategy: Automatable. UPN + Serial.
-    // Note: We need the UPN (Model Number). Often "device_model" in our DB is just the name (e.g. "Cognis").
-    // The Boston tool asks for "Model Number (UPN)" e.g. "D123".
-    // If we only have the Name, automation might fail or we need to map Name -> UPN.
-    // For now, let's try assuming 'model' might be the UPN or strict lookup is hard without it.
-    // If automation fails/is complex, fallback to Manual Check for safety in V1.
-
-    // However, the prompt asked for implementation suggestions and we found it "Automatable".
-    // Let's TRY to automate if we have data, but gracefully fallback.
-
-    console.log(`[Warning Service] Checking Boston: ${model} / ${serial}`);
-
-    let win: BrowserWindow | null = new BrowserWindow({
-        show: false,
-        width: 1280,
-        height: 900,
-        webPreferences: { offscreen: false, nodeIntegration: false, contextIsolation: true }
-    });
-
-    try {
-        await win.loadURL('https://www.bostonscientific.com/en-US/pprc/device-lookup-tool/device-lookup-tool-eu-de.html');
-
-        // Accept Cookies if needed (heuristic)
-        // ... (Skipping complex cookie logic for V1, assuming offscreen might bypass or we just try)
-
-        await waitForElement(win, '#modelNumber');
-        await safeType(win, '#modelNumber', model); // Risk: model might be name, not UPN
-        await safeType(win, '#serialNumber', serial);
-
-        await win.webContents.executeJavaScript(`document.getElementById('searchButton').click()`);
-
-        await wait(3000);
-
-        // Check results
-        // Scrape for "No advisories found" or "Advisory found"
-        const result = await win.webContents.executeJavaScript(`
-            (function() {
-                const body = document.body.innerText;
-                if (body.includes('No results found') || body.includes('please check your entries')) return 'not_found';
-                if (body.includes('No advisories') || body.includes('Safe')) return 'safe'; // Hypothetical positive text
-                if (body.includes('Advisory')) return 'advisory';
-                return 'unknown';
-            })()
-        `);
-
-        // actually, without a real valid UPN/Serial pair to test, this is speculative.
-        // Better to return Manual Check link if uncertainty exists.
-        // The user prompt said "give me implementation suggestions", and I am implementing.
-        // Given the strict UPN requirement, let's stick to Manual Check for Boston in this iteration 
-        // UNLESS we are sure we have UPNs. Usually DB has "Model Name".
-
-        // Retracting automation for Boston to avoid false negatives/errors.
-        throw new Error("Boston Automation requires strict UPN. Defaulting to manual.");
-
-    } catch (e) {
-        return {
-            manufacturer: 'Boston Scientific',
-            status: 'manual_check',
-            details: 'Boston Scientific lookup requires specific Model UPN. Please check manually.',
-            link: 'https://www.bostonscientific.com/en-US/pprc/device-lookup-tool/device-lookup-tool-eu-de.html',
-            timestamp: new Date().toISOString()
-        };
-    } finally {
-        if (win && !win.isDestroyed()) win.destroy();
-    }
+    // Retracting automation for Boston to avoid false negatives/errors due to strict UPN requirement.
+    return {
+        manufacturer: 'Boston Scientific',
+        status: 'manual_check',
+        details: 'Boston Scientific lookup requires specific Model UPN. Please check manually.',
+        link: 'https://www.bostonscientific.com/en-US/pprc/device-lookup-tool/device-lookup-tool-eu-de.html',
+        timestamp: new Date().toISOString()
+    };
 }
 
 async function checkBiotronikWarning(serial: string): Promise<WarningStatusResult> {
@@ -168,10 +113,7 @@ async function checkBiotronikWarning(serial: string): Promise<WarningStatusResul
     try {
         await win.loadURL('https://www.biotronik.com/en-int/professionals/services/device-lookup-tool');
 
-        // Handle Cookie Banner logic from subagent analysis
-        // "Accept All" button? 
-        // Subagent clicked x=850, y=940. Heuristic. 
-        // Let's try to find text "Accept" or "Zustimmen"
+        // Handle Cookie Banner logic
         await wait(2000);
         await win.webContents.executeJavaScript(`
             (function() {
@@ -201,8 +143,10 @@ async function checkBiotronikWarning(serial: string): Promise<WarningStatusResul
             (function() {
                 const results = document.querySelector('.results-container') || document.body;
                 const text = results.innerText;
-                // Heuristics based on typical tools
-                if (text.includes('No advisories') || text.includes('not affected')) return { status: 'safe', text };
+                
+                // FIXED LOGIC: Explicitly check for "could not be associated" as SAFE.
+                if (text.includes('No advisories') || text.includes('not affected') || text.includes('could not be associated')) return { status: 'safe', text };
+                
                 if (text.includes('Advisory') || text.includes('Recall') || text.includes('affected')) return { status: 'advisory', text };
                 if (text.includes('not found') || text.includes('invalid')) return { status: 'unknown', text };
                 return { status: 'manual_check', text };
