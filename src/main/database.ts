@@ -35,7 +35,9 @@ const createTables = (db: sqlite3.Database) => {
         dob TEXT NOT NULL,
         hospitalPatientId TEXT,
         mri_status TEXT,
-        mri_data_hash TEXT
+        mri_data_hash TEXT,
+        manufacturer_warning_status TEXT,
+        manufacturer_warning_hash TEXT
       );
     `);
 
@@ -59,6 +61,9 @@ const createTables = (db: sqlite3.Database) => {
     safeAddColumn("ALTER TABLE Patients ADD COLUMN devices TEXT");
     // Lazy Sync Support
     safeAddColumn("ALTER TABLE Patients ADD COLUMN last_indexed_mtime INTEGER");
+    // Manufacturer Warning Support
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN manufacturer_warning_status TEXT");
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN manufacturer_warning_hash TEXT");
 
     db.run(`
       CREATE TABLE IF NOT EXISTS Reports (
@@ -237,13 +242,16 @@ export const updatePatient = (patient: {
   device_serial?: string | null;
   leads?: string | null;
   devices?: any[] | null;
+  manufacturer_warning_status?: any | null;
+  manufacturer_warning_hash?: string | null;
 }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
       `UPDATE Patients SET 
          first_name = ?, last_name = ?, dob = ?, hospitalPatientId = ?,
-         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?, devices = ?
+         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?, devices = ?,
+         manufacturer_warning_status = ?, manufacturer_warning_hash = ?
        WHERE id = ?`,
       [
         patient.first_name,
@@ -255,6 +263,8 @@ export const updatePatient = (patient: {
         patient.device_serial || null,
         patient.leads || null,
         patient.devices ? JSON.stringify(patient.devices) : null,
+        patient.manufacturer_warning_status ? JSON.stringify(patient.manufacturer_warning_status) : null,
+        patient.manufacturer_warning_hash || null,
         patient.id
       ],
       (err) => {
@@ -367,8 +377,9 @@ export const getPatientById = (patientId: string): Promise<any> => {
                              id, first_name, last_name, dob, hospitalPatientId, 
                              device_manufacturer, device_model, device_serial, leads, devices,
                              last_indexed_mtime,
-                             mri_status, mri_data_hash
-                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                             mri_status, mri_data_hash,
+                             manufacturer_warning_status, manufacturer_warning_hash
+                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                   [
                     p.id,
                     p.first_name,
@@ -382,7 +393,9 @@ export const getPatientById = (patientId: string): Promise<any> => {
                     p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
                     fileStats?.mtimeMs || Date.now(),
                     p.mri_status || null,
-                    p.mri_data_hash || null
+                    p.mri_data_hash || null,
+                    p.manufacturer_warning_status || null,
+                    p.manufacturer_warning_hash || null
                   ],
                   (e) => {
                     if (e) rej(e);
@@ -403,7 +416,8 @@ export const getPatientById = (patientId: string): Promise<any> => {
                 deviceSerial: p.device_serial || (p.devices?.device?.[0]?.serial),
                 leads: p.leads ? JSON.stringify(p.leads) : null,
                 devices: p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
-                mri_status: row?.mri_status // Preserve existing analysis if any
+                mri_status: row?.mri_status, // Preserve existing analysis if any
+                manufacturer_warning_status: row?.manufacturer_warning_status // Preserve existing
               };
               console.log('[getPatientById] Read-repair complete.');
             }
@@ -467,7 +481,8 @@ export const getPatientById = (patientId: string): Promise<any> => {
           deviceSerial,
           leads,
           devices,
-          mriStatus: safeJSONParse(row.mri_status, null)
+          mriStatus: safeJSONParse(row.mri_status, null),
+          manufacturerWarningStatus: safeJSONParse(row.manufacturer_warning_status, null)
         };
         resolve(patient);
       }
@@ -664,7 +679,8 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
           dob: row.dob || '',
           lastReportDate: row.lastReportDate || '',
           reportCount: row.reportCount || 0,
-          mriStatus: row.mri_status ? JSON.parse(row.mri_status) : null
+          mriStatus: row.mri_status ? JSON.parse(row.mri_status) : null,
+          manufacturerWarningStatus: row.manufacturer_warning_status ? JSON.parse(row.manufacturer_warning_status) : null
         }));
         resolve(patients);
       }
@@ -755,8 +771,9 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
                  id, first_name, last_name, dob, hospitalPatientId,
                  device_manufacturer, device_model, device_serial, leads, devices,
                  mri_status, mri_data_hash,
+                 manufacturer_warning_status, manufacturer_warning_hash,
                  last_indexed_mtime
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 p.id,
                 p.first_name,
@@ -770,6 +787,8 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
                 p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
                 p.mri_status || null,
                 p.mri_data_hash || null,
+                p.manufacturer_warning_status || null,
+                p.manufacturer_warning_hash || null,
                 Date.now()
               ],
               (err) => {
