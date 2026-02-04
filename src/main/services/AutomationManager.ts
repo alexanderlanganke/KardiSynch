@@ -92,7 +92,7 @@ export class AutomationManager {
                 } catch (e) { /* ignore */ }
 
                 const hash = this.calculateHash(row.manufacturer, row.device_model, row.device_serial_number || '', leads);
-                const warningHash = this.calculateWarningHash(row.manufacturer, row.device_model, row.device_serial_number || '');
+                const warningHash = this.calculateWarningHash(row.manufacturer, row.device_model, row.device_serial_number || '', leads);
 
                 // 1. MRI Check Logic
                 let mriNeeded = false;
@@ -128,6 +128,7 @@ export class AutomationManager {
                         manufacturer: row.manufacturer,
                         model: row.device_model,
                         serial: row.device_serial_number, // leads not needed for warning usually
+                        leads, // NOW NEEDED for warnings
                         hash: warningHash
                     });
                 }
@@ -140,8 +141,9 @@ export class AutomationManager {
         return Buffer.from(data).toString('base64');
     }
 
-    private calculateWarningHash(manufacturer: string, model: string, serial: string): string {
-        const data = `${manufacturer}|${model}|${serial}`;
+    private calculateWarningHash(manufacturer: string, model: string, serial: string, leads: any[] = []): string {
+        const leadData = leads.map(l => `${l.manufacturer || manufacturer}:${l.model}:${l.serial}`).join('|');
+        const data = `${manufacturer}|${model}|${serial}|${leadData}`;
         return Buffer.from(data).toString('base64');
     }
 
@@ -233,12 +235,48 @@ export class AutomationManager {
                 );
 
             } else if (checkType === 'warning') {
-                console.log(`[Warning Service] Checking status for ${item.manufacturer} ${item.model}...`);
-                const result = await checkWarningStatus(
-                    item.manufacturer,
-                    item.model,
-                    item.serial
-                );
+                console.log(`[Warning Service] Checking status for ${item.manufacturer} (Device + ${item.leads?.length || 0} Leads)...`);
+
+                const components: any[] = [];
+                let worstStatus = 'safe';
+
+                // 1. Check Device
+                if (item.model) {
+                    const devRes = await checkWarningStatus(item.manufacturer, item.model, item.serial);
+                    components.push({ ...devRes, type: 'device', model: item.model, serial: item.serial });
+
+                    if (devRes.status === 'recall') worstStatus = 'recall';
+                    else if (devRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
+                    else if (devRes.status === 'manual_check' && worstStatus === 'safe') worstStatus = 'manual_check';
+                }
+
+                // 2. Check Leads
+                if (item.leads && item.leads.length > 0) {
+                    for (const lead of item.leads) {
+                        const leadManu = lead.manufacturer || item.manufacturer; // Fallback to device manu
+                        const leadRes = await checkWarningStatus(leadManu, lead.model, lead.serial);
+                        components.push({ ...leadRes, type: 'lead', model: lead.model, serial: lead.serial });
+
+                        if (leadRes.status === 'recall') worstStatus = 'recall';
+                        else if (leadRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
+                        else if (leadRes.status === 'manual_check' && worstStatus === 'safe') worstStatus = 'manual_check';
+                    }
+                }
+
+                // Aggregate Result
+                const details = components.map(c => `${c.type === 'device' ? 'Device' : 'Lead ' + c.model}: ${c.status.toUpperCase()}`).join('; ');
+                // Use the link from the Device result as primary, or the first one available
+                const primaryLink = components.find(c => c.link)?.link;
+
+                // Construct composite result that matches WarningStatusResult signature but with extra 'components'
+                const result: any = {
+                    manufacturer: item.manufacturer,
+                    status: worstStatus,
+                    details: details,
+                    link: primaryLink,
+                    timestamp: new Date().toISOString(),
+                    components: components
+                };
 
                 const notifType = (result.status === 'recall' || result.status === 'advisory') ? 'error' : (result.status === 'manual_check' ? 'info' : 'info');
                 // Only notify if significant?
@@ -295,11 +333,17 @@ export class AutomationManager {
 
     private broadcastUpdate(patientId: string, result: any) {
         if (this.mainWindow) {
-            console.log(`[AutomationManager] Broadcasting update for ${patientId} type=${result.type || 'mri'}`); // DEBUG
+            // result is either the Status Object (legacy) OR { type: '...', status: ... } wrapper
+            // Check if wrapper
+            const type = result.type || (result.manufacturer ? 'mri' : 'unknown');
+            const statusPayload = result.status || result; // If wrapper, take status. If legacy result, take it whole.
+
+            console.log(`[AutomationManager] Broadcasting update for ${patientId} type=${type}`); // DEBUG
+
             this.mainWindow.webContents.send('mri-status-update', {
                 patientId,
-                type: result.type, // 'mri' or 'warning'
-                status: result.status
+                type,
+                status: statusPayload
             });
         }
     }
@@ -356,7 +400,7 @@ export class AutomationManager {
                 hash: mriHash
             });
 
-            const warningHash = this.calculateWarningHash(patient.deviceManufacturer, patient.deviceModel, patient.deviceSerial || '');
+            const warningHash = this.calculateWarningHash(patient.deviceManufacturer, patient.deviceModel, patient.deviceSerial || '', patient.leads || []);
             this.addToQueue({
                 type: 'warning',
                 patientId: patient.id,
@@ -364,6 +408,7 @@ export class AutomationManager {
                 manufacturer: patient.deviceManufacturer,
                 model: patient.deviceModel,
                 serial: patient.deviceSerial,
+                leads: patient.leads || [],
                 hash: warningHash
             });
 

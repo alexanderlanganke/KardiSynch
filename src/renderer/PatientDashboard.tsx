@@ -576,11 +576,9 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
                           const openLink = (e: React.MouseEvent) => {
                             e.stopPropagation();
-                            if (link) window.open(link, '_blank'); // Electron needs shell.openExternal usually, but target=_blank works in some configs or we need preload handler
-                            // For robustness, we should use a window.electronAPI.openExternal(link)
-                            // If not available, we fall back to standard window.open or just no-op if strict.
-                            // I will assume standard window.open works or add `openExternal` to preload in next step.
-                            if (link) window.electronAPI.openExternal?.(link);
+                            if (link && window.electronAPI.openExternal) {
+                              window.electronAPI.openExternal(link);
+                            }
                           };
 
                           if (status === 'safe') {
