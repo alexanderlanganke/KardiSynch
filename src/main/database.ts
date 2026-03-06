@@ -110,6 +110,13 @@ const createTables = (db: sqlite3.Database) => {
         FOREIGN KEY (session_id) REFERENCES ImportSessions (id)
       );
     `);
+
+    // Indexes for common query patterns
+    db.run(`CREATE INDEX IF NOT EXISTS idx_reports_patient_id ON Reports(patient_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_reports_interrogation_date ON Reports(interrogation_date);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_patients_last_name_dob ON Patients(last_name, dob);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_import_events_session_id ON ImportEvents(session_id);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_import_events_patient_id ON ImportEvents(patient_id);`);
   });
 };
 

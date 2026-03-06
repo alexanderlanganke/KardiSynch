@@ -39,7 +39,7 @@ export const verifyPdfMatch = (pdfText: string, reportData: UnifiedReport): bool
   // Check for the interrogation date
   // This can be tricky due to different date formats. For now, we'll do a simple includes check.
   // A more robust solution might involve regex and date parsing.
-  if (!lowerPdfText.includes(interrogation_date.split('T')[0])) {
+  if (!interrogation_date || !lowerPdfText.includes(interrogation_date.split('T')[0])) {
     return false;
   }
 

@@ -7,6 +7,15 @@ import { app } from 'electron';
 import { sendNotification, sendPatientListUpdate } from './windowManager';
 import { XMLParser } from 'fast-xml-parser';
 
+function escapeXml(value: string | number | undefined | null): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 let dataDir: string;
 
 /**
@@ -37,11 +46,11 @@ const generatePatientXML = (
 ): string => {
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <patient>
-  <id>${patient.id}</id>
-  <first_name>${patient.first_name || ''}</first_name>
-  <last_name>${patient.last_name}</last_name>
-  <dob>${patient.dob}</dob>
-  <hospitalPatientId>${patient.hospitalPatientId || ''}</hospitalPatientId>`;
+  <id>${escapeXml(patient.id)}</id>
+  <first_name>${escapeXml(patient.first_name || '')}</first_name>
+  <last_name>${escapeXml(patient.last_name)}</last_name>
+  <dob>${escapeXml(patient.dob)}</dob>
+  <hospitalPatientId>${escapeXml(patient.hospitalPatientId || '')}</hospitalPatientId>`;
 
   if (devices && devices.length > 0) {
     xml += `
@@ -49,11 +58,11 @@ const generatePatientXML = (
     devices.forEach(d => {
       xml += `
     <device>
-      <model>${d.model || 'Unknown'}</model>
-      <serial>${d.serial || 'Unknown'}</serial>
-      <manufacturer>${d.manufacturer || 'Unknown'}</manufacturer>
-      <implant_date>${d.implant_date || 'Unknown'}</implant_date>
-      <type>${d.type || 'Unknown'}</type>
+      <model>${escapeXml(d.model || 'Unknown')}</model>
+      <serial>${escapeXml(d.serial || 'Unknown')}</serial>
+      <manufacturer>${escapeXml(d.manufacturer || 'Unknown')}</manufacturer>
+      <implant_date>${escapeXml(d.implant_date || 'Unknown')}</implant_date>
+      <type>${escapeXml(d.type || 'Unknown')}</type>
     </device>`;
     });
     xml += `
@@ -66,12 +75,12 @@ const generatePatientXML = (
     leads.forEach(l => {
       xml += `
     <lead>
-      <model>${l.model || 'Unknown'}</model>
-      <serial>${l.serial || 'Unknown'}</serial>
-      <manufacturer>${l.manufacturer || 'Unknown'}</manufacturer>
-      <implant_date>${l.implant_date || 'Unknown'}</implant_date>
-      <type>${l.type || 'Unknown'}</type>
-      <connector>${l.connector || 'Unknown'}</connector>
+      <model>${escapeXml(l.model || 'Unknown')}</model>
+      <serial>${escapeXml(l.serial || 'Unknown')}</serial>
+      <manufacturer>${escapeXml(l.manufacturer || 'Unknown')}</manufacturer>
+      <implant_date>${escapeXml(l.implant_date || 'Unknown')}</implant_date>
+      <type>${escapeXml(l.type || 'Unknown')}</type>
+      <connector>${escapeXml(l.connector || 'Unknown')}</connector>
     </lead>`;
     });
     xml += `
@@ -80,22 +89,22 @@ const generatePatientXML = (
 
   if (mriStatus) {
     xml += `
-  <mri_status>${JSON.stringify(mriStatus)}</mri_status>`;
+  <mri_status>${escapeXml(JSON.stringify(mriStatus))}</mri_status>`;
   }
 
   if (mriDataHash) {
     xml += `
-  <mri_data_hash>${mriDataHash}</mri_data_hash>`;
+  <mri_data_hash>${escapeXml(mriDataHash)}</mri_data_hash>`;
   }
 
   if (manufacturerWarningStatus) {
     xml += `
-  <manufacturer_warning_status>${JSON.stringify(manufacturerWarningStatus)}</manufacturer_warning_status>`;
+  <manufacturer_warning_status>${escapeXml(JSON.stringify(manufacturerWarningStatus))}</manufacturer_warning_status>`;
   }
 
   if (manufacturerWarningHash) {
     xml += `
-  <manufacturer_warning_hash>${manufacturerWarningHash}</manufacturer_warning_hash>`;
+  <manufacturer_warning_hash>${escapeXml(manufacturerWarningHash)}</manufacturer_warning_hash>`;
   }
 
   xml += `
@@ -109,19 +118,19 @@ const generatePatientXML = (
 const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <visit>
-  <report_id>${reportId}</report_id>
-  <interrogation_date>${report.interrogation_date}</interrogation_date>
-  <manufacturer>${report.manufacturer || ''}</manufacturer>
-  <device_type>${report.device?.type || ''}</device_type>
-  <device_model>${report.device?.model || ''}</device_model>
-  <device_serial>${report.device?.serial_number || ''}</device_serial>`;
+  <report_id>${escapeXml(reportId)}</report_id>
+  <interrogation_date>${escapeXml(report.interrogation_date)}</interrogation_date>
+  <manufacturer>${escapeXml(report.manufacturer || '')}</manufacturer>
+  <device_type>${escapeXml(report.device?.type || '')}</device_type>
+  <device_model>${escapeXml(report.device?.model || '')}</device_model>
+  <device_serial>${escapeXml(report.device?.serial_number || '')}</device_serial>`;
 
   if (report.battery) {
     xml += `
   <battery>
-    <voltage value="${report.battery.voltage?.value || ''}" unit="${report.battery.voltage?.unit || ''}" />
-    <last_charge_time value="${report.battery.lastChargeTime?.value || ''}" unit="${report.battery.lastChargeTime?.unit || ''}" />
-    <status>${report.battery.status || ''}</status>
+    <voltage value="${escapeXml(report.battery.voltage?.value || '')}" unit="${escapeXml(report.battery.voltage?.unit || '')}" />
+    <last_charge_time value="${escapeXml(report.battery.lastChargeTime?.value || '')}" unit="${escapeXml(report.battery.lastChargeTime?.unit || '')}" />
+    <status>${escapeXml(report.battery.status || '')}</status>
   </battery>`;
   }
 
@@ -131,15 +140,15 @@ const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
     report.leads.forEach(lead => {
       xml += `
     <lead>
-      <name>${lead.name || ''}</name>
-      <model>${(lead as any).model || ''}</model>
-      <serial>${(lead as any).serial || ''}</serial>
-      <anatomic_location>${lead.anatomic_location || ''}</anatomic_location>
-      <impedance value="${lead.impedance?.value || ''}" unit="${lead.impedance?.unit || ''}" />
-      <sensing value="${lead.sensing?.value || ''}" unit="${lead.sensing?.unit || ''}" />
-      <pacing_threshold value="${lead.pacing_threshold?.value || ''}" unit="${lead.pacing_threshold?.unit || ''}" />
-      <pacing_amplitude value="${lead.pacing_amplitude?.value || ''}" unit="${lead.pacing_amplitude?.unit || ''}" />
-      <shock_impedance value="${lead.shock_impedance?.value || ''}" unit="${lead.shock_impedance?.unit || ''}" />
+      <name>${escapeXml(lead.name || '')}</name>
+      <model>${escapeXml((lead as any).model || '')}</model>
+      <serial>${escapeXml((lead as any).serial || '')}</serial>
+      <anatomic_location>${escapeXml(lead.anatomic_location || '')}</anatomic_location>
+      <impedance value="${escapeXml(lead.impedance?.value || '')}" unit="${escapeXml(lead.impedance?.unit || '')}" />
+      <sensing value="${escapeXml(lead.sensing?.value || '')}" unit="${escapeXml(lead.sensing?.unit || '')}" />
+      <pacing_threshold value="${escapeXml(lead.pacing_threshold?.value || '')}" unit="${escapeXml(lead.pacing_threshold?.unit || '')}" />
+      <pacing_amplitude value="${escapeXml(lead.pacing_amplitude?.value || '')}" unit="${escapeXml(lead.pacing_amplitude?.unit || '')}" />
+      <shock_impedance value="${escapeXml(lead.shock_impedance?.value || '')}" unit="${escapeXml(lead.shock_impedance?.unit || '')}" />
     </lead>`;
     });
     xml += `

@@ -53,13 +53,15 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
     const exists = await waitForElement(win, selector);
     if (!exists) throw new Error(`Timeout waiting for element: ${selector}`);
 
+    const safeSelector = selector.replace(/'/g, "\\'");
+    const safeText = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
     await win.webContents.executeJavaScript(`
         (function() {
             try {
-                const el = document.querySelector('${selector}');
+                const el = document.querySelector('${safeSelector}');
                 if (el) {
                     el.focus();
-                    el.value = '${text}';
+                    el.value = '${safeText}';
                     el.dispatchEvent(new Event('input', { bubbles: true }));
                     el.dispatchEvent(new Event('change', { bubbles: true }));
                 }

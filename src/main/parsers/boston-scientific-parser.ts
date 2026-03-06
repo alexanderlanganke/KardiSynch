@@ -1,6 +1,4 @@
 import { UnifiedReport } from '../reports';
-import * as fs from 'fs';
-import * as path from 'path';
 
 /**
  * --- Boston Scientific BNK Parser ---
@@ -336,15 +334,6 @@ function parseSicdBostonPdf(text: string): UnifiedReport {
  * Dispatches to the appropriate parser based on device type.
  */
 export function parseBostonScientificPdf(text: string): UnifiedReport {
-  // DEBUG: Write raw text to file for analysis
-  try {
-    const debugPath = path.join(process.cwd(), 'debug_pdf_content.txt');
-    fs.writeFileSync(debugPath, text);
-    console.log(`DEBUG: Wrote raw PDF text to ${debugPath}`);
-  } catch (err) {
-    console.error("DEBUG: Failed to write raw PDF text:", err);
-  }
-
   const deviceType = detectDeviceType(text);
   console.log(`Detected Boston Scientific Device Type: ${deviceType}`);
 

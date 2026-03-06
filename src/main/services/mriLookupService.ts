@@ -54,10 +54,11 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
     const exists = await waitForElement(win, selector);
     if (!exists) throw new Error(`Timeout waiting for element: ${selector}`);
 
+    const safeSelector = selector.replace(/'/g, "\\'");
     const focusResult = await win.webContents.executeJavaScript(`
         (function() {
             try {
-                const el = document.getElementById('${selector}');
+                const el = document.getElementById('${safeSelector}');
                 if (!el) return 'Element not found';
                 el.focus();
                 el.click();
@@ -86,11 +87,14 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
 
 // Helper to interact with Select2 components (common in Abbott site)
 async function interactWithSelect2(win: BrowserWindow, selectId: string, text: string) {
+    const safeSelectId = selectId.replace(/'/g, "\\'");
+    const safeText = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
     // 1. Open the dropdown using jQuery (safest on this site)
     const openResult = await win.webContents.executeJavaScript(`
         (function() {
             try {
-                const $el = $('#' + '${selectId}');
+                const $el = $('#' + '${safeSelectId}');
                 if (!$el.length) return 'Select element not found';
                 $el.select2('open');
                 return 'OK';
@@ -111,7 +115,7 @@ async function interactWithSelect2(win: BrowserWindow, selectId: string, text: s
         (function() {
             const input = document.querySelector('${searchSelector}');
             if (!input) return 'Search input not found';
-            input.value = '${text}';
+            input.value = '${safeText}';
             input.dispatchEvent(new Event('input', { bubbles: true }));
             return 'OK';
         })()

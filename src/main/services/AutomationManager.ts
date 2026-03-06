@@ -7,6 +7,15 @@ import { ScraperService } from './ScraperService';
 import fs from 'fs';
 import path from 'path';
 
+const SCRAPER_TIMEOUT_MS = 60000; // 60s timeout per scraper check
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Timeout after ${ms}ms: ${label}`)), ms);
+        promise.then(resolve, reject).finally(() => clearTimeout(timer));
+    });
+}
+
 // Manufacturers whose MRI check requires the scraper (browser automation)
 const SCRAPER_MRI_MANUFACTURERS = ['biotronik', 'abbott', 'st. jude', 'sjm'];
 // Manufacturers whose warning check requires the scraper
@@ -297,10 +306,11 @@ export class AutomationManager {
             progress: 0
         });
 
+        const isScraper = needsScraper(item);
         try {
             if (checkType === 'mri') {
                 console.log(`[MRI Service] Checking status for ${item.manufacturer} ${item.model}...`);
-                const result = await checkMRIStatus(
+                const mriPromise = checkMRIStatus(
                     item.manufacturer,
                     item.model,
                     item.serial,
@@ -315,6 +325,9 @@ export class AutomationManager {
                         });
                     }
                 );
+                const result = isScraper
+                    ? await withTimeout(mriPromise, SCRAPER_TIMEOUT_MS, `MRI check ${item.patientName}`)
+                    : await mriPromise;
 
                 const notifType = (result.status === 'unsafe' || result.status === 'unknown') ? 'warning' : 'info';
                 sendNotification(`MRI Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
@@ -339,31 +352,38 @@ export class AutomationManager {
             } else if (checkType === 'warning') {
                 console.log(`[Warning Service] Checking status for ${item.manufacturer} (Device + ${item.leads?.length || 0} Leads)...`);
 
-                const components: any[] = [];
-                let worstStatus = 'safe';
+                const warningCheck = async () => {
+                    const components: any[] = [];
+                    let worstStatus = 'safe';
 
-                // 1. Check Device
-                if (item.model) {
-                    const devRes = await checkWarningStatus(item.manufacturer, item.model, item.serial);
-                    components.push({ ...devRes, type: 'device', model: item.model, serial: item.serial });
+                    // 1. Check Device
+                    if (item.model) {
+                        const devRes = await checkWarningStatus(item.manufacturer, item.model, item.serial);
+                        components.push({ ...devRes, type: 'device', model: item.model, serial: item.serial });
 
-                    if (devRes.status === 'recall') worstStatus = 'recall';
-                    else if (devRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
-                    else if (devRes.status === 'manual_check' && worstStatus === 'safe') worstStatus = 'manual_check';
-                }
-
-                // 2. Check Leads
-                if (item.leads && item.leads.length > 0) {
-                    for (const lead of item.leads) {
-                        const leadManu = lead.manufacturer || item.manufacturer;
-                        const leadRes = await checkWarningStatus(leadManu, lead.model, lead.serial);
-                        components.push({ ...leadRes, type: 'lead', model: lead.model, serial: lead.serial });
-
-                        if (leadRes.status === 'recall') worstStatus = 'recall';
-                        else if (leadRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
-                        else if (leadRes.status === 'manual_check' && worstStatus === 'safe') worstStatus = 'manual_check';
+                        if (devRes.status === 'recall') worstStatus = 'recall';
+                        else if (devRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
+                        else if (devRes.status === 'manual_check' && worstStatus === 'safe') worstStatus = 'manual_check';
                     }
-                }
+
+                    // 2. Check Leads
+                    if (item.leads && item.leads.length > 0) {
+                        for (const lead of item.leads) {
+                            const leadManu = lead.manufacturer || item.manufacturer;
+                            const leadRes = await checkWarningStatus(leadManu, lead.model, lead.serial);
+                            components.push({ ...leadRes, type: 'lead', model: lead.model, serial: lead.serial });
+
+                            if (leadRes.status === 'recall') worstStatus = 'recall';
+                            else if (leadRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
+                            else if (leadRes.status === 'manual_check' && worstStatus === 'safe') worstStatus = 'manual_check';
+                        }
+                    }
+                    return { components, worstStatus };
+                };
+
+                const { components, worstStatus } = isScraper
+                    ? await withTimeout(warningCheck(), SCRAPER_TIMEOUT_MS, `Warning check ${item.patientName}`)
+                    : await warningCheck();
 
                 const details = components.map(c => `${c.type === 'device' ? 'Device' : 'Lead ' + c.model}: ${c.status.toUpperCase()}`).join('; ');
                 const primaryLink = components.find(c => c.link)?.link;

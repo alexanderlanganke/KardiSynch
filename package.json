@@ -4,7 +4,7 @@
   "description": "A self contained electron based database, renderer and pdf viewer for IECD interrogations",
   "main": "dist/main/main.js",
   "scripts": {
-    "start": "npm run build && electron . --no-sandbox --ozone-platform-hint=auto",
+    "start": "npm run build && electron . --ozone-platform-hint=auto",
     "build": "npm run build:main && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",

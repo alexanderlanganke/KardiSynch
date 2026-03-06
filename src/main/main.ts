@@ -13,6 +13,13 @@ import { getConfig } from './config';
 import { XMLParser } from 'fast-xml-parser';
 import { AutomationManager } from './services/AutomationManager';
 
+function isPathAllowed(filePath: string): boolean {
+  const resolved = path.resolve(filePath);
+  const userDataDir = app.getPath('userData');
+  // Allow paths within userData (covers dataPath, importDir, unmatchedDir by default)
+  return resolved.startsWith(userDataDir + path.sep) || resolved === userDataDir;
+}
+
 function createWindow() {
   const mainWindow = new BrowserWindow({
     width: 1800,
@@ -22,8 +29,7 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: false
+      contextIsolation: true
     },
     title: 'KardiSynch'
   });
@@ -197,10 +203,6 @@ app.whenReady().then(async () => {
   }, 15000);
 
 
-  if (settings) {
-    fs.writeFile('debug_paths.txt', `UserData: ${app.getPath('userData')}\nImportDir: ${settings.importDir}\nDataDir: ${settings.dataPath}`);
-  }
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
@@ -210,6 +212,9 @@ app.whenReady().then(async () => {
 
 ipcMain.handle('read-file-text', async (event, filePath) => {
   try {
+    if (!isPathAllowed(filePath)) {
+      throw new Error(`Access denied: path is outside allowed directories`);
+    }
     const stats = await fs.stat(filePath);
 
     if (stats.isDirectory()) {
@@ -495,6 +500,9 @@ ipcMain.handle('clear-all-data', async () => {
 
 ipcMain.handle('get-pdf-data', async (event, filePath) => {
   try {
+    if (!isPathAllowed(filePath)) {
+      throw new Error(`Access denied: path is outside allowed directories`);
+    }
     console.log('[get-pdf-data] Requesting file:', filePath);
     const data = await fs.readFile(filePath);
     console.log('[get-pdf-data] Read success. Size:', data.length);
@@ -818,6 +826,9 @@ ipcMain.handle('export-visit-files', async (event, patientId: string, visitId: s
 
 ipcMain.handle('get-parsed-xml', async (event, filePath: string) => {
   try {
+    if (!isPathAllowed(filePath)) {
+      throw new Error(`Access denied: path is outside allowed directories`);
+    }
     // Import dynamically to avoid circular dependencies if any
     const { parseFile } = await import('./parser');
     const report = await parseFile(filePath);
