@@ -4,15 +4,16 @@ import PatientDashboard from './PatientDashboard';
 import PatientDetail from './PatientDetail';
 import Settings from './Settings';
 import { ThemeProvider, useTheme } from './ThemeProvider';
+import { PatientProvider } from './store/PatientStore';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
-import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Activity, History, Loader2, Newspaper } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Newspaper } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import icon from './assets/icon.jpg';
-import ImportHistory from './ImportHistory';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
 import DeviceNews from './DeviceNews';
+import OnboardingWizard from './components/OnboardingWizard';
 
 
 const ThemeToggle: React.FC = () => {
@@ -48,6 +49,7 @@ const NavItem: React.FC<{
         ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25 scale-105"
         : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
     )}
+    aria-label={label}
   >
     {icon}
     {active && (
@@ -71,6 +73,9 @@ const App: React.FC = () => {
   const [deviceSelectionOpen, setDeviceSelectionOpen] = React.useState(false);
   const [deviceSelectionFile, setDeviceSelectionFile] = React.useState<any>(null);
 
+  // Onboarding State
+  const [showOnboarding, setShowOnboarding] = React.useState(false);
+
   React.useEffect(() => {
     // Listen for manual sorting requests
     window.electronAPI.onRequestManualSorting((fileInfo) => {
@@ -83,6 +88,19 @@ const App: React.FC = () => {
       setDeviceSelectionFile(fileInfo);
       setDeviceSelectionOpen(true);
     });
+
+    // Check for first-run onboarding
+    const checkOnboarding = async () => {
+      try {
+        const settings = await window.electronAPI.getSettings();
+        if (!settings || (!settings.dataPath && !settings.importDir)) {
+          setShowOnboarding(true);
+        }
+      } catch {
+        // If settings fail, don't show onboarding
+      }
+    };
+    checkOnboarding();
   }, []);
 
   const handleManualSortingResolve = (decision: any) => {
@@ -92,7 +110,6 @@ const App: React.FC = () => {
   };
 
   const handleManualSortingCancel = () => {
-    // Treat cancel as unmatched to prevent infinite loop or hang
     window.electronAPI.manualSortingResponse({ action: 'unmatched' });
     setManualSortingOpen(false);
     setManualSortingFile(null);
@@ -120,8 +137,6 @@ const App: React.FC = () => {
         return <PatientDashboard onPatientSelect={handlePatientSelect} />;
       case 'settings':
         return <Settings />;
-      case 'history':
-        return <ImportHistory />;
       case 'news':
         return <DeviceNews />;
       case 'patientDetail':
@@ -139,73 +154,81 @@ const App: React.FC = () => {
     }
   };
 
+  if (showOnboarding) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+      </ThemeProvider>
+    );
+  }
+
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-      <div
-        className="flex h-screen bg-background text-foreground overflow-hidden selection:bg-primary/20"
-        data-testid="app-container"
-      >
-        {/* Glassmorphism Sidebar */}
-        <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border/40">
-          <div className="mb-8 w-10 h-10 flex items-center justify-center bg-primary/5 rounded-xl">
-            <img src={icon} alt="KardiSynch" className="h-6 w-6 object-contain" style={{ width: '1.5rem', height: '1.5rem' }} />
+      <PatientProvider>
+        <div
+          className="flex h-screen bg-background text-foreground overflow-hidden selection:bg-primary/20"
+          data-testid="app-container"
+        >
+          {/* Sidebar */}
+          <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border/40">
+            <div className="mb-8 w-10 h-10 flex items-center justify-center bg-primary/5 rounded-xl">
+              <img src={icon} alt="KardiSynch" className="h-6 w-6 object-contain" style={{ width: '1.5rem', height: '1.5rem' }} />
+            </div>
+
+            <nav className="flex flex-col space-y-4 w-full items-center" role="navigation" aria-label="Main navigation">
+              <NavItem
+                active={currentView === 'dashboard' || currentView === 'patientDetail'}
+                onClick={() => setCurrentView('dashboard')}
+                icon={<LayoutDashboard className="h-6 w-6" />}
+                label="Patient Dashboard"
+              />
+              <NavItem
+                active={currentView === 'news'}
+                onClick={() => setCurrentView('news')}
+                icon={<Newspaper className="h-6 w-6" />}
+                label="Device News"
+              />
+              <NavItem
+                active={currentView === 'settings'}
+                onClick={() => setCurrentView('settings')}
+                icon={<SettingsIcon className="h-6 w-6" />}
+                label="Settings"
+              />
+            </nav>
+
+            <div className="mt-auto flex flex-col gap-4 items-center">
+              <ThemeToggle />
+            </div>
+          </aside>
+
+          {/* Main Content Area */}
+          <main className="flex-1 overflow-hidden relative flex flex-col">
+            <div className="absolute inset-0 bg-gradient-to-tr from-primary/3 via-transparent to-transparent pointer-events-none" />
+            <div className="flex-1 overflow-hidden">
+              {renderView()}
+            </div>
+          </main>
+
+          <div style={{ position: 'fixed', top: '0px', right: '0px', zIndex: 100, margin: '4px' }}>
+            <NotificationCenter />
           </div>
 
-          <nav className="flex flex-col space-y-4 w-full items-center">
-            <NavItem
-              active={currentView === 'dashboard' || currentView === 'patientDetail'}
-              onClick={() => setCurrentView('dashboard')}
-              icon={<LayoutDashboard className="h-6 w-6" />}
-            />
-            <NavItem
-              active={currentView === 'history'}
-              onClick={() => setCurrentView('history')}
-              icon={<History className="h-6 w-6" />}
-            />
-            <NavItem
-              active={currentView === 'news'}
-              onClick={() => setCurrentView('news')}
-              icon={<Newspaper className="h-6 w-6" />}
-            />
-            <NavItem
-              active={currentView === 'settings'}
-              onClick={() => setCurrentView('settings')}
-              icon={<SettingsIcon className="h-6 w-6" />}
-            />
-          </nav>
+          {/* Global Modals */}
+          <PatientAssignmentModal
+            open={manualSortingOpen}
+            mode="import"
+            sourceItem={manualSortingFile}
+            onResolve={handleManualSortingResolve}
+            onCancel={handleManualSortingCancel}
+          />
 
-          <div className="mt-auto flex flex-col gap-4 items-center">
-            <ThemeToggle />
-          </div>
-        </aside>
-
-        {/* Main Content Area */}
-        <main className="flex-1 overflow-hidden relative flex flex-col">
-          <div className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-transparent pointer-events-none" />
-          <div className="flex-1 overflow-hidden">
-            {renderView()}
-          </div>
-        </main>
-
-        <div style={{ position: 'fixed', top: '0px', right: '0px', zIndex: 100, margin: '4px' }}>
-          <NotificationCenter />
+          <DeviceSelectionModal
+            open={deviceSelectionOpen}
+            fileInfo={deviceSelectionFile}
+            onResolve={handleDeviceSelectionResolve}
+          />
         </div>
-
-        {/* Global Modals */}
-        <PatientAssignmentModal
-          open={manualSortingOpen}
-          mode="import"
-          sourceItem={manualSortingFile}
-          onResolve={handleManualSortingResolve}
-          onCancel={handleManualSortingCancel}
-        />
-
-        <DeviceSelectionModal
-          open={deviceSelectionOpen}
-          fileInfo={deviceSelectionFile}
-          onResolve={handleDeviceSelectionResolve}
-        />
-      </div>
+      </PatientProvider>
     </ThemeProvider>
   );
 };

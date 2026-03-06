@@ -1,11 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, User, Calendar, Clock, MoreVertical, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, HelpCircle } from 'lucide-react';
+import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, Clock } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { usePatientStore, Patient } from './store/PatientStore';
+import { classifyPatient, daysSinceLastVisit, PriorityLevel } from './utils/clinicalPriority';
+import { cn } from '@/lib/utils';
 
 // Manufacturer Logos
 import medtronicLogo from './assets/logos/medtronic.svg';
@@ -25,22 +28,6 @@ const MANUFACTURER_LOGOS: Record<string, string> = {
   'Microport': microportLogo,
 };
 
-interface Patient {
-  id: string;
-  patientId: string;
-  hospitalPatientId: string;
-  name: string;
-  dob: string;
-  lastReportDate: string;
-  reportCount: number;
-  deviceManufacturer?: string;
-  deviceModel?: string;
-  leads?: string[];
-  mriStatus?: { status: string; details: string; timestamp?: string };
-  manufacturerWarningStatus?: { status: string; details: string; link?: string; timestamp?: string };
-}
-
-
 interface FilterState {
   dob: string;
   patientId: string;
@@ -53,15 +40,21 @@ type SortField = 'name' | 'dob' | 'hospitalPatientId' | 'deviceManufacturer' | '
 type SortDirection = 'asc' | 'desc';
 
 const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void }> = ({ onPatientSelect }) => {
-  const [patients, setPatients] = useState<Patient[]>([]);
+  const { patients, loading, dispatch, fetchPatients } = usePatientStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  // Priority section collapse state
+  const [collapsedSections, setCollapsedSections] = useState<Record<PriorityLevel, boolean>>({
+    urgent: false,
+    attention: false,
+    normal: false,
+  });
 
   const [filters, setFilters] = useState<FilterState>({
     dob: '',
@@ -71,50 +64,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     deviceManufacturer: '',
   });
 
-  const fetchPatients = useCallback(async () => {
-    setLoading(true);
-    try {
-      // Get all patients from filesystem
-      const data = await window.electronAPI.getPatientDirectories();
-
-      // Apply client-side filtering
-      let filtered = data;
-
-      if (searchTerm) {
-        const search = searchTerm.toLowerCase();
-        filtered = filtered.filter(p =>
-          p.name.toLowerCase().includes(search) ||
-          String(p.patientId).toLowerCase().includes(search) ||
-          (p.hospitalPatientId && String(p.hospitalPatientId).toLowerCase().includes(search)) ||
-          p.id.toLowerCase().includes(search)
-        );
-      }
-
-      if (filters.dob) {
-        filtered = filtered.filter(p => p.dob === filters.dob);
-      }
-
-      if (filters.patientId) {
-        filtered = filtered.filter(p => p.patientId.includes(filters.patientId));
-      }
-
-      if (filters.hospitalPatientId) {
-        filtered = filtered.filter(p => p.hospitalPatientId && p.hospitalPatientId.includes(filters.hospitalPatientId));
-      }
-
-      if (filters.deviceManufacturer) {
-        filtered = filtered.filter(p => p.deviceManufacturer === filters.deviceManufacturer);
-      }
-
-      setPatients(filtered);
-    } catch (error) {
-      console.error('Error fetching patients:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [searchTerm, filters]);
-
-  // Debounce search term to avoid too many requests
+  // Debounced fetch
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchPatients();
@@ -122,74 +72,77 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     return () => clearTimeout(timer);
   }, [fetchPatients]);
 
-  // Listen for patient list updates
+  // Listen for patient list updates and automation status
   useEffect(() => {
-    const handleUpdate = () => {
-      fetchPatients();
-    };
+    const handleUpdate = () => fetchPatients();
     window.electronAPI.onPatientListUpdate(handleUpdate);
 
-    // Listen for automation updates (General Spinner)
     const cleanupAutomation = window.electronAPI.onAutomationStatus((status: any) => {
-      // Differentiate check types if needed, or just spin
       setProcessingId(status.isProcessing ? status.currentPatientId : null);
     });
 
-    // Listen for Granular MRI Status Updates (No Refresh)
-    // Listen for Granular MRI / Warning Updates
     window.electronAPI.onMRIStatusUpdate((data: any) => {
-      console.log('[Dashboard] Raw Event Data:', data); // DEBUG
       const { patientId, type, status } = data;
-
-      setPatients(current => current.map(p => {
-        if (p.id === patientId || p.patientId === patientId || p.hospitalPatientId === patientId) {
-          if (type === 'warning') {
-            return { ...p, manufacturerWarningStatus: status };
-          }
-          // Default to MRI if type is missing or 'mri'
-          return { ...p, mriStatus: status };
-        }
-        return p;
-      }));
+      const field = type === 'warning' ? 'manufacturerWarningStatus' : 'mriStatus';
+      dispatch({ type: 'UPDATE_PATIENT_STATUS', payload: { patientId, field, value: status } });
       setProcessingId(prev => (prev === patientId ? null : prev));
     });
 
     return () => {
       window.electronAPI.removeListener('patient-list-update', handleUpdate);
-      // cleanups
     };
-  }, [fetchPatients]);
+  }, [fetchPatients, dispatch]);
 
-  const handleFilterChange = (key: keyof FilterState, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value }));
-  };
+  // Filter patients
+  const filteredPatients = useMemo(() => {
+    let filtered = patients;
 
-  const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase();
+      filtered = filtered.filter(p =>
+        p.name.toLowerCase().includes(search) ||
+        String(p.patientId).toLowerCase().includes(search) ||
+        (p.hospitalPatientId && String(p.hospitalPatientId).toLowerCase().includes(search)) ||
+        p.id.toLowerCase().includes(search)
+      );
     }
-  };
 
-  const sortedPatients = [...patients].sort((a, b) => {
-    const fieldA = (a[sortField] || '').toString().toLowerCase();
-    const fieldB = (b[sortField] || '').toString().toLowerCase();
+    if (filters.dob) filtered = filtered.filter(p => p.dob === filters.dob);
+    if (filters.patientId) filtered = filtered.filter(p => p.patientId.includes(filters.patientId));
+    if (filters.hospitalPatientId) filtered = filtered.filter(p => p.hospitalPatientId && p.hospitalPatientId.includes(filters.hospitalPatientId));
+    if (filters.deviceManufacturer) filtered = filtered.filter(p => p.deviceManufacturer === filters.deviceManufacturer);
 
-    if (fieldA < fieldB) return sortDirection === 'asc' ? -1 : 1;
-    if (fieldA > fieldB) return sortDirection === 'asc' ? 1 : -1;
-    return 0;
-  });
+    return filtered;
+  }, [patients, searchTerm, filters]);
+
+  // Sort patients
+  const sortedPatients = useMemo(() => {
+    return [...filteredPatients].sort((a, b) => {
+      const fieldA = (a[sortField] || '').toString().toLowerCase();
+      const fieldB = (b[sortField] || '').toString().toLowerCase();
+      if (fieldA < fieldB) return sortDirection === 'asc' ? -1 : 1;
+      if (fieldA > fieldB) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+  }, [filteredPatients, sortField, sortDirection]);
+
+  // Classify patients into priority buckets
+  const priorityBuckets = useMemo(() => {
+    const buckets: Record<PriorityLevel, Patient[]> = { urgent: [], attention: [], normal: [] };
+    for (const patient of sortedPatients) {
+      const priority = classifyPatient(patient);
+      buckets[priority].push(patient);
+    }
+    return buckets;
+  }, [sortedPatients]);
 
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
 
-  const handleEditClick = (e: React.MouseEvent, patient: Patient & { first_name?: string; last_name?: string }) => {
+  const handleEditClick = (e: React.MouseEvent, patient: Patient) => {
     e.stopPropagation();
     setEditingPatientId(patient.id);
 
-    // Use raw fields if available, otherwise fallback to split
     let firstName = patient.first_name || '';
     let lastName = patient.last_name || '';
 
@@ -218,7 +171,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         hospitalPatientId: editFormData.hospitalPatientId || null
       });
       setEditingPatientId(null);
-      fetchPatients(); // Refresh list
+      fetchPatients();
     } catch (error) {
       console.error('Failed to update patient:', error);
     }
@@ -234,15 +187,26 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     setEditFormData((prev: any) => ({ ...prev, [field]: value }));
   };
 
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
   const clearFilters = () => {
-    setFilters({
-      dob: '',
-      patientId: '',
-      hospitalPatientId: '',
-      hospitalVisitId: '',
-      deviceManufacturer: '',
-    });
+    setFilters({ dob: '', patientId: '', hospitalPatientId: '', hospitalVisitId: '', deviceManufacturer: '' });
     setSearchTerm('');
+  };
+
+  const handleFilterChange = (key: keyof FilterState, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  const toggleSection = (level: PriorityLevel) => {
+    setCollapsedSections(prev => ({ ...prev, [level]: !prev[level] }));
   };
 
   const SortIcon = ({ field }: { field: SortField }) => {
@@ -252,9 +216,176 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
   const getManufacturerLogo = (name?: string) => {
     if (!name) return null;
-    // Simple normalization to match keys
     const key = Object.keys(MANUFACTURER_LOGOS).find(k => name.toLowerCase().includes(k.toLowerCase()));
     return key ? MANUFACTURER_LOGOS[key] : null;
+  };
+
+  const renderPatientCard = (patient: Patient) => {
+    const logo = getManufacturerLogo(patient.deviceManufacturer) || unknownLogo;
+    const days = daysSinceLastVisit(patient);
+    const isEditing = editingPatientId === patient.id;
+
+    return (
+      <div
+        key={patient.id}
+        className={cn(
+          "group flex items-center px-5 py-3 bg-card/60 hover:bg-muted/40 border border-transparent hover:border-border/40 rounded-lg transition-all duration-200 cursor-pointer text-sm",
+          isEditing && 'bg-muted/30 ring-1 ring-primary/20'
+        )}
+        onClick={() => !editingPatientId && onPatientSelect(patient.id)}
+        role="button"
+        tabIndex={0}
+        aria-label={`View patient ${patient.name}`}
+        onKeyDown={(e) => { if (e.key === 'Enter' && !editingPatientId) onPatientSelect(patient.id); }}
+      >
+        {isEditing ? (
+          <>
+            <div className="w-[25%] flex flex-col gap-1 pr-4">
+              <div className="flex gap-2">
+                <Input className="h-8 text-sm font-medium bg-background" placeholder="First Name" value={editFormData.first_name} onChange={(e) => handleInputChange('first_name', e.target.value)} onClick={(e) => e.stopPropagation()} />
+                <Input className="h-8 text-sm font-medium bg-background" placeholder="Last Name" value={editFormData.last_name} onChange={(e) => handleInputChange('last_name', e.target.value)} onClick={(e) => e.stopPropagation()} />
+              </div>
+              <div className="flex gap-2 items-center">
+                <Input className="h-7 text-xs bg-background w-32" placeholder="MRN" value={editFormData.hospitalPatientId} onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)} onClick={(e) => e.stopPropagation()} />
+                <span className="text-[10px] font-mono text-muted-foreground opacity-50 select-all">{patient.patientId}</span>
+              </div>
+            </div>
+            <div className="w-[10%] pr-2">
+              <Input className="h-8 text-sm bg-background" placeholder="YYYY-MM-DD" value={editFormData.dob} onChange={(e) => handleInputChange('dob', e.target.value)} onClick={(e) => e.stopPropagation()} />
+            </div>
+            <div className="w-[12%] pr-2 flex justify-center">
+              <Input className="h-6 text-xs bg-background text-center px-0" placeholder="Mfg" value={editFormData.deviceManufacturer} onChange={(e) => handleInputChange('deviceManufacturer', e.target.value)} onClick={(e) => e.stopPropagation()} />
+            </div>
+            <div className="w-[8%] flex justify-center opacity-30"><ShieldQuestion className="h-4 w-4" /></div>
+            <div className="w-[25%] pr-2">
+              <Input className="h-7 text-xs bg-background" placeholder="Model" value={editFormData.deviceModel} onChange={(e) => handleInputChange('deviceModel', e.target.value)} onClick={(e) => e.stopPropagation()} />
+            </div>
+            <div className="w-[12%] text-muted-foreground text-xs pl-1 opacity-50">{patient.lastReportDate || 'Never'}</div>
+            <div className="w-[8%] flex justify-end gap-1">
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-full" onClick={handleSaveClick} title="Save"><Check className="h-4 w-4" /></Button>
+              <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-full" onClick={handleCancelClick} title="Cancel"><X className="h-4 w-4" /></Button>
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Patient Column */}
+            <div className="w-[25%] flex flex-col justify-center pr-4">
+              <span className="font-semibold text-foreground text-[15px] leading-tight group-hover:text-primary transition-colors">
+                {patient.name}
+              </span>
+              <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground/80">
+                <span className="font-mono text-xs text-muted-foreground/90">
+                  ID: {patient.hospitalPatientId || 'No ID'}
+                </span>
+              </div>
+            </div>
+
+            {/* DOB Column */}
+            <div className="w-[10%] text-xs text-muted-foreground flex items-center">
+              {patient.dob}
+            </div>
+
+            {/* Manufacturer Column (Logo) */}
+            <div className="w-[12%] flex justify-center items-center px-1">
+              <img
+                src={logo}
+                alt={patient.deviceManufacturer || 'Unknown'}
+                className="h-5 w-auto max-w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
+              />
+            </div>
+
+            {/* Warning Column */}
+            <div className="w-[8%] flex justify-center items-center">
+              <WarningBadge patient={patient} />
+            </div>
+
+            {/* Model + MRI Column */}
+            <div className="w-[25%] pr-4">
+              <div className="text-xs text-muted-foreground/80 truncate" title={patient.deviceModel}>
+                {patient.deviceModel || 'Unknown Model'}
+              </div>
+              <div className="mt-1">
+                <MriBadge patient={patient} processingId={processingId} />
+              </div>
+            </div>
+
+            {/* Last Report + Days */}
+            <div className="w-[12%] text-sm text-muted-foreground flex items-center gap-2">
+              <div className="flex flex-col">
+                <span className="text-xs">{patient.lastReportDate || 'No reports'}</span>
+                {days !== null && (
+                  <span className={cn(
+                    "text-[10px]",
+                    days > 180 ? "text-amber-500" : "text-muted-foreground/60"
+                  )}>
+                    {days}d ago
+                  </span>
+                )}
+              </div>
+              {patient.reportCount > 0 && (
+                <Badge variant="outline" className="ml-1 h-5 text-[10px] px-1.5 border-primary/20 text-primary bg-primary/5">
+                  {patient.reportCount}
+                </Badge>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="w-[8%] flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <Button
+                variant="ghost" size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
+                onClick={(e) => handleEditClick(e, patient)}
+                title="Edit Details"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
+              </Button>
+              <Button
+                variant="ghost" size="icon"
+                className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
+                onClick={(e) => { e.stopPropagation(); window.electronAPI.openPatientDirectory(patient.id); }}
+                title="Open Folder"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    );
+  };
+
+  const renderPrioritySection = (level: PriorityLevel, patients: Patient[]) => {
+    if (patients.length === 0) return null;
+
+    const isCollapsed = collapsedSections[level];
+    const config = {
+      urgent: { label: 'Urgent', icon: <AlertTriangle className="h-4 w-4" />, className: 'priority-urgent', countClass: 'status-urgent' },
+      attention: { label: 'Needs Attention', icon: <Clock className="h-4 w-4" />, className: 'priority-attention', countClass: 'status-attention' },
+      normal: { label: 'Normal', icon: null, className: 'priority-normal', countClass: 'status-normal' },
+    }[level];
+
+    return (
+      <div key={level} className={cn("rounded-lg", config.className)}>
+        <button
+          className="w-full flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
+          onClick={() => toggleSection(level)}
+          aria-expanded={!isCollapsed}
+          aria-label={`${config.label} patients section`}
+        >
+          {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {config.icon}
+          <span>{config.label}</span>
+          <Badge className={cn("ml-2 h-5 text-[10px] px-1.5 rounded-full", config.countClass)}>
+            {patients.length}
+          </Badge>
+        </button>
+        {!isCollapsed && (
+          <div className="space-y-1 pb-2">
+            {patients.map(renderPatientCard)}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -262,18 +393,17 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       {/* Header Section */}
       <div className="flex flex-col gap-3 shrink-0 pb-2">
         <div className="shrink-0 flex justify-between items-center">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Patients
-          </h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Patients</h1>
         </div>
         <div className="flex items-center gap-2 w-full">
           <div className="relative flex-1 group">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
             <Input
               placeholder="Search patients..."
-              className="pl-9 h-9 text-sm bg-background/50 backdrop-blur-sm border-muted-foreground/20 focus:border-primary/50 transition-all w-full"
+              className="pl-9 h-9 text-sm bg-background/50 border-muted-foreground/20 focus:border-primary/50 transition-all w-full"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
+              aria-label="Search patients"
             />
           </div>
           <Button
@@ -282,6 +412,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             className="h-9 w-9 rounded-lg border-transparent hover:bg-muted/50 shrink-0"
             onClick={() => setShowFilters(!showFilters)}
             title="Advanced Filters"
+            aria-label="Toggle advanced filters"
           >
             <Filter className="h-4 w-4" />
           </Button>
@@ -295,60 +426,29 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <Filter className="h-4 w-4" /> Advanced Filters
             </CardTitle>
-            <CardDescription>Filter patients by specific criteria matching database records.</CardDescription>
+            <CardDescription>Filter patients by specific criteria.</CardDescription>
           </CardHeader>
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="dob">Date of Birth</Label>
-                <Input
-                  id="dob"
-                  type="date"
-                  className="bg-background/50"
-                  value={filters.dob}
-                  onChange={(e) => handleFilterChange('dob', e.target.value)}
-                />
+                <Input id="dob" type="date" className="bg-background/50" value={filters.dob} onChange={(e) => handleFilterChange('dob', e.target.value)} />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="patientId">Patient ID (Internal)</Label>
-                <Input
-                  id="patientId"
-                  placeholder="e.g. P-12345"
-                  className="bg-background/50"
-                  value={filters.patientId}
-                  onChange={(e) => handleFilterChange('patientId', e.target.value)}
-                />
+                <Input id="patientId" placeholder="e.g. P-12345" className="bg-background/50" value={filters.patientId} onChange={(e) => handleFilterChange('patientId', e.target.value)} />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="hospitalPatientId">Hospital MRN</Label>
-                <Input
-                  id="hospitalPatientId"
-                  placeholder="e.g. MRN-999"
-                  className="bg-background/50"
-                  value={filters.hospitalPatientId}
-                  onChange={(e) => handleFilterChange('hospitalPatientId', e.target.value)}
-                />
+                <Input id="hospitalPatientId" placeholder="e.g. MRN-999" className="bg-background/50" value={filters.hospitalPatientId} onChange={(e) => handleFilterChange('hospitalPatientId', e.target.value)} />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="hospitalVisitId">Visit ID</Label>
-                <Input
-                  id="hospitalVisitId"
-                  placeholder="e.g. V-2023-001"
-                  className="bg-background/50"
-                  value={filters.hospitalVisitId}
-                  onChange={(e) => handleFilterChange('hospitalVisitId', e.target.value)}
-                />
+                <Input id="hospitalVisitId" placeholder="e.g. V-2023-001" className="bg-background/50" value={filters.hospitalVisitId} onChange={(e) => handleFilterChange('hospitalVisitId', e.target.value)} />
               </div>
-
               <div className="space-y-2">
                 <Label htmlFor="manufacturer">Device Manufacturer</Label>
-                <Select
-                  value={filters.deviceManufacturer}
-                  onValueChange={(value) => handleFilterChange('deviceManufacturer', value)}
-                >
+                <Select value={filters.deviceManufacturer} onValueChange={(value) => handleFilterChange('deviceManufacturer', value)}>
                   <SelectTrigger id="manufacturer" className="bg-background/50">
                     <SelectValue placeholder="Select Manufacturer" />
                   </SelectTrigger>
@@ -362,64 +462,43 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                   </SelectContent>
                 </Select>
               </div>
-
               <div className="space-y-2 flex items-end gap-2">
-                <Button variant="outline" onClick={clearFilters} className="flex-1">
-                  <X className="mr-2 h-4 w-4" /> Clear
-                </Button>
-                <Button onClick={() => fetchPatients()} className="flex-1">
-                  <Check className="mr-2 h-4 w-4" /> Refresh
-                </Button>
+                <Button variant="outline" onClick={clearFilters} className="flex-1"><X className="mr-2 h-4 w-4" /> Clear</Button>
+                <Button onClick={() => fetchPatients()} className="flex-1"><Check className="mr-2 h-4 w-4" /> Refresh</Button>
               </div>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Patient List (Table View) */}
+      {/* Patient List - Priority Sections */}
       <div className="flex flex-col flex-1 min-h-0 gap-1 rounded-xl bg-background/20 border border-transparent overflow-hidden">
         {/* Header Row */}
         <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-lg mb-0 select-none shrink-0 z-10">
-          <div
-            className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
-            onClick={() => handleSort('name')}
-          >
+          <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('name')}>
             Patient <SortIcon field="name" />
           </div>
-          <div
-            className="w-[10%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
-            onClick={() => handleSort('dob')}
-          >
+          <div className="w-[10%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('dob')}>
             DOB <SortIcon field="dob" />
           </div>
-          <div
-            className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors group justify-center"
-            onClick={() => handleSort('deviceManufacturer')}
-          >
+          <div className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors justify-center" onClick={() => handleSort('deviceManufacturer')}>
             <SortIcon field="deviceManufacturer" />
             <span className="sr-only">Manufacturer</span>
           </div>
-          {/* Warning Column */}
           <div className="w-[8%] flex justify-center cursor-pointer group" onClick={() => handleSort('deviceManufacturer')}>
             <ShieldAlert className="h-4 w-4 opacity-50 group-hover:opacity-100" />
             <span className="sr-only">Warning Status</span>
           </div>
-          <div
-            className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
-            onClick={() => handleSort('deviceModel')}
-          >
+          <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('deviceModel')}>
             Model <SortIcon field="deviceModel" />
           </div>
-          <div
-            className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors group"
-            onClick={() => handleSort('lastReportDate')}
-          >
+          <div className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('lastReportDate')}>
             Last Report <SortIcon field="lastReportDate" />
           </div>
           <div className="w-[8%] text-right"></div>
         </div>
 
-        <div className="flex-1 overflow-y-auto space-y-1.5 pb-4 pr-1 scrollbar-thin scrollbar-thumb-muted-foreground/10 hover:scrollbar-thumb-muted-foreground/20">
+        <div className="flex-1 overflow-y-auto space-y-1 pb-4 pr-1 scrollbar-thin scrollbar-thumb-muted-foreground/10 hover:scrollbar-thumb-muted-foreground/20">
           {loading ? (
             <div className="flex flex-col items-center justify-center py-20 space-y-3 text-muted-foreground/50">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary/30"></div>
@@ -431,337 +510,130 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
               <p>No patients found matching criteria.</p>
             </div>
           ) : (
-            sortedPatients.map((patient) => {
-              const logo = getManufacturerLogo(patient.deviceManufacturer) || unknownLogo;
-
-              return (
-                <div
-                  key={patient.id}
-                  className={`group flex items-center px-6 py-3 bg-background/60 hover:bg-muted/40 border border-transparent hover:border-border/40 rounded-xl transition-all duration-200 cursor-pointer text-sm shadow-sm hover:shadow-md mb-1.5 ${editingPatientId === patient.id ? 'bg-muted/30 ring-1 ring-primary/20 shadow-md' : ''}`}
-                  onClick={() => !editingPatientId && onPatientSelect(patient.id)}
-                >
-                  {editingPatientId === patient.id ? (
-                    // EDIT MODE
-                    <>
-                      {/* Patient Column (Name, MRN, ID) */}
-                      <div className="w-[25%] flex flex-col gap-1 pr-4">
-                        <div className="flex gap-2">
-                          <Input
-                            className="h-8 text-sm font-medium bg-background"
-                            placeholder="First Name"
-                            value={editFormData.first_name}
-                            onChange={(e) => handleInputChange('first_name', e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <Input
-                            className="h-8 text-sm font-medium bg-background"
-                            placeholder="Last Name"
-                            value={editFormData.last_name}
-                            onChange={(e) => handleInputChange('last_name', e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <div className="flex gap-2 items-center">
-                          <Input
-                            className="h-7 text-xs bg-background w-32"
-                            placeholder="MRN"
-                            value={editFormData.hospitalPatientId}
-                            onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                          <span className="text-[10px] font-mono text-muted-foreground opacity-50 select-all">{patient.patientId}</span>
-                        </div>
-                      </div>
-
-                      {/* DOB Column */}
-                      <div className="w-[10%] pr-2">
-                        <Input
-                          className="h-8 text-sm bg-background"
-                          placeholder="YYYY-MM-DD"
-                          value={editFormData.dob}
-                          onChange={(e) => handleInputChange('dob', e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </div>
-
-                      {/* Manufacturer Column */}
-                      <div className="w-[12%] pr-2 flex justify-center">
-                        <Input
-                          className="h-6 text-xs bg-background text-center px-0"
-                          placeholder="Mfg"
-                          value={editFormData.deviceManufacturer}
-                          onChange={(e) => handleInputChange('deviceManufacturer', e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </div>
-
-                      {/* Warning Column (Edit: Placeholder) */}
-                      <div className="w-[8%] flex justify-center opacity-30">
-                        <ShieldQuestion className="h-4 w-4" />
-                      </div>
-
-                      {/* Model Column */}
-                      <div className="w-[25%] pr-2">
-                        <Input
-                          className="h-7 text-xs bg-background"
-                          placeholder="Model"
-                          value={editFormData.deviceModel}
-                          onChange={(e) => handleInputChange('deviceModel', e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      </div>
-
-                      {/* Last Report (Read Only) */}
-                      <div className="w-[12%] text-muted-foreground text-xs pl-1 opacity-50">
-                        {patient.lastReportDate || 'Never'}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="w-[8%] flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-full"
-                          onClick={handleSaveClick}
-                          title="Save"
-                        >
-                          <Check className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-full"
-                          onClick={handleCancelClick}
-                          title="Cancel"
-                        >
-                          <X className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    // VIEW MODE
-                    <>
-                      {/* Patient Column */}
-                      <div className="w-[25%] flex flex-col justify-center pr-4">
-                        <span className="font-semibold text-foreground text-[15px] leading-tight group-hover:text-primary transition-colors">
-                          {patient.name}
-                        </span>
-                        <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground/80">
-                          <span className="font-mono text-xs text-muted-foreground/90">
-                            ID: {patient.hospitalPatientId || 'No ID'}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* DOB Column */}
-                      <div className="w-[10%] text-xs text-muted-foreground flex items-center">
-                        {patient.dob}
-                      </div>
-
-                      {/* Manufacturer Column (Logo Only) */}
-                      <div className="w-[12%] flex justify-center items-center px-1">
-                        <img
-                          src={logo}
-                          alt={patient.deviceManufacturer || 'Unknown'}
-                          className="h-5 w-auto max-w-full object-contain opacity-90 group-hover:opacity-100 transition-opacity"
-                        />
-                      </div>
-
-                      {/* Warning Column */}
-                      <div className="w-[8%] flex justify-center items-center">
-                        {(() => {
-                          const status = patient.manufacturerWarningStatus?.status || 'unknown';
-                          const details = patient.manufacturerWarningStatus?.details || 'Status Unknown';
-                          const link = patient.manufacturerWarningStatus?.link;
-
-                          const openLink = (e: React.MouseEvent) => {
-                            e.stopPropagation();
-                            if (link && window.electronAPI.openExternal) {
-                              window.electronAPI.openExternal(link);
-                            }
-                          };
-
-                          if (status === 'safe') {
-                            return (
-                              <div className="text-green-500 cursor-help" title={`Safe: ${details}`}>
-                                <ShieldCheck className="h-5 w-5" />
-                              </div>
-                            );
-                          }
-                          if (status === 'advisory' || status === 'recall') {
-                            return (
-                              <div className="text-red-500 cursor-pointer animate-pulse" title={`WARNING: ${details}`} onClick={openLink}>
-                                <ShieldAlert className="h-5 w-5" />
-                              </div>
-                            );
-                          }
-                          if (status === 'manual_check') {
-                            return (
-                              <div className="text-gray-400 cursor-pointer hover:text-gray-600" title={`Manual Check Required: ${details}\nClick to open manufacturer portal.`} onClick={openLink}>
-                                <ShieldQuestion className="h-5 w-5" />
-                              </div>
-                            );
-                          }
-                          // Unknown
-                          return (
-                            <div className="text-muted-foreground/30" title="Warning Status Unknown">
-                              <ShieldQuestion className="h-4 w-4" />
-                            </div>
-                          );
-                        })()}
-                      </div>
-
-                      {/* Model Column */}
-                      <div className="w-[25%] pr-4">
-                        <div className="text-xs text-muted-foreground/80 truncate" title={patient.deviceModel}>
-                          {patient.deviceModel || 'Unknown Model'}
-                        </div>
-                        <div className="mt-1">
-                          {(() => {
-                            const isProcessing = processingId === patient.id;
-                            let status = patient.mriStatus?.status;
-                            const manu = (patient.deviceManufacturer || '').toLowerCase();
-
-                            // Force unknown status for Unknown/Missing manufacturers
-                            if ((manu === 'unknown' || !manu) && !patient.devices?.length && !patient.leads?.length) {
-                              status = 'unknown';
-                            }
-
-                            // Default to unknown if not present
-                            if (!status) {
-                              status = 'unknown';
-                            }
-
-                            // Helper to format tooltip
-                            const formatTooltip = () => {
-                              const details = patient.mriStatus?.details || 'Status Unknown';
-                              const device = `Device: ${patient.deviceModel || 'Unknown'}`;
-
-                              // Format leads logic
-                              let leadsText = 'Leads: None';
-                              if (patient.leads && patient.leads.length > 0) {
-                                // leads is usually an array of strings like "Manufacturer Model (Serial)" based on main.ts
-                                // Let's create a clean list
-                                leadsText = 'Leads:\n' + patient.leads.map(l => `• ${l}`).join('\n');
-                              }
-
-                              return `${details}\n\n${device}\n${leadsText}`;
-                            };
-
-                            if (isProcessing) {
-                              return (
-                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground animate-pulse">
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                  Checking...
-                                </div>
-                              );
-                            }
-
-                            // Render Icon based on status
-                            if (status === 'mr_conditional' || status === 'conditional') {
-                              return (
-                                <div
-                                  className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
-                                  style={{ backgroundColor: '#16a34a', color: 'white', borderColor: '#15803d' }}
-                                  title={formatTooltip()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
-                                  }}
-                                >
-                                  <ShieldCheck className="h-3.5 w-3.5" />
-                                  MRI Conditional
-                                </div>
-                              );
-                            }
-
-
-                            // Unsafe / No Info
-                            if (status === 'unsafe' || status === 'no_info') {
-                              return (
-                                <div
-                                  className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
-                                  style={{ backgroundColor: '#dc2626', color: 'white', borderColor: '#b91c1c' }}
-                                  title={formatTooltip()}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id);
-                                  }}
-                                >
-                                  <ShieldAlert className="h-3.5 w-3.5" />
-                                  {status === 'unsafe' ? 'Unsafe / Warning' : 'Not Conditional'}
-                                </div>
-                              );
-                            }
-
-                            // Unknown / Explicitly Unknown / Default
-                            return (
-                              <div
-                                className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
-                                style={{ backgroundColor: '#4b5563', color: 'white', borderColor: '#374151' }}
-                                title={formatTooltip()}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.electronAPI.triggerMriCheck(patient.id);
-                                }}
-                              >
-                                <HelpCircle className="h-3.5 w-3.5" />
-                                MRI Conditional Unknown
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      </div>
-                      {/* Last Report */}
-                      <div className="w-[12%] text-sm text-muted-foreground flex items-center gap-2">
-                        <div className={`h-2 w-2 rounded-full ${patient.lastReportDate ? 'bg-emerald-500/50' : 'bg-slate-300'}`}></div>
-                        {patient.lastReportDate || 'No reports'}
-                        {patient.reportCount > 0 && (
-                          <Badge variant="outline" className="ml-1 h-5 text-[10px] px-1.5 border-primary/20 text-primary bg-primary/5">
-                            {patient.reportCount}
-                          </Badge>
-                        )}
-                      </div>
-
-                      {/* Actions */}
-                      <div className="w-[8%] flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
-                          onClick={(e) => handleEditClick(e, patient)}
-                          title="Edit Details"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            window.electronAPI.openPatientDirectory(patient.id);
-                          }}
-                          title="Open Folder"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
-                        </Button>
-                      </div>
-                    </>
-                  )
-                  }
-                </div>
-              );
-            })
+            <>
+              {renderPrioritySection('urgent', priorityBuckets.urgent)}
+              {renderPrioritySection('attention', priorityBuckets.attention)}
+              {renderPrioritySection('normal', priorityBuckets.normal)}
+            </>
           )}
         </div>
       </div>
-    </div >
+    </div>
+  );
+};
+
+// --- Sub-components ---
+
+const WarningBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
+  const status = patient.manufacturerWarningStatus?.status || 'unknown';
+  const details = patient.manufacturerWarningStatus?.details || 'Status Unknown';
+  const link = patient.manufacturerWarningStatus?.link;
+
+  const openLink = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (link && window.electronAPI.openExternal) {
+      window.electronAPI.openExternal(link);
+    }
+  };
+
+  if (status === 'safe') {
+    return (
+      <div className="text-green-500 cursor-help" title={`Safe: ${details}`} role="img" aria-label="Safe">
+        <ShieldCheck className="h-5 w-5" />
+      </div>
+    );
+  }
+  if (status === 'advisory' || status === 'recall') {
+    return (
+      <div className="text-red-500 cursor-pointer animate-pulse" title={`WARNING: ${details}`} onClick={openLink} role="button" aria-label="Warning active">
+        <ShieldAlert className="h-5 w-5" />
+      </div>
+    );
+  }
+  if (status === 'manual_check') {
+    return (
+      <div className="text-gray-400 cursor-pointer hover:text-gray-600" title={`Manual Check Required: ${details}`} onClick={openLink} role="button" aria-label="Manual check required">
+        <ShieldQuestion className="h-5 w-5" />
+      </div>
+    );
+  }
+  return (
+    <div className="text-muted-foreground/30" title="Warning Status Unknown" aria-label="Unknown warning status">
+      <ShieldQuestion className="h-4 w-4" />
+    </div>
+  );
+};
+
+const MriBadge: React.FC<{ patient: Patient; processingId: string | null }> = ({ patient, processingId }) => {
+  const isProcessing = processingId === patient.id;
+  let status = patient.mriStatus?.status;
+  const manu = (patient.deviceManufacturer || '').toLowerCase();
+
+  if ((manu === 'unknown' || !manu) && !patient.devices?.length && !patient.leads?.length) {
+    status = 'unknown';
+  }
+  if (!status) status = 'unknown';
+
+  const formatTooltip = () => {
+    const details = patient.mriStatus?.details || 'Status Unknown';
+    const device = `Device: ${patient.deviceModel || 'Unknown'}`;
+    let leadsText = 'Leads: None';
+    if (patient.leads && patient.leads.length > 0) {
+      leadsText = 'Leads:\n' + patient.leads.map((l: any) => `- ${typeof l === 'string' ? l : l.model || 'Unknown'}`).join('\n');
+    }
+    return `${details}\n\n${device}\n${leadsText}`;
+  };
+
+  if (isProcessing) {
+    return (
+      <div className="flex items-center gap-1 text-[10px] text-muted-foreground animate-pulse">
+        <Loader2 className="h-3 w-3 animate-spin" /> Checking...
+      </div>
+    );
+  }
+
+  if (status === 'mr_conditional' || status === 'conditional') {
+    return (
+      <div
+        className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
+        style={{ backgroundColor: 'hsl(var(--status-normal))', color: 'white', borderColor: 'hsl(142 71% 35%)' }}
+        title={formatTooltip()}
+        onClick={(e) => { e.stopPropagation(); if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id); }}
+        role="button"
+        aria-label="MRI Conditional"
+      >
+        <ShieldCheck className="h-3.5 w-3.5" /> MRI Conditional
+      </div>
+    );
+  }
+
+  if (status === 'unsafe' || status === 'no_info') {
+    return (
+      <div
+        className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
+        style={{ backgroundColor: 'hsl(var(--status-urgent))', color: 'white', borderColor: 'hsl(0 72% 41%)' }}
+        title={formatTooltip()}
+        onClick={(e) => { e.stopPropagation(); if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id); }}
+        role="button"
+        aria-label={status === 'unsafe' ? 'MRI Unsafe' : 'Not Conditional'}
+      >
+        <ShieldAlert className="h-3.5 w-3.5" /> {status === 'unsafe' ? 'Unsafe / Warning' : 'Not Conditional'}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
+      style={{ backgroundColor: 'hsl(var(--status-inactive))', color: 'white', borderColor: 'hsl(220 9% 36%)' }}
+      title={formatTooltip()}
+      onClick={(e) => { e.stopPropagation(); window.electronAPI.triggerMriCheck(patient.id); }}
+      role="button"
+      aria-label="MRI status unknown"
+    >
+      <HelpCircle className="h-3.5 w-3.5" /> MRI Conditional Unknown
+    </div>
   );
 };
 
 export default PatientDashboard;
-
-
-
-

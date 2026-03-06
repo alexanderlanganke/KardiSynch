@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { ErrorBoundary } from '../renderer/components/ErrorBoundary';
-import { Card } from './ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import ReportViewer from './ReportViewer';
+import FormattedReport from '@/renderer/components/FormattedReport';
 import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
+import { cn } from '@/lib/utils';
 
 interface ViewPaneProps {
     paneId: number;
@@ -29,6 +30,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     const [availableFiles, setAvailableFiles] = useState<string[]>([]);
     const [isDragOver, setIsDragOver] = useState(false);
     const [isControlsExpanded, setIsControlsExpanded] = useState(true);
+    const [viewMode, setViewMode] = useState<'raw' | 'formatted'>('raw');
 
     // Fetch files when selected report changes
     React.useEffect(() => {
@@ -36,11 +38,9 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             if (selectedReport && selectedReport.directoryName) {
                 try {
                     const files = await window.electronAPI.getVisitFiles(patientId, selectedReport.directoryName);
-                    // Ensure files is an array
                     const safeFiles = Array.isArray(files) ? files : [];
                     setAvailableFiles(safeFiles);
 
-                    // Auto-select best file
                     if (safeFiles.length > 0 && !selectedFile) {
                         setSelectedFile(getBestFile(safeFiles));
                     }
@@ -56,7 +56,6 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         loadFiles();
     }, [selectedReport, patientId]);
 
-    // Calculate effective selected file for render to avoid empty value in Select
     const getBestFile = (files: string[]) => {
         const xmlFile = files.find((f: string) => f.toLowerCase().endsWith('.xml'));
         const pdfFile = files.find((f: string) => f.toLowerCase().endsWith('.pdf'));
@@ -65,17 +64,15 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
     const effectiveSelectedFile = selectedFile || (availableFiles.length > 0 ? getBestFile(availableFiles) : null);
 
-    // Update state if needed (for consistency)
     React.useEffect(() => {
         if (availableFiles.length > 0 && !selectedFile) {
             setSelectedFile(getBestFile(availableFiles));
         } else if (!selectedReport) {
             setSelectedFile(null);
-            setIsControlsExpanded(true); // Expand when cleared
+            setIsControlsExpanded(true);
         }
     }, [availableFiles, selectedFile, selectedReport]);
 
-    // Auto-collapse when a file is effectively selected and loaded
     React.useEffect(() => {
         if (effectiveSelectedFile) {
             setIsControlsExpanded(false);
@@ -139,6 +136,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
     const handleClear = () => {
         onReportSelect(paneId, null);
+        setViewMode('raw');
     };
 
     const getFileType = (filePath: string): 'xml' | 'pdf' | 'image' => {
@@ -146,13 +144,26 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         if (lower.endsWith('.xml')) return 'xml';
         if (lower.endsWith('.pdf')) return 'pdf';
         if (lower.match(/\.(jpg|jpeg|png|gif|webp)$/)) return 'image';
-        return 'xml'; // Default fallback
+        return 'xml';
     };
+
+    // Find previous report for trend comparison
+    const previousReport = React.useMemo(() => {
+        if (!selectedReport || !availableReports.length) return undefined;
+        const currentIdx = availableReports.findIndex(r => r.id === selectedReport.id);
+        if (currentIdx >= 0 && currentIdx < availableReports.length - 1) {
+            return availableReports[currentIdx + 1];
+        }
+        return undefined;
+    }, [selectedReport, availableReports]);
 
     return (
         <div
-            className={`flex flex-col h-full border-r border-border last:border-r-0 transition-all duration-200 ${isDragOver ? 'bg-primary/5' : ''
-                } ${isActive ? 'ring-2 ring-inset ring-primary/20' : ''}`}
+            className={cn(
+                "flex flex-col h-full border-r border-border last:border-r-0 transition-all duration-200",
+                isDragOver && 'bg-primary/5',
+                isActive && 'ring-2 ring-inset ring-primary/20'
+            )}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
@@ -171,11 +182,11 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                             <span className="font-medium text-foreground whitespace-nowrap">
                                 {new Date(selectedReport.interrogation_date).toLocaleDateString()}
                             </span>
-                            <span>•</span>
+                            <span>-</span>
                             <span className="whitespace-nowrap">{selectedReport.manufacturer}</span>
-                            {effectiveSelectedFile && (
+                            {effectiveSelectedFile && viewMode === 'raw' && (
                                 <>
-                                    <span>•</span>
+                                    <span>-</span>
                                     <span className="truncate max-w-[150px]">
                                         {effectiveSelectedFile.split(/[/\\]/).pop()}
                                     </span>
@@ -184,24 +195,36 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                         </div>
 
                         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-                            {availableFiles.length > 1 && (
+                            {/* View Mode Toggle */}
+                            <div className="flex items-center bg-muted/50 rounded-md p-0.5 mr-1">
+                                <button
+                                    className={cn(
+                                        "px-2 py-0.5 text-[10px] rounded transition-colors",
+                                        viewMode === 'raw' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                    onClick={(e) => { e.stopPropagation(); setViewMode('raw'); }}
+                                    aria-label="Raw view"
+                                >
+                                    Raw
+                                </button>
+                                <button
+                                    className={cn(
+                                        "px-2 py-0.5 text-[10px] rounded transition-colors",
+                                        viewMode === 'formatted' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                    )}
+                                    onClick={(e) => { e.stopPropagation(); setViewMode('formatted'); }}
+                                    aria-label="Formatted view"
+                                >
+                                    Formatted
+                                </button>
+                            </div>
+
+                            {availableFiles.length > 1 && viewMode === 'raw' && (
                                 <>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={(e) => { e.stopPropagation(); cycleFile('prev'); }}
-                                        title="Previous Document (Left Arrow)"
-                                    >
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); cycleFile('prev'); }} title="Previous Document">
                                         <ChevronLeft className="h-3 w-3" />
                                     </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        onClick={(e) => { e.stopPropagation(); cycleFile('next'); }}
-                                        title="Next Document (Right Arrow)"
-                                    >
+                                    <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); cycleFile('next'); }} title="Next Document">
                                         <ChevronRight className="h-3 w-3" />
                                     </Button>
                                     <div className="w-px h-3 bg-border mx-1" />
@@ -242,38 +265,50 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                     ))}
                                 </SelectContent>
                             </Select>
+
+                            {/* View Mode Toggle */}
+                            {selectedReport && (
+                                <div className="flex items-center bg-muted/50 rounded-md p-0.5">
+                                    <button
+                                        className={cn(
+                                            "px-2.5 py-1 text-xs rounded transition-colors",
+                                            viewMode === 'raw' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                        onClick={() => setViewMode('raw')}
+                                        aria-label="Raw view"
+                                    >
+                                        Raw
+                                    </button>
+                                    <button
+                                        className={cn(
+                                            "px-2.5 py-1 text-xs rounded transition-colors",
+                                            viewMode === 'formatted' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                                        )}
+                                        onClick={() => setViewMode('formatted')}
+                                        aria-label="Formatted view"
+                                    >
+                                        Formatted
+                                    </button>
+                                </div>
+                            )}
+
                             {selectedReport && (
                                 <>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 flex-shrink-0"
-                                        onClick={handleClear}
-                                        title="Clear Selection"
-                                    >
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={handleClear} title="Clear Selection">
                                         <X className="h-4 w-4" />
                                     </Button>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 flex-shrink-0"
-                                        onClick={() => setIsControlsExpanded(false)}
-                                        title="Collapse Controls"
-                                    >
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setIsControlsExpanded(false)} title="Collapse Controls">
                                         <ChevronUp className="h-4 w-4" />
                                     </Button>
                                 </>
                             )}
                         </div>
 
-                        {/* File Selector (only if report selected and has files) */}
-                        {selectedReport && availableFiles.length > 0 && (
+                        {/* File Selector (only in raw mode) */}
+                        {selectedReport && availableFiles.length > 0 && viewMode === 'raw' && (
                             <div className="flex items-center gap-2 pl-6">
                                 <span className="text-xs text-muted-foreground">File:</span>
-                                <Select
-                                    value={effectiveSelectedFile || ''}
-                                    onValueChange={setSelectedFile}
-                                >
+                                <Select value={effectiveSelectedFile || ''} onValueChange={setSelectedFile}>
                                     <SelectTrigger className="h-7 text-xs flex-1">
                                         <SelectValue placeholder="Select file" />
                                     </SelectTrigger>
@@ -281,31 +316,17 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                         {availableFiles.map((file: string, idx: number) => {
                                             const fileName = file.split(/[/\\]/).pop();
                                             return (
-                                                <SelectItem key={idx} value={file}>
-                                                    {fileName}
-                                                </SelectItem>
+                                                <SelectItem key={idx} value={file}>{fileName}</SelectItem>
                                             );
                                         })}
                                     </SelectContent>
                                 </Select>
                                 {availableFiles.length > 1 && (
                                     <div className="flex items-center gap-0.5">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={() => cycleFile('prev')}
-                                            title="Previous Document"
-                                        >
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleFile('prev')} title="Previous Document">
                                             <ChevronLeft className="h-3.5 w-3.5" />
                                         </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7"
-                                            onClick={() => cycleFile('next')}
-                                            title="Next Document"
-                                        >
+                                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleFile('next')} title="Next Document">
                                             <ChevronRight className="h-3.5 w-3.5" />
                                         </Button>
                                     </div>
@@ -319,16 +340,20 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             {/* Content area */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 {selectedReport ? (
-                    <ErrorBoundary>
-                        <ReportViewer
-                            report={selectedReport}
-                            type={effectiveSelectedFile ? getFileType(effectiveSelectedFile) : 'xml'}
-                            filePath={effectiveSelectedFile || undefined}
-                        />
-                    </ErrorBoundary>
+                    viewMode === 'formatted' ? (
+                        <FormattedReport report={selectedReport} previousReport={previousReport} />
+                    ) : (
+                        <ErrorBoundary>
+                            <ReportViewer
+                                report={selectedReport}
+                                type={effectiveSelectedFile ? getFileType(effectiveSelectedFile) : 'xml'}
+                                filePath={effectiveSelectedFile || undefined}
+                            />
+                        </ErrorBoundary>
+                    )
                 ) : (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-muted-foreground">
-                        <div className="text-6xl mb-4 opacity-20">📊</div>
+                        <FileText className="h-12 w-12 mb-4 opacity-10" />
                         <div className="text-sm">Drag a visit here or select from dropdown</div>
                     </div>
                 )}

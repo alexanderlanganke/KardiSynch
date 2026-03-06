@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, User, Calendar, Activity, Battery, Zap, Pencil } from 'lucide-react';
+import { ArrowLeft, Activity, Battery, Zap, Pencil, ChevronDown, ChevronUp, ShieldCheck, ShieldAlert, AlertTriangle, Clock } from 'lucide-react';
 import ViewPane from '@/components/ViewPane';
 import { ErrorBoundary } from '@/renderer/components/ErrorBoundary';
 import VisitTimeline from '@/components/VisitTimeline';
 import DeviceLeadEditor from '@/components/DeviceLeadEditor';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DataMergeModal from '@/components/DataMergeModal';
+import { calculateAge } from './utils/trendDelta';
+import { hasActiveWarning, hasUnsafeMri, daysSinceLastVisit } from './utils/clinicalPriority';
+import { cn } from '@/lib/utils';
 
 interface PatientDetailProps {
   patientId: string;
@@ -16,18 +18,17 @@ interface PatientDetailProps {
 }
 
 const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
-  // console.log('[PatientDetail] Received patientId:', patientId, 'Type:', typeof patientId);
   const [patient, setPatient] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null]);
   const [activePaneId, setActivePaneId] = useState(0);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Rescan & Move State
   const [isMergeOpen, setIsMergeOpen] = useState(false);
   const [scannedData, setScannedData] = useState<any>(null);
-
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
   const [visitToMove, setVisitToMove] = useState<any>(null);
 
@@ -38,16 +39,12 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const loadPatientData = async () => {
     try {
       setLoading(true);
-      // Fetch patient data (from DB or filesystem - currently DB for ID lookup)
       const patientData = await window.electronAPI.getPatientById(patientId);
-
-      // Fetch visits from filesystem
       const visitsData = await window.electronAPI.getVisitDirectories(patientId);
 
       setPatient(patientData);
       setReports(visitsData);
 
-      // Auto-select the first report in pane 0 if nothing selected
       if (visitsData.length > 0 && !selectedReports[0]) {
         setSelectedReports([visitsData[0], null]);
       }
@@ -80,12 +77,9 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     handleReportSelect(targetPane, visit);
   };
 
-  // --- Rescan Logic ---
   const handleRescan = async (visit: any) => {
     try {
-      console.log('Rescanning visit:', visit.id);
       const result = await window.electronAPI.rescanVisit(visit.id);
-
       if (result.status === 'success' && result.scannedData) {
         setScannedData(result.scannedData);
         setIsMergeOpen(true);
@@ -94,13 +88,12 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       }
     } catch (error) {
       console.error('Rescan failed:', error);
-      alert('Failed to rescan visit. See console for details.');
+      alert('Failed to rescan visit.');
     }
   };
 
   const handleMergeConfirm = async (mergedData: any) => {
     try {
-      // Merge expects a full patient object update
       await handlePatientUpdate(mergedData);
       setIsMergeOpen(false);
       setScannedData(null);
@@ -109,19 +102,15 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     }
   };
 
-  // --- Move Logic ---
   const handleMove = (visit: any) => {
-    setVisitToMove({ ...visit, fileCount: visit.fileCount || 0 }); // Ensure needed props
+    setVisitToMove({ ...visit, fileCount: visit.fileCount || 0 });
     setIsAssignmentOpen(true);
   };
 
   const handleMoveConfirm = async (decision: any) => {
     if (!visitToMove) return;
-
     try {
       let targetPatientId = decision.targetPatientId;
-
-      // Handle Create New Patient flow during Move
       if (decision.action === 'create-patient') {
         const newPatient = await window.electronAPI.createPatient({
           first_name: decision.patientData.first_name,
@@ -133,11 +122,9 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       } else if (decision.action !== 'move-visit') {
         return;
       }
-
       await window.electronAPI.moveVisit(visitToMove.id, targetPatientId);
       setIsAssignmentOpen(false);
       setVisitToMove(null);
-      // Reload to reflect removal of visit
       await loadPatientData();
     } catch (error) {
       console.error('Move failed:', error);
@@ -145,23 +132,15 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     }
   };
 
-  // --- Export Logic ---
   const handleExport = async (visit: any) => {
     try {
       const settings = await window.electronAPI.getSettings();
       let targetDir = settings.usbTargetDirectory;
-
       if (!targetDir) {
-        // If no default target is set, prompt one time or suggest setting it
-        // For now, let's fallback to asking the user
-        // alert('No export directory configured in settings. Please select a folder.');
         targetDir = await window.electronAPI.selectDirectory();
       }
-
-      if (!targetDir) return; // User cancelled
-
+      if (!targetDir) return;
       const result = await window.electronAPI.exportVisitFiles(patientId, visit.id, targetDir);
-
       if (result.success) {
         alert(`Successfully exported ${result.count} files to:\n${targetDir}`);
       } else {
@@ -169,12 +148,9 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       }
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export files. Check console.');
+      alert('Failed to export files.');
     }
   };
-
-  // Get latest report for header data
-  const latestReport = reports[0];
 
   if (loading && !patient) {
     return (
@@ -188,89 +164,211 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     return (
       <div className="flex flex-col items-center justify-center h-screen gap-4">
         <div className="text-muted-foreground">Patient not found</div>
-        <Button onClick={onBack}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back to Dashboard
-        </Button>
+        <Button onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard</Button>
       </div>
     );
   }
 
+  const age = calculateAge(patient?.dob);
+  const days = daysSinceLastVisit(patient);
+  const warnings = hasActiveWarning(patient);
+  const unsafeMri = hasUnsafeMri(patient);
+  const deviceCount = patient?.devices?.length || 0;
+  const leadCount = patient?.leads?.length || 0;
+
+  // Build status banner items
+  const bannerItems: { type: 'urgent' | 'attention'; message: string }[] = [];
+  if (warnings) {
+    bannerItems.push({ type: 'urgent', message: `Active warning: ${patient?.manufacturerWarningStatus?.details || 'Check manufacturer advisory'}` });
+  }
+  if (unsafeMri) {
+    bannerItems.push({ type: 'urgent', message: `MRI: ${patient?.mriStatus?.details || 'Device not MRI safe'}` });
+  }
+  if (patient?.mriStatus?.status === 'mr_conditional' || patient?.mriStatus?.status === 'conditional') {
+    bannerItems.push({ type: 'attention', message: `MRI Conditional - review conditions before scanning` });
+  }
+  if (days !== null && days > 180) {
+    bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago - follow-up may be overdue` });
+  }
+
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Compact Header */}
-      <div className="border-b border-border bg-card/50 backdrop-blur-sm h-14 flex items-center px-4 gap-4 shrink-0">
-        {/* Left: Navigation & Patient Info */}
-        <div className="flex items-center gap-3 shrink-0 border-r border-border/50 pr-4">
-          <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted/50 rounded-full">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex flex-col justify-center">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient?.name}</h1>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-5 w-5 text-muted-foreground hover:text-primary p-0"
-                onClick={() => setIsEditorOpen(true)}
-                title="Edit Patient & Devices"
-              >
-                <Pencil className="h-3 w-3" />
-              </Button>
+      {/* Expandable Summary Header */}
+      <div className="border-b border-border bg-card/50 shrink-0">
+        {/* Compact Row */}
+        <div
+          className="flex items-center px-4 h-14 gap-4 cursor-pointer hover:bg-muted/30 transition-colors"
+          onClick={() => setIsExpanded(!isExpanded)}
+          role="button"
+          aria-expanded={isExpanded}
+          aria-label="Toggle patient summary"
+          tabIndex={0}
+          onKeyDown={(e) => { if (e.key === 'Enter') setIsExpanded(!isExpanded); }}
+        >
+          {/* Left: Navigation & Patient Info */}
+          <div className="flex items-center gap-3 shrink-0 border-r border-border/50 pr-4" onClick={(e) => e.stopPropagation()}>
+            <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted/50 rounded-full" aria-label="Back to dashboard">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="flex flex-col justify-center">
+              <div className="flex items-center gap-2">
+                <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient?.name}</h1>
+                <Button
+                  variant="ghost" size="icon"
+                  className="h-5 w-5 text-muted-foreground hover:text-primary p-0"
+                  onClick={(e) => { e.stopPropagation(); setIsEditorOpen(true); }}
+                  title="Edit Patient & Devices"
+                  aria-label="Edit patient"
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                <span>{patient?.dob}</span>
+                {age !== null && <span>({age}y)</span>}
+                <span>-</span>
+                <span className="font-mono opacity-80">{patient?.hospitalPatientId || patient?.patientId}</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-              <span className="font-mono opacity-80">{patient?.patientId}</span>
-              <span>•</span>
-              <span>{patient?.dob}</span>
-            </div>
+          </div>
+
+          {/* Middle: Device Summary */}
+          <div className="flex-1 flex items-center gap-3 min-w-0">
+            {deviceCount > 0 && (
+              <div className="flex items-center gap-1.5 text-[11px] text-foreground/80">
+                <Activity className="h-3.5 w-3.5 text-primary/70" />
+                <span className="font-medium truncate max-w-[200px]">
+                  {patient.devices[0]?.model || 'Unknown'}
+                </span>
+                {deviceCount > 1 && <span className="text-muted-foreground">+{deviceCount - 1}</span>}
+              </div>
+            )}
+            {leadCount > 0 && (
+              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                <Zap className="h-3 w-3 text-yellow-600/70" />
+                <span>{leadCount} lead{leadCount !== 1 ? 's' : ''}</span>
+              </div>
+            )}
+
+            {/* MRI Badge */}
+            {patient?.mriStatus?.status && (
+              <MriCompactBadge status={patient.mriStatus.status} />
+            )}
+
+            {/* Warning Badge */}
+            {warnings && (
+              <Badge className="status-urgent text-[10px] h-5 px-1.5">
+                <AlertTriangle className="h-3 w-3 mr-1" /> Warning
+              </Badge>
+            )}
+          </div>
+
+          {/* Right: Stats & Expand */}
+          <div className="shrink-0 flex items-center gap-3">
+            {days !== null && (
+              <span className={cn("text-[10px]", days > 180 ? "text-amber-500" : "text-muted-foreground")}>
+                {days}d ago
+              </span>
+            )}
+            <Badge variant="secondary" className="text-[10px] h-6 px-2 bg-secondary/50">
+              {reports.length} Visit{reports.length !== 1 ? 's' : ''}
+            </Badge>
+            {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
           </div>
         </div>
 
-        {/* Middle: Scrollable History (Devices & Leads) */}
-        <div className="flex-1 overflow-x-auto no-scrollbar flex items-center gap-2 mask-linear-fade">
-          {/* Devices */}
-          {patient?.devices && Array.isArray(patient.devices) && patient.devices.length > 0 && patient.devices.map((device: any, idx: number) => (
-            <div key={`dev-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 border border-primary/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
-              <Activity className="h-3 w-3 text-primary/70" />
-              <div className="flex flex-col leading-none gap-0.5">
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-foreground/80">{device.model || 'Unknown'}</span>
-                  <span className="font-mono text-muted-foreground opacity-70">({device.serial || 'Unknown'})</span>
-                </div>
-                {device.type && <span className="text-[9px] text-muted-foreground opacity-60 uppercase tracking-tighter">{device.type}</span>}
+        {/* Expanded View */}
+        {isExpanded && (
+          <div className="px-4 pb-4 pt-2 border-t border-border/30 animate-accordion-down">
+            <div className="grid grid-cols-2 gap-4">
+              {/* Devices Section */}
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Activity className="h-3.5 w-3.5" /> Devices
+                </h3>
+                {patient?.devices && patient.devices.length > 0 ? (
+                  <div className="space-y-2">
+                    {patient.devices.map((device: any, idx: number) => (
+                      <div key={`dev-${idx}`} className="flex items-start gap-3 p-2.5 bg-primary/5 border border-primary/10 rounded-lg text-xs">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">{device.model || 'Unknown'}</span>
+                            {device.type && <Badge variant="outline" className="text-[9px] h-4 px-1">{device.type}</Badge>}
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-muted-foreground">
+                            <span>SN: {device.serial || 'Unknown'}</span>
+                            {device.manufacturer && <span>{device.manufacturer}</span>}
+                            {device.implant_date && <span>Implanted: {device.implant_date}</span>}
+                          </div>
+                          {device.mri_status && (
+                            <div className="mt-1">
+                              <MriCompactBadge status={device.mri_status} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No devices recorded</p>
+                )}
+              </div>
+
+              {/* Leads Section - SEPARATE from devices */}
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5" /> Leads
+                </h3>
+                {patient?.leads && patient.leads.length > 0 ? (
+                  <div className="space-y-2">
+                    {patient.leads.map((lead: any, idx: number) => (
+                      <div key={`lead-${idx}`} className="flex items-start gap-3 p-2.5 bg-yellow-500/5 border border-yellow-500/10 rounded-lg text-xs">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-foreground">{lead.model || 'Unknown'}</span>
+                            {lead.location && <Badge variant="outline" className="text-[9px] h-4 px-1">{lead.location}</Badge>}
+                            {lead.type && <Badge variant="outline" className="text-[9px] h-4 px-1">{lead.type}</Badge>}
+                          </div>
+                          <div className="flex items-center gap-3 mt-1 text-muted-foreground">
+                            <span>SN: {lead.serial || 'Unknown'}</span>
+                            {lead.connector && <span>{lead.connector}</span>}
+                            {lead.implant_date && <span>Implanted: {lead.implant_date}</span>}
+                          </div>
+                          {lead.mri_status && (
+                            <div className="mt-1">
+                              <MriCompactBadge status={lead.mri_status} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">No leads recorded</p>
+                )}
               </div>
             </div>
-          ))}
-
-          {/* Leads */}
-          {patient?.leads && Array.isArray(patient.leads) && patient.leads.length > 0 && patient.leads.map((lead: any, idx: number) => (
-            <div key={`lead-${idx}`} className="flex items-center gap-1.5 px-2 py-1 bg-yellow-500/5 border border-yellow-500/10 rounded-md shrink-0 text-[10px] whitespace-nowrap">
-              <Zap className="h-3 w-3 text-yellow-600/70" />
-              <div className="flex flex-col leading-none gap-0.5">
-                <div className="flex items-center gap-1">
-                  <span className="font-semibold text-foreground/80">{lead.model || 'Unknown'}</span>
-                  <span className="font-mono text-muted-foreground opacity-70">({lead.serial || 'Unknown'})</span>
-                </div>
-                <div className="flex items-center gap-1 text-[9px] text-muted-foreground opacity-60 uppercase tracking-tighter">
-                  {lead.type && <span>{lead.type}</span>}
-                  {lead.connector && <span>• {lead.connector}</span>}
-                </div>
-              </div>
-            </div>
-          ))}
-
-          {(!patient?.devices?.length && !patient?.leads?.length) && (
-            <span className="text-[10px] text-muted-foreground italic px-2">No device history</span>
-          )}
-        </div>
-
-        {/* Right: Stats */}
-        <div className="shrink-0 pl-2 border-l border-border/50">
-          <Badge variant="secondary" className="text-[10px] h-6 px-2 bg-secondary/50">
-            {reports.length} Visits
-          </Badge>
-        </div>
+          </div>
+        )}
       </div>
+
+      {/* Status Banner */}
+      {bannerItems.length > 0 && (
+        <div className="shrink-0 px-4 py-2 bg-card/30 border-b border-border/30 space-y-1" role="alert">
+          {bannerItems.map((item, idx) => (
+            <div
+              key={idx}
+              className={cn(
+                "flex items-center gap-2 text-xs px-3 py-1.5 rounded-md",
+                item.type === 'urgent' ? "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20" : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
+              )}
+            >
+              {item.type === 'urgent' ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <Clock className="h-3.5 w-3.5 shrink-0" />}
+              <span>{item.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Main Content - 2 Pane Viewer */}
       <div className="flex-1 overflow-hidden">
@@ -343,6 +441,25 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       />
     </div>
   );
+};
+
+// Compact MRI Badge used in both compact and expanded views
+const MriCompactBadge: React.FC<{ status: string }> = ({ status }) => {
+  if (status === 'mr_conditional' || status === 'conditional') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-green-700 dark:text-green-400 bg-green-500/10 border border-green-500/20 font-medium" aria-label="MRI Conditional">
+        <ShieldCheck className="h-3 w-3" /> MR Conditional
+      </span>
+    );
+  }
+  if (status === 'unsafe' || status === 'no_info') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-red-700 dark:text-red-400 bg-red-500/10 border border-red-500/20 font-medium" aria-label="MRI Unsafe">
+        <ShieldAlert className="h-3 w-3" /> {status === 'unsafe' ? 'Unsafe' : 'No Info'}
+      </span>
+    );
+  }
+  return null;
 };
 
 export default PatientDetail;

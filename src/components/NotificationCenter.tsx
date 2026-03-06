@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Check, X, Activity, Trash2, AlertTriangle, Info, AlertCircle } from 'lucide-react';
+import { Bell, Check, X, Activity, AlertTriangle, Info, AlertCircle, History, FileText, CheckCircle, HelpCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -24,15 +24,25 @@ interface Notification {
 interface Task {
     id: string;
     title: string;
-    progress: number; // 0-100
+    progress: number;
     status: 'pending' | 'running' | 'completed' | 'error';
     message: string;
     timestamp: number;
 }
 
+interface ImportSession {
+    id: string;
+    status: string;
+    timestamp: string;
+    summary: string;
+}
+
 const NotificationCenter: React.FC = () => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
+    const [importSessions, setImportSessions] = useState<ImportSession[]>([]);
+    const [selectedSession, setSelectedSession] = useState<string | null>(null);
+    const [sessionEvents, setSessionEvents] = useState<any[]>([]);
     const [isOpen, setIsOpen] = useState(false);
 
     // Listen for notifications
@@ -56,17 +66,11 @@ const NotificationCenter: React.FC = () => {
     useEffect(() => {
         const handleStatus = (status: any) => {
             setTasks(prev => {
-                const existingTaskIndex = prev.findIndex(t => t.id === status.taskId || (status.type === 'start' && t.title === status.message));
-
-                // If it's a generic "start" without ID, treat it as a new task or update existing generic one
-                // Ideally backend should send taskId. If not, we use a simple heuristic.
                 const taskId = status.taskId || 'global-task';
-
                 let newTasks = [...prev];
                 const taskIndex = newTasks.findIndex(t => t.id === taskId);
 
                 if (taskIndex >= 0) {
-                    // Update existing task
                     newTasks[taskIndex] = {
                         ...newTasks[taskIndex],
                         progress: status.progress !== undefined ? status.progress : newTasks[taskIndex].progress,
@@ -74,8 +78,7 @@ const NotificationCenter: React.FC = () => {
                         status: status.type === 'complete' ? 'completed' : status.type === 'error' ? 'error' : 'running',
                     };
                 } else {
-                    // New task
-                    if (status.type !== 'complete') { // Don't start a task on complete event if we missed start
+                    if (status.type !== 'complete') {
                         newTasks.unshift({
                             id: taskId,
                             title: status.title || 'Background Task',
@@ -87,7 +90,6 @@ const NotificationCenter: React.FC = () => {
                     }
                 }
 
-                // Auto-remove completed tasks after 5 seconds
                 if (status.type === 'complete') {
                     setTimeout(() => {
                         setTasks(current => current.filter(t => t.id !== taskId));
@@ -101,6 +103,36 @@ const NotificationCenter: React.FC = () => {
         const cleanup = window.electronAPI.onProcessStatus(handleStatus);
         return () => window.electronAPI.removeListener('process-status', handleStatus);
     }, []);
+
+    // Load import history when opened
+    useEffect(() => {
+        if (isOpen) {
+            loadImportHistory();
+        }
+    }, [isOpen]);
+
+    const loadImportHistory = async () => {
+        try {
+            const history = await window.electronAPI.getImportHistory();
+            setImportSessions(history || []);
+        } catch (e) {
+            console.error('Failed to load import history:', e);
+        }
+    };
+
+    const handleSessionClick = async (sessionId: string) => {
+        setSelectedSession(sessionId);
+        try {
+            const events = await window.electronAPI.getImportSessionEvents(sessionId);
+            setSessionEvents(events || []);
+        } catch (e) {
+            console.error('Failed to load session events:', e);
+        }
+    };
+
+    const parseSummary = (json: string) => {
+        try { return JSON.parse(json); } catch { return {}; }
+    };
 
     const unreadCount = notifications.filter(n => !n.read).length;
     const activeTasks = tasks.filter(t => t.status === 'running' || t.status === 'pending');
@@ -133,6 +165,7 @@ const NotificationCenter: React.FC = () => {
                     variant="ghost"
                     size="icon"
                     className="relative rounded-full h-10 w-10 hover:bg-muted/50"
+                    aria-label="Notification center"
                 >
                     {activeTasks.length > 0 ? (
                         <Activity className="h-5 w-5 animate-pulse text-blue-500" />
@@ -146,7 +179,7 @@ const NotificationCenter: React.FC = () => {
                     )}
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[450px] p-0 bg-background/80 backdrop-blur-xl border-border/40 shadow-2xl" align="end" sideOffset={8}>
+            <PopoverContent className="w-[480px] p-0 bg-background/80 backdrop-blur-xl border-border/40 shadow-2xl" align="end" sideOffset={8}>
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 bg-muted/20">
                     <h4 className="font-semibold text-sm">Notification Center</h4>
                     {notifications.length > 0 && (
@@ -173,12 +206,19 @@ const NotificationCenter: React.FC = () => {
                             Activity
                             {activeTasks.length > 0 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full animate-pulse">{activeTasks.length}</span>}
                         </TabsTrigger>
+                        <TabsTrigger
+                            value="imports"
+                            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent h-10"
+                        >
+                            Imports
+                        </TabsTrigger>
                     </TabsList>
 
+                    {/* Notifications Tab */}
                     <TabsContent value="notifications" className="m-0">
                         <ScrollArea className="h-[450px]">
                             {notifications.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
                                     <Bell className="h-8 w-8 mb-2 opacity-20" />
                                     <p className="text-sm">No notifications</p>
                                 </div>
@@ -201,13 +241,9 @@ const NotificationCenter: React.FC = () => {
                                                     )}
                                                 </div>
                                                 <Button
-                                                    variant="ghost"
-                                                    size="icon"
+                                                    variant="ghost" size="icon"
                                                     className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        removeNotification(notification.id);
-                                                    }}
+                                                    onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
                                                 >
                                                     <X className="h-3 w-3" />
                                                 </Button>
@@ -219,10 +255,11 @@ const NotificationCenter: React.FC = () => {
                         </ScrollArea>
                     </TabsContent>
 
+                    {/* Activity Tab */}
                     <TabsContent value="activity" className="m-0">
                         <ScrollArea className="h-[450px]">
                             {tasks.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
                                     <Activity className="h-8 w-8 mb-2 opacity-20" />
                                     <p className="text-sm">No active tasks</p>
                                 </div>
@@ -250,6 +287,102 @@ const NotificationCenter: React.FC = () => {
                                         </div>
                                     ))}
                                 </div>
+                            )}
+                        </ScrollArea>
+                    </TabsContent>
+
+                    {/* Import History Tab */}
+                    <TabsContent value="imports" className="m-0">
+                        <ScrollArea className="h-[450px]">
+                            {selectedSession ? (
+                                // Session detail view
+                                <div>
+                                    <div className="flex items-center gap-2 p-3 border-b border-border/40 bg-muted/10">
+                                        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => { setSelectedSession(null); setSessionEvents([]); }}>
+                                            <X className="h-3 w-3 mr-1" /> Back
+                                        </Button>
+                                        <span className="text-xs text-muted-foreground">Session Details</span>
+                                    </div>
+                                    <div className="divide-y">
+                                        {sessionEvents.map(event => (
+                                            <div key={event.id} className="p-3 flex items-start gap-3">
+                                                <FileText className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-xs font-medium truncate">
+                                                            {event.file_path ? event.file_path.split(/[\\/]/).pop() : 'Unknown'}
+                                                        </span>
+                                                        <Badge variant="outline" className={cn("text-[9px] h-4 px-1 shrink-0",
+                                                            event.status === 'imported' && "text-green-600 border-green-200 bg-green-50",
+                                                            event.status === 'manually_sorted' && "text-blue-600 border-blue-200 bg-blue-50",
+                                                            event.status === 'unmatched' && "text-yellow-600 border-yellow-200 bg-yellow-50",
+                                                            event.status === 'error' && "text-red-600 border-red-200 bg-red-50",
+                                                        )}>
+                                                            {event.status}
+                                                        </Badge>
+                                                    </div>
+                                                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                                                        {event.patient_id
+                                                            ? `${event.first_name || ''} ${event.last_name || ''}`.trim()
+                                                            : event.message || 'No details'}
+                                                    </p>
+                                                    <span className="text-[9px] text-muted-foreground/50">
+                                                        {new Date(event.timestamp).toLocaleTimeString()}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                        {sessionEvents.length === 0 && (
+                                            <div className="p-8 text-center text-muted-foreground text-sm">No events found</div>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                // Session list view
+                                <>
+                                    {importSessions.length === 0 ? (
+                                        <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
+                                            <History className="h-8 w-8 mb-2 opacity-20" />
+                                            <p className="text-sm">No import history</p>
+                                        </div>
+                                    ) : (
+                                        <div className="divide-y">
+                                            {importSessions.slice(0, 20).map(session => {
+                                                const summary = parseSummary(session.summary);
+                                                return (
+                                                    <div
+                                                        key={session.id}
+                                                        className="p-3 hover:bg-muted/50 cursor-pointer transition-colors"
+                                                        onClick={() => handleSessionClick(session.id)}
+                                                        role="button"
+                                                        tabIndex={0}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSessionClick(session.id); }}
+                                                    >
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <Badge variant={session.status === 'completed' ? 'outline' : 'secondary'} className="text-[10px]">
+                                                                {session.status}
+                                                            </Badge>
+                                                            <span className="text-[10px] text-muted-foreground">
+                                                                {new Date(session.timestamp).toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                        <div className="flex gap-4 text-xs text-muted-foreground">
+                                                            <div className="flex items-center gap-1">
+                                                                <CheckCircle className="h-3 w-3 text-green-500" /> {summary.imported || 0}
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <HelpCircle className="h-3 w-3 text-yellow-500" /> {summary.unmatched || 0}
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <AlertTriangle className="h-3 w-3 text-red-500" /> {summary.errors || 0}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </ScrollArea>
                     </TabsContent>
