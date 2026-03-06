@@ -167,15 +167,15 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     return (
         <Dialog open={open} onOpenChange={(val) => !val && onCancel()}>
             <DialogContent
-                className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden shadow-2xl rounded-xl"
+                className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background border-border p-0 overflow-hidden shadow-2xl rounded-xl"
                 onOpenAutoFocus={(e) => e.preventDefault()}
             >
                 <div className="flex flex-col h-full overflow-hidden">
                     {/* Header */}
-                    <div className="px-6 py-5 border-b bg-background/50 relative shrink-0">
-                        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-primary/20 to-transparent"></div>
+                    <div className="px-6 py-5 border-b bg-background relative shrink-0">
+                        <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-primary to-transparent"></div>
                         <DialogTitle className="flex items-center gap-3 text-2xl font-light tracking-tight">
-                            <div className={`p-2 rounded-full ring-1 ${mode === 'import' ? 'bg-orange-500/10 ring-orange-500/20' : 'bg-blue-500/10 ring-blue-500/20'}`}>
+                            <div className={`p-2 rounded-full ring-1 ${mode === 'import' ? 'bg-orange-100 ring-orange-200 dark:bg-orange-500/20 dark:ring-orange-500/30' : 'bg-blue-100 ring-blue-200 dark:bg-blue-500/20 dark:ring-blue-500/30'}`}>
                                 {mode === 'import' ? <AlertCircle className="h-6 w-6 text-orange-500" /> : <FolderInput className="h-6 w-6 text-blue-500" />}
                             </div>
                             <div className="flex flex-col">
@@ -192,7 +192,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                     </div>
 
                     {/* Main Content */}
-                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0 bg-muted/5 min-h-0">
+                    <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0 bg-muted min-h-0">
 
                         {/* LEFT PANE: Controls (4 columns) */}
                         <div className="col-span-4 border-r bg-background flex flex-col h-full min-h-0 overflow-hidden shadow-xl z-10">
@@ -204,7 +204,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                             {mode === 'import' ? (
                                                 <>
                                                     <h3 className="font-semibold text-lg leading-tight break-all">{sourceItem.filename}</h3>
-                                                    <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted/30 -mx-4 -mb-4 p-4 border-t">
+                                                    <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted -mx-4 -mb-4 p-4 border-t">
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Name</span>
                                                             <p className="font-medium truncate">{sourceItem.previewData?.patientName || 'Unknown'}</p>
@@ -239,7 +239,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                             ) : (
                                                 <>
                                                     <h3 className="font-semibold text-lg">Visit Selection</h3>
-                                                    <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted/30 -mx-4 -mb-4 p-4 border-t">
+                                                    <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted -mx-4 -mb-4 p-4 border-t">
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Date</span>
                                                             <p className="font-medium">{new Date(sourceItem.interrogation_date).toLocaleDateString()}</p>
@@ -257,7 +257,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                     {/* Action Area */}
                                     <div className="space-y-4">
                                         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                            <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-muted/50">
+                                            <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-muted0">
                                                 <TabsTrigger value="existing">Find Existing</TabsTrigger>
                                                 <TabsTrigger value="new">Create New</TabsTrigger>
                                             </TabsList>
@@ -282,8 +282,8 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                     key={p.id}
                                                                     onClick={() => setSelectedPatientId(p.id)}
                                                                     className={`flex items-center justify-between p-3 rounded-md cursor-pointer transition-all border ${selectedPatientId === p.id
-                                                                        ? 'bg-primary/10 border-primary/30 shadow-sm'
-                                                                        : 'hover:bg-muted/50 border-transparent'
+                                                                        ? 'bg-primary/10 border-primary shadow-sm'
+                                                                        : 'hover:bg-muted0 border-transparent'
                                                                         }`}
                                                                 >
                                                                     <div className="min-w-0 pr-2">
@@ -306,7 +306,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                             <div className="rounded-md border mt-2 overflow-hidden">
                                                                 {visits.length > 0 && (
                                                                     <div
-                                                                        className={`p-3 border-b cursor-pointer text-sm flex items-center justify-between ${visitMode === 'existing' ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
+                                                                        className={`p-3 border-b cursor-pointer text-sm flex items-center justify-between ${visitMode === 'existing' ? 'bg-muted' : 'hover:bg-muted0'}`}
                                                                         onClick={() => setVisitMode('existing')}
                                                                     >
                                                                         <span>Existing Visit</span>
@@ -314,7 +314,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                     </div>
                                                                 )}
                                                                 {visitMode === 'existing' && visits.length > 0 && (
-                                                                    <div className="bg-muted/10 max-h-[120px] overflow-y-auto p-1">
+                                                                    <div className="bg-muted max-h-[120px] overflow-y-auto p-1">
                                                                         {visits.map(v => (
                                                                             <div
                                                                                 key={v.id}
@@ -327,7 +327,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                     </div>
                                                                 )}
                                                                 <div
-                                                                    className={`p-3 cursor-pointer text-sm flex flex-col gap-2 ${visitMode === 'new' ? 'bg-primary/5' : 'hover:bg-muted/50'}`}
+                                                                    className={`p-3 cursor-pointer text-sm flex flex-col gap-2 ${visitMode === 'new' ? 'bg-muted' : 'hover:bg-muted0'}`}
                                                                     onClick={() => setVisitMode('new')}
                                                                 >
                                                                     <div className="flex justify-between">
@@ -405,12 +405,12 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                         </div>
 
                         {/* RIGHT PANE: Preview (Import) or Summary (Move) */}
-                        <div className="col-span-8 h-full bg-muted/10 p-6 flex flex-col min-h-0 overflow-hidden">
+                        <div className="col-span-8 h-full bg-muted p-6 flex flex-col min-h-0 overflow-hidden">
                             <div className="h-full w-full rounded-xl border bg-background shadow-xl overflow-hidden flex flex-col relative">
                                 {mode === 'import' ? (
                                     <>
                                         {/* Import Mode Preview Header */}
-                                        <div className="px-4 py-3 border-b bg-muted/30 text-xs font-semibold text-muted-foreground flex justify-between items-center shrink-0">
+                                        <div className="px-4 py-3 border-b bg-muted text-xs font-semibold text-muted-foreground flex justify-between items-center shrink-0">
                                             <span>File Preview</span>
                                         </div>
                                         {/* Report Viewer for Full Feature Preview */}

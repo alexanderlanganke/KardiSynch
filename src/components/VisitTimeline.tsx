@@ -26,7 +26,7 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
     };
 
     return (
-        <div className="border-t border-border bg-card/50">
+        <div className="border-t border-border bg-card">
             <div className="px-4 py-2">
                 <div className="flex items-center gap-2 mb-2">
                     <Calendar className="h-3 w-3 text-muted-foreground" />
@@ -47,10 +47,10 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, visit)}
                                 onClick={() => onVisitSelect(visit)}
-                                className="glass-card min-w-[150px] cursor-pointer hover:border-primary/50 transition-all hover:shadow-sm p-3 group relative"
+                                className="min-w-[150px] cursor-pointer hover:border-primary transition-all hover:shadow-sm p-3 group relative"
                             >
                                 {/* Hover Actions Overlay */}
-                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background/80 backdrop-blur-sm rounded-md border p-0.5 shadow-sm">
+                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-md border p-0.5 shadow-sm">
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -90,7 +90,7 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                         <div className="text-[10px] text-muted-foreground truncate max-w-[80px]" title={visit.manufacturer}>
                                             {visit.manufacturer || 'Unknown'}
                                         </div>
-                                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 bg-secondary/50">
+                                        <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 bg-secondary">
                                             <FileText className="h-2 w-2 mr-1 opacity-70" />
                                             {visit.fileCount}
                                         </Badge>

@@ -161,8 +161,8 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         <div
             className={cn(
                 "flex flex-col h-full border-r border-border last:border-r-0 transition-all duration-200",
-                isDragOver && 'bg-primary/5',
-                isActive && 'ring-2 ring-inset ring-primary/20'
+                isDragOver && 'bg-muted',
+                isActive && 'ring-2 ring-inset ring-primary'
             )}
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -170,11 +170,11 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             onClick={onActivate}
         >
             {/* Header with file selector */}
-            <div className="border-b border-border bg-card/50 flex flex-col transition-all duration-300 ease-in-out">
+            <div className="border-b border-border bg-card flex flex-col transition-all duration-300 ease-in-out">
                 {/* Collapsed Summary Bar */}
                 {!isControlsExpanded && selectedReport && (
                     <div
-                        className="flex items-center justify-between p-2 cursor-pointer hover:bg-accent/50 group"
+                        className="flex items-center justify-between p-2 cursor-pointer hover:bg-accent group"
                         onClick={() => setIsControlsExpanded(true)}
                     >
                         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-1 min-w-0">
@@ -196,7 +196,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
                         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             {/* View Mode Toggle */}
-                            <div className="flex items-center bg-muted/50 rounded-md p-0.5 mr-1">
+                            <div className="flex items-center bg-muted rounded-md p-0.5 mr-1">
                                 <button
                                     className={cn(
                                         "px-2 py-0.5 text-[10px] rounded transition-colors",
@@ -268,7 +268,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
                             {/* View Mode Toggle */}
                             {selectedReport && (
-                                <div className="flex items-center bg-muted/50 rounded-md p-0.5">
+                                <div className="flex items-center bg-muted rounded-md p-0.5">
                                     <button
                                         className={cn(
                                             "px-2.5 py-1 text-xs rounded transition-colors",

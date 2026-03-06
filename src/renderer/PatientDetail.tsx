@@ -207,17 +207,17 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Expandable Summary Header */}
-      <div className="border-b border-border bg-card/50 shrink-0">
+      <div className="border-b border-border bg-card shrink-0">
         {/* Top bar: Back button + Compact summary row (always visible) */}
         <div className="flex items-center h-14 px-4 gap-0">
           {/* Back button - not part of expandable area */}
-          <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted/50 rounded-full shrink-0 mr-3" aria-label="Back to dashboard">
+          <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted rounded-full shrink-0 mr-3" aria-label="Back to dashboard">
             <ArrowLeft className="h-4 w-4" />
           </Button>
 
           {/* Clickable compact summary - single dense row */}
           <div
-            className="flex-1 flex items-center gap-4 min-w-0 cursor-pointer rounded-lg px-2 py-1.5 -mx-1 hover:bg-muted/30 transition-colors group/expand"
+            className="flex-1 flex items-center gap-4 min-w-0 cursor-pointer rounded-lg px-2 py-1.5 -mx-1 hover:bg-muted transition-colors group/expand"
             onClick={() => setIsExpanded(!isExpanded)}
             role="button"
             aria-expanded={isExpanded}
@@ -270,7 +270,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             </div>
 
             {/* Visit count */}
-            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-secondary/50 shrink-0">
+            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-secondary shrink-0">
               {reports.length}
             </Badge>
 
@@ -289,7 +289,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
         {/* Expanded View */}
         {isExpanded && (
-          <div className="px-4 pb-4 pt-2 border-t border-border/30 animate-accordion-down">
+          <div className="px-4 pb-4 pt-2 border-t border-border animate-accordion-down">
             {/* Edit button - inside expanded area */}
             <div className="flex justify-end mb-3">
               <Button
@@ -311,7 +311,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                 {patient?.devices && patient.devices.length > 0 ? (
                   <div className="space-y-2">
                     {patient.devices.map((device: any, idx: number) => (
-                      <div key={`dev-${idx}`} className="flex items-start gap-3 p-2.5 bg-primary/5 border border-primary/10 rounded-lg text-xs">
+                      <div key={`dev-${idx}`} className="flex items-start gap-3 p-2.5 bg-muted border border-border rounded-lg text-xs">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-foreground">{device.model || 'Unknown'}</span>
@@ -344,7 +344,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                 {patient?.leads && patient.leads.length > 0 ? (
                   <div className="space-y-2">
                     {patient.leads.map((lead: any, idx: number) => (
-                      <div key={`lead-${idx}`} className="flex items-start gap-3 p-2.5 bg-yellow-500/5 border border-yellow-500/10 rounded-lg text-xs">
+                      <div key={`lead-${idx}`} className="flex items-start gap-3 p-2.5 bg-muted border border-border rounded-lg text-xs">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-foreground">{lead.model || 'Unknown'}</span>
@@ -376,7 +376,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
       {/* Status Banner */}
       {bannerItems.length > 0 && (
-        <div className="shrink-0 px-4 py-2 bg-card/30 border-b border-border/30 space-y-1" role="alert">
+        <div className="shrink-0 px-4 py-2 bg-card border-b border-border space-y-1" role="alert">
           {bannerItems.map((item, idx) => (
             <div
               key={idx}

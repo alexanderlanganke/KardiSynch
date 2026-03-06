@@ -271,7 +271,7 @@ const Settings: React.FC = () => {
                         <div
                           key={name}
                           className={`relative border rounded-lg p-4 flex flex-col items-center justify-center gap-3 cursor-pointer transition-all
-                            ${enabled ? 'border-primary ring-1 ring-primary bg-primary/5' : 'bg-muted/30 opacity-70 hover:opacity-100'}`}
+                            ${enabled ? 'border-primary ring-1 ring-primary bg-muted' : 'bg-muted opacity-70 hover:opacity-100'}`}
                           onClick={handleToggle}
                         >
                           <div className="absolute top-2 right-2" onClick={(e) => e.stopPropagation()}>
@@ -392,7 +392,7 @@ const Settings: React.FC = () => {
                 <CardDescription>Software updates and version information.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                <div className="flex items-center justify-between p-4 border rounded-lg bg-muted/50">
+                <div className="flex items-center justify-between p-4 border rounded-lg bg-muted">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="h-5 w-5 text-green-600" />
@@ -409,7 +409,7 @@ const Settings: React.FC = () => {
                   <Label>Update Channel</Label>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div
-                      className={`cursor-pointer border rounded-lg p-4 flex items-start gap-3 hover:bg-muted/50 transition-colors ${settings.updateChannel === 'stable' ? 'ring-2 ring-primary bg-muted/20' : ''}`}
+                      className={`cursor-pointer border rounded-lg p-4 flex items-start gap-3 hover:bg-accent transition-colors ${settings.updateChannel === 'stable' ? 'ring-2 ring-primary bg-muted' : ''}`}
                       onClick={() => setSettings({ ...settings, updateChannel: 'stable' })}
                     >
                       <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-full">
@@ -421,7 +421,7 @@ const Settings: React.FC = () => {
                       </div>
                     </div>
                     <div
-                      className={`cursor-pointer border rounded-lg p-4 flex items-start gap-3 hover:bg-muted/50 transition-colors ${settings.updateChannel === 'beta' ? 'ring-2 ring-primary bg-muted/20' : ''}`}
+                      className={`cursor-pointer border rounded-lg p-4 flex items-start gap-3 hover:bg-accent transition-colors ${settings.updateChannel === 'beta' ? 'ring-2 ring-primary bg-muted' : ''}`}
                       onClick={() => setSettings({ ...settings, updateChannel: 'beta' })}
                     >
                       <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-full">

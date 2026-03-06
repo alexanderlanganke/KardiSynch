@@ -47,7 +47,7 @@ const NavItem: React.FC<{
       "relative w-10 h-10 rounded-xl transition-all duration-300 group",
       active
         ? "bg-primary text-primary-foreground shadow-lg shadow-primary/25 scale-105"
-        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+        : "text-muted-foreground hover:text-foreground hover:bg-muted"
     )}
     aria-label={label}
   >
@@ -170,8 +170,8 @@ const App: React.FC = () => {
           data-testid="app-container"
         >
           {/* Sidebar */}
-          <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border/40">
-            <div className="mb-8 w-10 h-10 flex items-center justify-center bg-primary/5 rounded-xl">
+          <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border">
+            <div className="mb-8 w-10 h-10 flex items-center justify-center bg-muted rounded-xl">
               <img src={icon} alt="KardiSynch" className="h-6 w-6 object-contain" style={{ width: '1.5rem', height: '1.5rem' }} />
             </div>
 
@@ -202,8 +202,7 @@ const App: React.FC = () => {
           </aside>
 
           {/* Main Content Area */}
-          <main className="flex-1 overflow-hidden relative flex flex-col">
-            <div className="absolute inset-0 bg-gradient-to-tr from-primary/3 via-transparent to-transparent pointer-events-none" />
+          <main className="flex-1 overflow-hidden flex flex-col">
             <div className="flex-1 overflow-hidden">
               {renderView()}
             </div>

@@ -1,4 +1,4 @@
-/* KardiSynch Theme - Consolidated */
+/* KardiSynch Theme - Consolidated, solid colors, monochromatic */
 
 @tailwind base;
 @tailwind components;
@@ -6,36 +6,36 @@
 
 @layer base {
   :root {
-    /* Core palette - clean clinical feel */
-    --background: 210 20% 98%;
-    --foreground: 200 50% 10%;
+    /* Monochromatic light palette - neutral with subtle cool undertone */
+    --background: 220 14% 96%;
+    --foreground: 220 14% 10%;
 
-    --card: 210 20% 96%;
-    --card-foreground: 200 50% 10%;
+    --card: 220 14% 100%;
+    --card-foreground: 220 14% 10%;
 
-    --popover: 210 20% 98%;
-    --popover-foreground: 200 50% 10%;
+    --popover: 220 14% 100%;
+    --popover-foreground: 220 14% 10%;
 
-    --primary: 190 90% 35%;
+    --primary: 220 60% 45%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 190 30% 90%;
-    --secondary-foreground: 190 90% 20%;
+    --secondary: 220 10% 91%;
+    --secondary-foreground: 220 14% 20%;
 
-    --muted: 200 10% 90%;
-    --muted-foreground: 200 10% 40%;
+    --muted: 220 10% 92%;
+    --muted-foreground: 220 10% 44%;
 
-    --accent: 190 30% 90%;
-    --accent-foreground: 190 90% 20%;
+    --accent: 220 10% 91%;
+    --accent-foreground: 220 14% 20%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 200 10% 80%;
-    --input: 200 10% 80%;
-    --ring: 190 90% 35%;
+    --border: 220 10% 86%;
+    --input: 220 10% 86%;
+    --ring: 220 60% 45%;
 
-    --radius: 0.75rem;
+    --radius: 0.5rem;
 
     /* Semantic status colors */
     --status-urgent: 0 84% 60%;
@@ -45,33 +45,34 @@
   }
 
   .dark {
-    --background: 200 20% 10%;
-    --foreground: 200 10% 90%;
+    /* Monochromatic dark palette */
+    --background: 220 16% 10%;
+    --foreground: 220 10% 90%;
 
-    --card: 200 20% 14%;
-    --card-foreground: 200 10% 90%;
+    --card: 220 16% 13%;
+    --card-foreground: 220 10% 90%;
 
-    --popover: 200 20% 14%;
-    --popover-foreground: 200 10% 90%;
+    --popover: 220 16% 13%;
+    --popover-foreground: 220 10% 90%;
 
-    --primary: 190 60% 70%;
-    --primary-foreground: 190 90% 10%;
+    --primary: 220 50% 65%;
+    --primary-foreground: 220 16% 10%;
 
-    --secondary: 190 30% 20%;
-    --secondary-foreground: 190 60% 80%;
+    --secondary: 220 14% 18%;
+    --secondary-foreground: 220 10% 85%;
 
-    --muted: 200 20% 20%;
-    --muted-foreground: 200 10% 70%;
+    --muted: 220 14% 18%;
+    --muted-foreground: 220 10% 60%;
 
-    --accent: 190 30% 20%;
-    --accent-foreground: 190 60% 80%;
+    --accent: 220 14% 18%;
+    --accent-foreground: 220 10% 85%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 200 20% 25%;
-    --input: 200 20% 25%;
-    --ring: 190 60% 70%;
+    --border: 220 14% 22%;
+    --input: 220 14% 22%;
+    --ring: 220 50% 65%;
 
     /* Semantic status colors - dark mode */
     --status-urgent: 0 72% 51%;
@@ -105,30 +106,27 @@ body {
   color: hsl(var(--primary));
 }
 
-/* Glassmorphism - toned down */
+/* Sidebar - solid background */
 .glass {
-  background-color: hsl(var(--background) / 0.8);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border-bottom: 1px solid hsl(var(--border) / 0.5);
+  background-color: hsl(var(--card));
+  border-bottom: 1px solid hsl(var(--border));
 }
 
+/* Card variant - solid */
 .glass-card {
-  background-color: hsl(var(--card) / 0.7);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-  border: 1px solid hsl(var(--border) / 0.5);
+  background-color: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
 .glass-card:hover {
-  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  box-shadow: 0 2px 4px -1px rgb(0 0 0 / 0.1);
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -136,7 +134,7 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: hsl(var(--muted-foreground) / 0.2);
+  background-color: hsl(var(--border));
   border-radius: 9999px;
 }
 

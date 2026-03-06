@@ -116,7 +116,7 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0 bg-background/95 backdrop-blur-md">
+            <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0 gap-0 bg-background">
                 <DialogHeader className="px-6 py-4 border-b">
                     <DialogTitle>Edit Patient Record</DialogTitle>
                 </DialogHeader>
@@ -159,7 +159,7 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
 
                                 <div className="space-y-3">
                                     {formData.devices.map((device, idx) => (
-                                        <div key={idx} className="p-4 border rounded-lg bg-card/50 relative group">
+                                        <div key={idx} className="p-4 border rounded-lg bg-card relative group">
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
@@ -214,7 +214,7 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
 
                                 <div className="space-y-3">
                                     {formData.leads.map((lead, idx) => (
-                                        <div key={idx} className="p-4 border rounded-lg bg-card/50 relative group border-yellow-500/10 bg-yellow-500/5">
+                                        <div key={idx} className="p-4 border rounded-lg bg-card relative group">
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
@@ -285,7 +285,7 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
                     </ScrollArea>
                 </div>
 
-                <DialogFooter className="px-6 py-4 border-t bg-muted/40 flex justify-between">
+                <DialogFooter className="px-6 py-4 border-t bg-muted flex justify-between">
                     <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
                     <Button onClick={handleSave} disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</Button>
                 </DialogFooter>

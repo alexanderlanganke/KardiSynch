@@ -16,10 +16,9 @@ interface ReportLike {
 const OVERDUE_DAYS = 180; // 6 months
 
 export function classifyPatient(patient: PatientLike, latestReport?: ReportLike): PriorityLevel {
-  // Urgent: active warnings or critical battery
+  // Urgent: manufacturer safety warnings or critical battery only
   if (hasActiveWarning(patient)) return 'urgent';
   if (hasCriticalBattery(latestReport)) return 'urgent';
-  if (hasUnsafeMri(patient)) return 'urgent';
 
   // Attention: overdue follow-up
   if (isOverdueFollowUp(patient, latestReport)) return 'attention';

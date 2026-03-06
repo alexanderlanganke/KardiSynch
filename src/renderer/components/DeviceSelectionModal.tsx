@@ -93,13 +93,13 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
 
     return (
         <Dialog open={open} onOpenChange={() => { }}>
-            <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col bg-background/95 backdrop-blur-xl border-primary/20 p-0 overflow-hidden">
+            <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col bg-background border-border p-0 overflow-hidden">
                 <div className="flex flex-col h-full">
                     {/* Header */}
                     <div className="px-6 py-4 border-b shrink-0">
                         <DialogTitle className="flex items-center gap-2 text-xl">
                             <Settings className="h-6 w-6 text-blue-500" />
-                            <span className="bg-gradient-to-r from-blue-500 to-indigo-500 bg-clip-text text-transparent">
+                            <span className="text-foreground">
                                 Device Autodetection Failed
                             </span>
                         </DialogTitle>
@@ -110,10 +110,10 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
 
                     <div className="flex-1 overflow-hidden grid grid-cols-12 gap-0">
                         {/* LEFT PANE: Inputs (4 columns) */}
-                        <div className="col-span-4 border-r flex flex-col bg-muted/10 h-full overflow-hidden">
+                        <div className="col-span-4 border-r flex flex-col bg-muted h-full overflow-hidden">
                             <ScrollArea className="flex-1">
                                 <div className="p-6 space-y-6">
-                                    <div className="flex items-center gap-3 p-3 bg-muted/30 rounded-lg">
+                                    <div className="flex items-center gap-3 p-3 bg-muted rounded-lg">
                                         <FileText className="h-8 w-8 text-primary/70" />
                                         <div className="min-w-0">
                                             <p className="text-sm font-medium truncate" title={fileInfo.filename}>{fileInfo.filename}</p>
@@ -184,7 +184,7 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
                                             <div className="space-y-3">
                                                 {leads.map((lead, idx) => (
                                                     <div key={lead.name} className="flex gap-2 items-center">
-                                                        <div className="w-8 shrink-0 font-medium text-xs text-center bg-muted/50 rounded py-1">{lead.name}</div>
+                                                        <div className="w-8 shrink-0 font-medium text-xs text-center bg-muted rounded py-1">{lead.name}</div>
                                                         <Input
                                                             placeholder="Model"
                                                             className="h-8 text-xs flex-1"
@@ -216,10 +216,10 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
                         </div>
 
                         {/* RIGHT PANE: Preview (8 columns) */}
-                        <div className="col-span-8 h-full bg-muted/20 flex flex-col relative overflow-hidden">
+                        <div className="col-span-8 h-full bg-muted flex flex-col relative overflow-hidden">
                             <div className="absolute inset-0 p-4">
                                 <div className="h-full w-full rounded-lg border bg-background shadow-sm overflow-hidden flex flex-col">
-                                    <div className="px-4 py-2 border-b bg-muted/40 text-xs font-medium text-muted-foreground flex justify-between items-center">
+                                    <div className="px-4 py-2 border-b bg-muted text-xs font-medium text-muted-foreground flex justify-between items-center">
                                         <span>Document Preview</span>
                                         {isPdf && <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px]">PDF Viewer</span>}
                                     </div>

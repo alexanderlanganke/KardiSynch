@@ -149,7 +149,7 @@ const ImportHistory: React.FC = () => {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
                 {/* Session List */}
-                <Card className="lg:col-span-1 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm">
+                <Card className="lg:col-span-1 flex flex-col min-h-0 bg-card">
                     <CardHeader>
                         <CardTitle>Sessions</CardTitle>
                     </CardHeader>
@@ -162,7 +162,7 @@ const ImportHistory: React.FC = () => {
                                         <div
                                             key={session.id}
                                             onClick={() => handleSessionClick(session)}
-                                            className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${selectedSession?.id === session.id ? 'border-primary bg-primary/5 ring-1 ring-primary' : 'border-border/50 hover:bg-muted/50'}`}
+                                            className={`p-4 rounded-lg border cursor-pointer transition-all hover:shadow-md ${selectedSession?.id === session.id ? 'border-primary bg-muted ring-1 ring-primary' : 'border-border hover:bg-muted'}`}
                                         >
                                             <div className="flex justify-between items-start mb-2">
                                                 <Badge variant={session.status === 'completed' ? 'outline' : 'secondary'}>
@@ -192,7 +192,7 @@ const ImportHistory: React.FC = () => {
                 </Card>
 
                 {/* Session Details */}
-                <Card className="lg:col-span-2 flex flex-col min-h-0 bg-background/50 backdrop-blur-sm">
+                <Card className="lg:col-span-2 flex flex-col min-h-0 bg-card">
                     <CardHeader className="border-b">
                         <CardTitle>{selectedSession ? 'Session Details' : 'Select a Session'}</CardTitle>
                         {selectedSession && <CardDescription>ID: {selectedSession.id}</CardDescription>}

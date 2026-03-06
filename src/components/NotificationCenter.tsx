@@ -164,7 +164,7 @@ const NotificationCenter: React.FC = () => {
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="relative rounded-full h-10 w-10 hover:bg-muted/50"
+                    className="relative rounded-full h-10 w-10 hover:bg-muted"
                     aria-label="Notification center"
                 >
                     {activeTasks.length > 0 ? (
@@ -179,8 +179,8 @@ const NotificationCenter: React.FC = () => {
                     )}
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[480px] p-0 bg-background/80 backdrop-blur-xl border-border/40 shadow-2xl" align="end" sideOffset={8}>
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border/40 bg-muted/20">
+            <PopoverContent className="w-[480px] p-0 bg-background border-border shadow-2xl" align="end" sideOffset={8}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
                     <h4 className="font-semibold text-sm">Notification Center</h4>
                     {notifications.length > 0 && (
                         <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={clearAllNotifications}>
@@ -225,7 +225,7 @@ const NotificationCenter: React.FC = () => {
                             ) : (
                                 <div className="divide-y">
                                     {notifications.map(notification => (
-                                        <div key={notification.id} className={cn("p-4 hover:bg-muted/50 transition-colors relative group", !notification.read && "bg-muted/20")}>
+                                        <div key={notification.id} className={cn("p-4 hover:bg-muted transition-colors relative group", !notification.read && "bg-muted")}>
                                             <div className="flex gap-3">
                                                 <div className="mt-0.5">{getIcon(notification.type)}</div>
                                                 <div className="flex-1 space-y-1">
@@ -297,7 +297,7 @@ const NotificationCenter: React.FC = () => {
                             {selectedSession ? (
                                 // Session detail view
                                 <div>
-                                    <div className="flex items-center gap-2 p-3 border-b border-border/40 bg-muted/10">
+                                    <div className="flex items-center gap-2 p-3 border-b border-border bg-muted">
                                         <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={() => { setSelectedSession(null); setSessionEvents([]); }}>
                                             <X className="h-3 w-3 mr-1" /> Back
                                         </Button>
@@ -352,7 +352,7 @@ const NotificationCenter: React.FC = () => {
                                                 return (
                                                     <div
                                                         key={session.id}
-                                                        className="p-3 hover:bg-muted/50 cursor-pointer transition-colors"
+                                                        className="p-3 hover:bg-muted cursor-pointer transition-colors"
                                                         onClick={() => handleSessionClick(session.id)}
                                                         role="button"
                                                         tabIndex={0}

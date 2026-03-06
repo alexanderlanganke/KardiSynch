@@ -229,8 +229,8 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       <div
         key={patient.id}
         className={cn(
-          "group flex items-center px-5 py-3 bg-card/60 hover:bg-muted/40 border border-transparent hover:border-border/40 rounded-lg transition-all duration-200 cursor-pointer text-sm",
-          isEditing && 'bg-muted/30 ring-1 ring-primary/20'
+          "group flex items-center px-5 py-3 bg-card hover:bg-muted border border-transparent hover:border-border rounded-lg transition-all duration-200 cursor-pointer text-sm",
+          isEditing && 'bg-muted ring-1 ring-primary'
         )}
         onClick={() => !editingPatientId && onPatientSelect(patient.id)}
         role="button"
@@ -323,7 +323,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                 )}
               </div>
               {patient.reportCount > 0 && (
-                <Badge variant="outline" className="ml-1 h-5 text-[10px] px-1.5 border-primary/20 text-primary bg-primary/5">
+                <Badge variant="outline" className="ml-1 h-5 text-[10px] px-1.5 border-primary text-primary bg-primary/10">
                   {patient.reportCount}
                 </Badge>
               )}
@@ -400,7 +400,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
             <Input
               placeholder="Search patients..."
-              className="pl-9 h-9 text-sm bg-background/50 border-muted-foreground/20 focus:border-primary/50 transition-all w-full"
+              className="pl-9 h-9 text-sm bg-background border-input focus:border-primary transition-all w-full"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               aria-label="Search patients"
@@ -409,7 +409,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
           <Button
             variant={showFilters ? "secondary" : "ghost"}
             size="icon"
-            className="h-9 w-9 rounded-lg border-transparent hover:bg-muted/50 shrink-0"
+            className="h-9 w-9 rounded-lg border-transparent hover:bg-muted shrink-0"
             onClick={() => setShowFilters(!showFilters)}
             title="Advanced Filters"
             aria-label="Toggle advanced filters"
@@ -421,7 +421,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
       {/* Filter Panel */}
       {showFilters && (
-        <Card className="glass-card animate-accordion-down overflow-hidden border-primary/10">
+        <Card className="glass-card animate-accordion-down overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg font-medium flex items-center gap-2">
               <Filter className="h-4 w-4" /> Advanced Filters
@@ -432,24 +432,24 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="space-y-2">
                 <Label htmlFor="dob">Date of Birth</Label>
-                <Input id="dob" type="date" className="bg-background/50" value={filters.dob} onChange={(e) => handleFilterChange('dob', e.target.value)} />
+                <Input id="dob" type="date" className="bg-background" value={filters.dob} onChange={(e) => handleFilterChange('dob', e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="patientId">Patient ID (Internal)</Label>
-                <Input id="patientId" placeholder="e.g. P-12345" className="bg-background/50" value={filters.patientId} onChange={(e) => handleFilterChange('patientId', e.target.value)} />
+                <Input id="patientId" placeholder="e.g. P-12345" className="bg-background" value={filters.patientId} onChange={(e) => handleFilterChange('patientId', e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="hospitalPatientId">Hospital MRN</Label>
-                <Input id="hospitalPatientId" placeholder="e.g. MRN-999" className="bg-background/50" value={filters.hospitalPatientId} onChange={(e) => handleFilterChange('hospitalPatientId', e.target.value)} />
+                <Input id="hospitalPatientId" placeholder="e.g. MRN-999" className="bg-background" value={filters.hospitalPatientId} onChange={(e) => handleFilterChange('hospitalPatientId', e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="hospitalVisitId">Visit ID</Label>
-                <Input id="hospitalVisitId" placeholder="e.g. V-2023-001" className="bg-background/50" value={filters.hospitalVisitId} onChange={(e) => handleFilterChange('hospitalVisitId', e.target.value)} />
+                <Input id="hospitalVisitId" placeholder="e.g. V-2023-001" className="bg-background" value={filters.hospitalVisitId} onChange={(e) => handleFilterChange('hospitalVisitId', e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="manufacturer">Device Manufacturer</Label>
                 <Select value={filters.deviceManufacturer} onValueChange={(value) => handleFilterChange('deviceManufacturer', value)}>
-                  <SelectTrigger id="manufacturer" className="bg-background/50">
+                  <SelectTrigger id="manufacturer" className="bg-background">
                     <SelectValue placeholder="Select Manufacturer" />
                   </SelectTrigger>
                   <SelectContent>
@@ -472,9 +472,9 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       )}
 
       {/* Patient List - Priority Sections */}
-      <div className="flex flex-col flex-1 min-h-0 gap-1 rounded-xl bg-background/20 border border-transparent overflow-hidden">
+      <div className="flex flex-col flex-1 min-h-0 gap-1 rounded-xl bg-background border border-transparent overflow-hidden">
         {/* Header Row */}
-        <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted/30 rounded-lg mb-0 select-none shrink-0 z-10">
+        <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted rounded-lg mb-0 select-none shrink-0 z-10">
           <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('name')}>
             Patient <SortIcon field="name" />
           </div>
@@ -505,7 +505,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
               <p className="text-sm">Loading patients...</p>
             </div>
           ) : sortedPatients.length === 0 ? (
-            <div className="text-center py-20 text-muted-foreground/60 border-2 border-dashed border-muted rounded-xl bg-muted/5">
+            <div className="text-center py-20 text-muted-foreground/60 border-2 border-dashed border-muted rounded-xl bg-muted">
               <Search className="h-8 w-8 mx-auto mb-2 opacity-20" />
               <p>No patients found matching criteria.</p>
             </div>

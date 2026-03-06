@@ -64,7 +64,7 @@ const FormattedReport: React.FC<FormattedReportProps> = ({ report, previousRepor
 
       {/* Battery Status */}
       {(batteryStatus || batteryVoltage) && (
-        <Card className={cn(isCriticalBattery && "border-red-500/30 bg-red-500/5")}>
+        <Card className={cn(isCriticalBattery && "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950")}>
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-sm flex items-center gap-2">
               <Battery className={cn("h-4 w-4", isCriticalBattery ? "text-red-500" : "text-green-600")} />
@@ -98,7 +98,7 @@ const FormattedReport: React.FC<FormattedReportProps> = ({ report, previousRepor
             {report.leads.map((lead: any, idx: number) => {
               const prevLead = previousReport?.leads?.[idx];
               return (
-                <div key={idx} className="p-2.5 bg-muted/30 rounded-md">
+                <div key={idx} className="p-2.5 bg-muted rounded-md">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="text-xs font-semibold">{lead.location || lead.type || `Lead ${idx + 1}`}</span>
                     {lead.model && <span className="text-[10px] text-muted-foreground">{lead.model}</span>}
@@ -146,7 +146,7 @@ const FormattedReport: React.FC<FormattedReportProps> = ({ report, previousRepor
           <CardContent className="px-4 pb-3 pt-0">
             <div className="space-y-2">
               {report.episodes.map((episode: any, idx: number) => (
-                <div key={idx} className="flex items-center justify-between text-xs p-2 bg-muted/20 rounded">
+                <div key={idx} className="flex items-center justify-between text-xs p-2 bg-muted rounded">
                   <span className="font-medium">{episode.type || 'Unknown'}</span>
                   <div className="flex items-center gap-3 text-muted-foreground">
                     {episode.count && <span>{episode.count} episodes</span>}

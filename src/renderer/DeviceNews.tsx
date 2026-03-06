@@ -37,7 +37,7 @@ const NewsCard: React.FC<{ item: NewsItem; forwardRef?: React.Ref<HTMLDivElement
 
     return (
         <div ref={forwardRef}>
-            <Card className="flex flex-row h-48 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden group border-muted/60 bg-card/50 backdrop-blur-sm">
+            <Card className="flex flex-row h-48 hover:shadow-lg transition-all duration-300 hover:-translate-y-1 overflow-hidden group border-border bg-card">
                 {/* Image Area - 100% Image based, no DIV fallbacks */}
                 <div className="w-1/3 h-full relative overflow-hidden flex-shrink-0">
                     <img
@@ -58,7 +58,7 @@ const NewsCard: React.FC<{ item: NewsItem; forwardRef?: React.Ref<HTMLDivElement
                             item.type === 'warning' ? 'destructive' :
                                 item.type === 'study' ? 'secondary' : 'default'
                         } className={cn(
-                            "uppercase text-[10px] tracking-wider shadow-sm opacity-90 backdrop-blur-md",
+                            "uppercase text-[10px] tracking-wider shadow-sm shadow-sm",
                             item.type === 'warning' && "bg-red-500/90 hover:bg-red-500 text-white",
                             item.type === 'study' && "bg-blue-500/90 hover:bg-blue-500 text-white",
                             item.type === 'news' && "bg-emerald-500/90 hover:bg-emerald-500 text-white"
@@ -194,7 +194,7 @@ const DeviceNews: React.FC = () => {
                     <p className="text-lg font-medium">{statusMessage}</p>
                 </div>
             ) : visibleNews.length === 0 ? (
-                <div className="text-center py-20 bg-muted/10 rounded-xl border border-dashed border-muted">
+                <div className="text-center py-20 bg-muted rounded-xl border border-dashed border-muted">
                     <Link className="h-12 w-12 mx-auto mb-3 opacity-20" />
                     <h3 className="text-lg font-medium">No News Found</h3>
                     <p className="text-muted-foreground">Could not fetch updates at this time. Check your internet connection.</p>

@@ -211,7 +211,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     return (
         <div className="flex flex-col h-full w-full min-w-0">
             {/* Controls */}
-            <div className="flex-shrink-0 w-full flex items-center justify-between px-2 py-1 border-b border-border bg-card/50">
+            <div className="flex-shrink-0 w-full flex items-center justify-between px-2 py-1 border-b border-border bg-card">
                 <div className="flex items-center gap-1">
                     <Button
                         variant="ghost"
@@ -301,7 +301,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
             </div>
 
             {/* PDF Document */}
-            <div className="flex-1 overflow-auto p-4 flex justify-center bg-muted/10 min-w-0">
+            <div className="flex-1 overflow-auto p-4 flex justify-center bg-muted min-w-0">
                 <Document
                     file={pdfUrl}
                     onLoadSuccess={onDocumentLoadSuccess}
