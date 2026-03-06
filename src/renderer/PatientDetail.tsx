@@ -191,64 +191,55 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago - follow-up may be overdue` });
   }
 
+  // Build device summary string for compact view
+  const deviceSummary = (() => {
+    const parts: string[] = [];
+    if (deviceCount > 0) {
+      const firstDevice = patient?.devices?.[0];
+      parts.push(firstDevice?.model || 'Unknown Device');
+    }
+    if (leadCount > 0) {
+      parts.push(`${leadCount} lead${leadCount !== 1 ? 's' : ''}`);
+    }
+    return parts.length > 0 ? parts.join(' + ') : 'No device history';
+  })();
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Expandable Summary Header */}
       <div className="border-b border-border bg-card/50 shrink-0">
-        {/* Compact Row */}
-        <div
-          className="flex items-center px-4 h-14 gap-4 cursor-pointer hover:bg-muted/30 transition-colors"
-          onClick={() => setIsExpanded(!isExpanded)}
-          role="button"
-          aria-expanded={isExpanded}
-          aria-label="Toggle patient summary"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter') setIsExpanded(!isExpanded); }}
-        >
-          {/* Left: Navigation & Patient Info */}
-          <div className="flex items-center gap-3 shrink-0 border-r border-border/50 pr-4" onClick={(e) => e.stopPropagation()}>
-            <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted/50 rounded-full" aria-label="Back to dashboard">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="flex flex-col justify-center">
-              <div className="flex items-center gap-2">
-                <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient?.name}</h1>
-                <Button
-                  variant="ghost" size="icon"
-                  className="h-5 w-5 text-muted-foreground hover:text-primary p-0"
-                  onClick={(e) => { e.stopPropagation(); setIsEditorOpen(true); }}
-                  title="Edit Patient & Devices"
-                  aria-label="Edit patient"
-                >
-                  <Pencil className="h-3 w-3" />
-                </Button>
-              </div>
-              <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-                <span>{patient?.dob}</span>
-                {age !== null && <span>({age}y)</span>}
-                <span>-</span>
-                <span className="font-mono opacity-80">{patient?.hospitalPatientId || patient?.patientId}</span>
-              </div>
-            </div>
-          </div>
+        {/* Top bar: Back button + Compact summary row (always visible) */}
+        <div className="flex items-center h-14 px-4 gap-0">
+          {/* Back button - not part of expandable area */}
+          <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted/50 rounded-full shrink-0 mr-3" aria-label="Back to dashboard">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
 
-          {/* Middle: Device Summary */}
-          <div className="flex-1 flex items-center gap-3 min-w-0">
-            {deviceCount > 0 && (
-              <div className="flex items-center gap-1.5 text-[11px] text-foreground/80">
-                <Activity className="h-3.5 w-3.5 text-primary/70" />
-                <span className="font-medium truncate max-w-[200px]">
-                  {patient.devices[0]?.model || 'Unknown'}
-                </span>
-                {deviceCount > 1 && <span className="text-muted-foreground">+{deviceCount - 1}</span>}
-              </div>
-            )}
-            {leadCount > 0 && (
-              <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                <Zap className="h-3 w-3 text-yellow-600/70" />
-                <span>{leadCount} lead{leadCount !== 1 ? 's' : ''}</span>
-              </div>
-            )}
+          {/* Clickable compact summary - single dense row */}
+          <div
+            className="flex-1 flex items-center gap-4 min-w-0 cursor-pointer rounded-lg px-2 py-1.5 -mx-1 hover:bg-muted/30 transition-colors group/expand"
+            onClick={() => setIsExpanded(!isExpanded)}
+            role="button"
+            aria-expanded={isExpanded}
+            aria-label="Toggle patient details"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter') setIsExpanded(!isExpanded); }}
+          >
+            {/* Patient name, DOB, age */}
+            <div className="flex items-baseline gap-2 shrink-0">
+              <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient?.name}</h1>
+              <span className="text-[11px] text-muted-foreground">
+                {patient?.dob}{age !== null ? ` (${age}y)` : ''}
+              </span>
+            </div>
+
+            {/* Separator */}
+            <div className="w-px h-4 bg-border/60 shrink-0" />
+
+            {/* Device summary: "Rivacor 7 HF-T + 3 leads" */}
+            <span className="text-[11px] text-foreground/70 truncate min-w-0">
+              {deviceSummary}
+            </span>
 
             {/* MRI Badge */}
             {patient?.mriStatus?.status && (
@@ -257,29 +248,60 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
             {/* Warning Badge */}
             {warnings && (
-              <Badge className="status-urgent text-[10px] h-5 px-1.5">
+              <Badge className="status-urgent text-[10px] h-5 px-1.5 shrink-0">
                 <AlertTriangle className="h-3 w-3 mr-1" /> Warning
               </Badge>
             )}
-          </div>
 
-          {/* Right: Stats & Expand */}
-          <div className="shrink-0 flex items-center gap-3">
-            {days !== null && (
-              <span className={cn("text-[10px]", days > 180 ? "text-amber-500" : "text-muted-foreground")}>
-                {days}d ago
-              </span>
-            )}
-            <Badge variant="secondary" className="text-[10px] h-6 px-2 bg-secondary/50">
-              {reports.length} Visit{reports.length !== 1 ? 's' : ''}
+            {/* Separator */}
+            <div className="w-px h-4 bg-border/60 shrink-0" />
+
+            {/* Last interrogation + days ago */}
+            <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
+              {patient?.lastReportDate || reports[0]?.interrogation_date
+                ? <span>{patient?.lastReportDate || reports[0]?.interrogation_date}</span>
+                : <span>No visits</span>
+              }
+              {days !== null && (
+                <span className={cn("text-[10px]", days > 180 ? "text-amber-500 font-medium" : "text-muted-foreground/60")}>
+                  ({days}d)
+                </span>
+              )}
+            </div>
+
+            {/* Visit count */}
+            <Badge variant="secondary" className="text-[10px] h-5 px-1.5 bg-secondary/50 shrink-0">
+              {reports.length}
             </Badge>
-            {isExpanded ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+
+            {/* Expand hint - chevron with subtle animation */}
+            <div className={cn(
+              "shrink-0 ml-auto flex items-center gap-1 text-[10px] text-muted-foreground/50 group-hover/expand:text-muted-foreground transition-colors",
+            )}>
+              <span className="hidden group-hover/expand:inline transition-opacity">Details</span>
+              <ChevronDown className={cn(
+                "h-4 w-4 transition-transform duration-200",
+                isExpanded && "rotate-180"
+              )} />
+            </div>
           </div>
         </div>
 
         {/* Expanded View */}
         {isExpanded && (
           <div className="px-4 pb-4 pt-2 border-t border-border/30 animate-accordion-down">
+            {/* Edit button - inside expanded area */}
+            <div className="flex justify-end mb-3">
+              <Button
+                variant="outline" size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => setIsEditorOpen(true)}
+                aria-label="Edit patient and devices"
+              >
+                <Pencil className="h-3 w-3" /> Edit Patient & Devices
+              </Button>
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               {/* Devices Section */}
               <div>
