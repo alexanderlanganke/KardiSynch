@@ -13,11 +13,23 @@ import { getConfig } from './config';
 import { XMLParser } from 'fast-xml-parser';
 import { AutomationManager } from './services/AutomationManager';
 
+// Cache of allowed base directories, updated when settings change
+let allowedBaseDirs: string[] = [];
+
+function updateAllowedPaths(settings: any) {
+  const userDataDir = app.getPath('userData');
+  const dirs = new Set<string>([userDataDir]);
+  if (settings?.dataPath) dirs.add(path.resolve(settings.dataPath));
+  if (settings?.importDir) dirs.add(path.resolve(settings.importDir));
+  if (settings?.unmatchedDir) dirs.add(path.resolve(settings.unmatchedDir));
+  allowedBaseDirs = Array.from(dirs);
+}
+
 function isPathAllowed(filePath: string): boolean {
   const resolved = path.resolve(filePath);
-  const userDataDir = app.getPath('userData');
-  // Allow paths within userData (covers dataPath, importDir, unmatchedDir by default)
-  return resolved.startsWith(userDataDir + path.sep) || resolved === userDataDir;
+  return allowedBaseDirs.some(dir =>
+    resolved.startsWith(dir + path.sep) || resolved === dir
+  );
 }
 
 function createWindow() {
@@ -119,6 +131,9 @@ app.whenReady().then(async () => {
       dataPath: path.join(app.getPath('userData'), '_DATA')
     } as any;
   }
+
+  // Initialize allowed paths for IPC security validation
+  updateAllowedPaths(settings);
 
   // 2. Initialize Auto-Updater (Robust)
   try {
@@ -416,6 +431,9 @@ ipcMain.handle('set-settings', async (event, settings) => {
     const oldSettings = await getAllSettings();
     await saveSettings(settings);
     const newSettings = await getAllSettings();
+
+    // Update allowed paths for IPC security validation
+    updateAllowedPaths(newSettings);
 
     // Restart watcher if relevant paths changed
     if (
