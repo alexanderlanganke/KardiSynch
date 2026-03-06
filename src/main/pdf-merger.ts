@@ -32,7 +32,7 @@ export const verifyPdfMatch = (pdfText: string, reportData: UnifiedReport): bool
   const lowerPdfText = pdfText.toLowerCase();
 
   // Check for patient's first and last name
-  if (!lowerPdfText.includes(patient.first_name.toLowerCase()) || !lowerPdfText.includes(patient.last_name.toLowerCase())) {
+  if (!lowerPdfText.includes((patient.first_name || '').toLowerCase()) || !lowerPdfText.includes((patient.last_name || '').toLowerCase())) {
     return false;
   }
 
@@ -44,7 +44,7 @@ export const verifyPdfMatch = (pdfText: string, reportData: UnifiedReport): bool
   }
 
   // Check for device model and serial number
-  if (!lowerPdfText.includes(device.model.toLowerCase()) || !lowerPdfText.includes(device.serial_number.toLowerCase())) {
+  if (!lowerPdfText.includes((device.model || '').toLowerCase()) || !lowerPdfText.includes((device.serial_number || '').toLowerCase())) {
     return false;
   }
 

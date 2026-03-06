@@ -255,7 +255,7 @@ async function checkAbbott(model: string, leads: any[], country: string = 'Germa
 
 async function checkBiotronik(model: string, leads: any[] = [], country: string = 'Germany', onProgress?: (msg: string) => void): Promise<MRIStatusResult> {
     // 0. Direct Exception for BioMonitor (ILR)
-    if (model.toLowerCase().includes('biomonitor')) {
+    if ((model || '').toLowerCase().includes('biomonitor')) {
         return {
             manufacturer: 'Biotronik',
             status: 'conditional',
@@ -624,23 +624,23 @@ export const checkMRIStatus = async (
         const manu = safeManu.toLowerCase();
 
         if (manu.includes('biotronik')) {
-            return await checkBiotronik(model, leads, country, onProgress);
+            return await checkBiotronik(safeModel, leads, country, onProgress);
         }
 
         if (manu.includes('medtronic')) {
-            return await checkMedtronic(model, leads);
+            return await checkMedtronic(safeModel, leads);
         }
 
         if (manu.includes('abbott') || manu.includes('st. jude') || manu.includes('sjm')) {
-            return await checkAbbott(model, leads);
+            return await checkAbbott(safeModel, leads);
         }
 
         if (manu.includes('boston') || manu.includes('guidant')) {
-            return await checkBoston(model, leads);
+            return await checkBoston(safeModel, leads);
         }
 
         if (manu.includes('sorin') || manu.includes('ela') || manu.includes('microport')) {
-            return await checkSorin(model, leads);
+            return await checkSorin(safeModel, leads);
         }
 
         // Add other manufacturers here

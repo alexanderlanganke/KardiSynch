@@ -142,8 +142,8 @@ export async function checkBoston(model: string, leads: any[]): Promise<MRIStatu
     // Helper to intersect modalities: "1.5T & 3T" vs "1.5T" -> "1.5T"
     // Heuristic: If one is "1.5T" (only), system becomes "1.5T".
     const intersect = (current: string, newMod: string) => {
-        const c = current.toLowerCase();
-        const n = newMod.toLowerCase();
+        const c = (current || '').toLowerCase();
+        const n = (newMod || '').toLowerCase();
         if (c.includes('3t') && n.includes('3t') && c.includes('1.5') && n.includes('1.5')) return '1.5T & 3T';
         if ((c.includes('3t') || n.includes('3t')) && (!c.includes('1.5') && !n.includes('1.5'))) return '3T Only'; // Rare?
         return '1.5T'; // Default fallback to lower
