@@ -191,10 +191,10 @@ app.whenReady().then(async () => {
   });
 
 
-  // Start automated background tasks
+  // Start automated background tasks (delay lets UI finish loading)
   setTimeout(() => {
     AutomationManager.getInstance().startMonitoring();
-  }, 5000); // Small delay to let UI load
+  }, 15000);
 
 
   if (settings) {
