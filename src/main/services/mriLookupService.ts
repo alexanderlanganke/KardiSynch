@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { checkMedtronic } from './medtronicLogic';
 import { checkBoston } from './bostonLogic';
+import { ScraperService } from './ScraperService';
 
 export interface MRIStatusResult {
     manufacturer: string;
@@ -14,9 +15,10 @@ export interface MRIStatusResult {
 // Helper to wait
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper to wait for element
+// Helper to wait for element by ID, with fast polling that backs off
 async function waitForElement(win: BrowserWindow, id: string, timeout = 10000) {
     const start = Date.now();
+    let interval = 100; // Start fast, back off
     while (Date.now() - start < timeout) {
         try {
             const found = await win.webContents.executeJavaScript(`
@@ -26,7 +28,23 @@ async function waitForElement(win: BrowserWindow, id: string, timeout = 10000) {
         } catch (e) {
             // Ignore execution errors during navigation
         }
-        await wait(500);
+        await wait(interval);
+        interval = Math.min(interval * 1.5, 500); // Back off to max 500ms
+    }
+    return false;
+}
+
+// Helper to wait for any visible element matching a JS condition
+async function waitForCondition(win: BrowserWindow, jsExpr: string, timeout = 10000): Promise<boolean> {
+    const start = Date.now();
+    let interval = 150;
+    while (Date.now() - start < timeout) {
+        try {
+            const result = await win.webContents.executeJavaScript(jsExpr);
+            if (result) return true;
+        } catch (e) { /* ignore */ }
+        await wait(interval);
+        interval = Math.min(interval * 1.5, 500);
     }
     return false;
 }
@@ -52,18 +70,18 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
         throw new Error(`Failed to focus ${selector}: ${focusResult}`);
     }
 
-    // Type char by char
+    // Type char by char (needed for PrimeFaces autocomplete)
     for (const char of text) {
         await win.webContents.sendInputEvent({ type: 'char', keyCode: char });
-        await wait(50);
+        await wait(30);
     }
-    await wait(500);
+    await wait(300);
 
     // Select first option
     await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Down' });
-    await wait(500);
+    await wait(200);
     await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
-    await wait(1000);
+    await wait(500);
 }
 
 // Helper to interact with Select2 components (common in Abbott site)
@@ -84,55 +102,45 @@ async function interactWithSelect2(win: BrowserWindow, selectId: string, text: s
         throw new Error(`Failed to open Select2 #${selectId}: ${openResult}`);
     }
 
-    await wait(500);
+    // Wait for search field to appear
+    await waitForCondition(win, `!!document.querySelector('.select2-container--open input.select2-search__field')`, 3000);
 
-    // 2. Type into the search field (which is dynamically added to body)
-    // Select2 usually adds a global .select2-search__field input when opened
+    // 2. Type into the search field
     const searchSelector = '.select2-container--open input.select2-search__field';
     const typeResult = await win.webContents.executeJavaScript(`
         (function() {
             const input = document.querySelector('${searchSelector}');
             if (!input) return 'Search input not found';
             input.value = '${text}';
-            // Trigger input event to filter
             input.dispatchEvent(new Event('input', { bubbles: true }));
             return 'OK';
         })()
     `);
 
     if (typeResult !== 'OK') {
-        // Fallback: Try typing via keypresses if direct value set doesn't trigger filter
         console.log(`[Abbott] Direct input failed, trying keystrokes for ${selectId}`);
         for (const char of text) {
             await win.webContents.sendInputEvent({ type: 'char', keyCode: char });
-            await wait(50);
+            await wait(30);
         }
     } else {
-        // Even if we set value, we need to trigger Select2's internal filtering often?
-        // Let's send a fake keyup just in case
         await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'End' });
     }
 
-    await wait(1000); // Wait for filtering
+    // Wait for results to appear
+    await waitForCondition(win, `!!document.querySelector('.select2-results__option')`, 3000);
 
     // 3. Select the first result
     await win.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' });
-    await wait(1000); // Wait for selection to apply
+    await wait(500); // Brief settle for selection to apply
 }
 
 async function checkAbbott(model: string, leads: any[], country: string = 'Germany'): Promise<MRIStatusResult> {
     console.log(`[MRI Service] Abbott Check: ${model} with ${leads.length} leads...`);
 
-    let win: BrowserWindow | null = new BrowserWindow({
-        show: false,
-        width: 1280,
-        height: 900,
-        webPreferences: {
-            offscreen: false, // Changed from true to stability in headless envs
-            nodeIntegration: false, // Security
-            contextIsolation: true
-        }
-    });
+    const scraper = ScraperService.getInstance();
+    await scraper.resetWindow();
+    const win = scraper.getWindow();
 
     try {
         // Safe Load URL
@@ -182,9 +190,8 @@ async function checkAbbott(model: string, leads: any[], country: string = 'Germa
             }
         }
 
-        // 4. Check Results
-        // Look for result table
-        await wait(2000);
+        // 4. Check Results — wait for result table or timeout
+        await waitForCondition(win, `!!document.querySelector('table.table-striped')`, 5000);
 
         const resultData = await win.webContents.executeJavaScript(`
             (function() {
@@ -242,16 +249,7 @@ async function checkAbbott(model: string, leads: any[], country: string = 'Germa
             timestamp: new Date().toISOString()
         };
     } finally {
-        if (win) {
-            try {
-                if (!win.isDestroyed()) {
-                    win.destroy();
-                }
-            } catch (closeErr) {
-                console.warn('Error closing Abbott check window:', closeErr);
-            }
-            win = null;
-        }
+        // Do not destroy window
     }
 }
 
@@ -266,16 +264,9 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
         };
     }
 
-    let win: BrowserWindow | null = new BrowserWindow({
-        show: false, // Keep hidden for production
-        width: 1280,
-        height: 900,
-        webPreferences: {
-            offscreen: false, // Changed for stability
-            nodeIntegration: false,
-            contextIsolation: true
-        }
-    });
+    const scraper = ScraperService.getInstance();
+    await scraper.resetWindow();
+    const win = scraper.getWindow();
 
     // ... rest of function ...
 
@@ -333,14 +324,11 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
             `);
         }
 
-        await wait(2000); // Give it a moment to define next step (Lead vs Result)
-
         // 4. Enter Leads (if prompt appears)
-        // We need to check if we are on the Lead page or Result page or if Lead input exists
-        // Wait up to 5s for either Lead input or Result
+        // Poll for either lead input or result — no fixed wait needed
         let needsLeads = false;
         const startLeadCheck = Date.now();
-        while (Date.now() - startLeadCheck < 10000) { // Increased timeout to 10s for safety
+        while (Date.now() - startLeadCheck < 12000) {
             // Check for VISIBLE lead input
             needsLeads = await win.webContents.executeJavaScript(`
                (function() {
@@ -416,7 +404,15 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
             await win.webContents.executeJavaScript(`
                 document.getElementById('checkProMriFrom:enter-inLead').click();
             `);
-            await wait(3000);
+            // Wait for result to become visible instead of fixed 3s
+            await waitForCondition(win, `
+                (function() {
+                    const posText = document.getElementById('posText');
+                    const pos = document.getElementById('pos');
+                    const isVisible = (el) => el && el.offsetParent !== null && el.style.display !== 'none' && el.innerText.trim().length > 0;
+                    return isVisible(posText) || isVisible(pos);
+                })()
+            `, 10000);
         }
 
         // 5. Scrape Result
@@ -461,16 +457,7 @@ async function checkBiotronik(model: string, leads: any[] = [], country: string 
         console.error('Biotronik Scrape Error:', err);
         throw err;
     } finally {
-        if (win) {
-            try {
-                if (!win.isDestroyed()) {
-                    win.destroy();
-                }
-            } catch (cleanupErr) {
-                console.warn('Error cleaning up Biotronik window:', cleanupErr);
-            }
-            win = null;
-        }
+        // Do not destroy
     }
 }
 

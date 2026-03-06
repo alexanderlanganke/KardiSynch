@@ -150,6 +150,9 @@ const processTempDirectory = async (tempDir: string) => {
     warnings: [] as string[]
   };
 
+  // Collect unique patient IDs for post-import automation checks
+  const importedPatientIds = new Set<string>();
+
   try {
 
     sendProcessStatus({ type: 'start', message: `Processing ${allFiles.length} files...` });
@@ -391,6 +394,7 @@ const processTempDirectory = async (tempDir: string) => {
             report_id: reportId
           });
           sessionSummary.imported++;
+          importedPatientIds.add(patient.id);
 
           // Register as active visit
           if (key) {
@@ -916,6 +920,20 @@ const processTempDirectory = async (tempDir: string) => {
     sendProcessStatus({ type: 'complete', message: 'Processing complete.' });
   } catch (e) {
     console.error('Error sending session updates:', e);
+  }
+
+  // Queue imported patients for immediate MRI/warning checks
+  if (importedPatientIds.size > 0) {
+    try {
+      const { AutomationManager } = await import('./services/AutomationManager');
+      const automation = AutomationManager.getInstance();
+      for (const pid of importedPatientIds) {
+        automation.queuePatient(pid);
+      }
+      console.log(`[Watcher] Queued ${importedPatientIds.size} patients for automation checks.`);
+    } catch (e) {
+      console.error('[Watcher] Failed to queue patients for automation:', e);
+    }
   }
 };
 

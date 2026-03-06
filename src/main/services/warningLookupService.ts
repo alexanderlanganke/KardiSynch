@@ -1,5 +1,6 @@
 import { BrowserWindow, shell } from 'electron';
 import { checkMRIStatus } from './mriLookupService';
+import { ScraperService } from './ScraperService';
 // Reusing some types/logic if possible, or defining new ones.
 
 export interface WarningStatusResult {
@@ -14,9 +15,10 @@ export interface WarningStatusResult {
 // Helper: Wait function
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Helper: Wait for element
+// Helper: Wait for element with fast-then-backoff polling
 async function waitForElement(win: BrowserWindow, selector: string, timeout = 10000) {
     const start = Date.now();
+    let interval = 100;
     while (Date.now() - start < timeout) {
         try {
             const found = await win.webContents.executeJavaScript(`
@@ -26,7 +28,23 @@ async function waitForElement(win: BrowserWindow, selector: string, timeout = 10
         } catch (e) {
             // Ignore execution errors during navigation
         }
-        await wait(500);
+        await wait(interval);
+        interval = Math.min(interval * 1.5, 500);
+    }
+    return false;
+}
+
+// Helper: Wait for a JS condition to become truthy
+async function waitForCondition(win: BrowserWindow, jsExpr: string, timeout = 10000): Promise<boolean> {
+    const start = Date.now();
+    let interval = 150;
+    while (Date.now() - start < timeout) {
+        try {
+            const result = await win.webContents.executeJavaScript(jsExpr);
+            if (result) return true;
+        } catch (e) { /* ignore */ }
+        await wait(interval);
+        interval = Math.min(interval * 1.5, 500);
     }
     return false;
 }
@@ -54,7 +72,7 @@ async function safeType(win: BrowserWindow, selector: string, text: string) {
             await win.webContents.sendInputEvent({ type: 'char', keyCode: char });
         } catch (e) { /* ignore */ }
     }
-    await wait(500);
+    await wait(200);
 }
 
 // --- Manufacturer Implementations ---
@@ -103,28 +121,25 @@ async function checkBiotronikWarning(serial: string): Promise<WarningStatusResul
 
     console.log(`[Warning Service] Checking Biotronik Serial: ${serial}`);
 
-    let win: BrowserWindow | null = new BrowserWindow({
-        show: false,
-        width: 1280,
-        height: 900,
-        webPreferences: { offscreen: false, nodeIntegration: false, contextIsolation: true }
-    });
+    const scraper = ScraperService.getInstance();
+    await scraper.resetWindow();
+    const win = scraper.getWindow();
 
     try {
         await win.loadURL('https://www.biotronik.com/en-int/professionals/services/device-lookup-tool');
 
-        // Handle Cookie Banner logic
-        await wait(2000);
-        await win.webContents.executeJavaScript(`
+        // Handle Cookie Banner — wait for it to appear then dismiss
+        await waitForCondition(win, `
             (function() {
                 const btns = Array.from(document.querySelectorAll('button'));
                 const accept = btns.find(b => b.innerText.includes('Accept') || b.innerText.includes('Alle akzeptieren'));
-                if (accept) accept.click();
+                if (accept) { accept.click(); return true; }
+                // If no banner, check if input is already available (banner might not show)
+                return !!document.querySelector('input#input');
             })()
-        `);
-        await wait(1000);
+        `, 5000);
 
-        await waitForElement(win, 'input#input'); // From subagent
+        await waitForElement(win, 'input#input');
         await safeType(win, 'input#input', serial);
 
         // Click Find
@@ -136,7 +151,13 @@ async function checkBiotronikWarning(serial: string): Promise<WarningStatusResul
             })()
         `);
 
-        await wait(3000);
+        // Wait for results container to update instead of fixed 3s
+        await waitForCondition(win, `
+            (function() {
+                const r = document.querySelector('.results-container');
+                return r && r.innerText.trim().length > 10;
+            })()
+        `, 8000);
 
         // Scrape result
         const scraping = await win.webContents.executeJavaScript(`
@@ -217,7 +238,7 @@ async function checkBiotronikWarning(serial: string): Promise<WarningStatusResul
             timestamp: new Date().toISOString()
         };
     } finally {
-        if (win && !win.isDestroyed()) win.destroy();
+        // Do not destroy
     }
 }
 
