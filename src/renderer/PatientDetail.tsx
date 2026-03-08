@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { ArrowLeft, Activity, Battery, Zap, Pencil, ChevronDown, ChevronUp, ShieldCheck, ShieldAlert, AlertTriangle, Clock } from 'lucide-react';
+import { ArrowLeft, Activity, Battery, Zap, Pencil, ChevronDown, ChevronUp, ShieldCheck, ShieldAlert, AlertTriangle, Clock, ExternalLink } from 'lucide-react';
 import ViewPane from '@/components/ViewPane';
 import { ErrorBoundary } from '@/renderer/components/ErrorBoundary';
 import VisitTimeline from '@/components/VisitTimeline';
@@ -9,7 +9,7 @@ import DeviceLeadEditor from '@/components/DeviceLeadEditor';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DataMergeModal from '@/components/DataMergeModal';
 import { calculateAge } from './utils/trendDelta';
-import { hasActiveWarning, hasUnsafeMri, daysSinceLastVisit } from './utils/clinicalPriority';
+import { hasActiveWarning, daysSinceLastVisit } from './utils/clinicalPriority';
 import { cn } from '@/lib/utils';
 
 interface PatientDetailProps {
@@ -172,7 +172,6 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const age = calculateAge(patient?.dob);
   const days = daysSinceLastVisit(patient);
   const warnings = hasActiveWarning(patient);
-  const unsafeMri = hasUnsafeMri(patient);
   const deviceCount = patient?.devices?.length || 0;
   const leadCount = patient?.leads?.length || 0;
 
@@ -180,12 +179,6 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const bannerItems: { type: 'urgent' | 'attention'; message: string }[] = [];
   if (warnings) {
     bannerItems.push({ type: 'urgent', message: `Active warning: ${patient?.manufacturerWarningStatus?.details || 'Check manufacturer advisory'}` });
-  }
-  if (unsafeMri) {
-    bannerItems.push({ type: 'urgent', message: `MRI: ${patient?.mriStatus?.details || 'Device not MRI safe'}` });
-  }
-  if (patient?.mriStatus?.status === 'mr_conditional' || patient?.mriStatus?.status === 'conditional') {
-    bannerItems.push({ type: 'attention', message: `MRI Conditional - review conditions before scanning` });
   }
   if (days !== null && days > 180) {
     bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago - follow-up may be overdue` });
@@ -241,10 +234,8 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
               {deviceSummary}
             </span>
 
-            {/* MRI Badge */}
-            {patient?.mriStatus?.status && (
-              <MriCompactBadge status={patient.mriStatus.status} />
-            )}
+            {/* MRI Check Link */}
+            <MriCompactBadge manufacturer={patient?.devices?.[0]?.manufacturer || patient?.deviceManufacturer} />
 
             {/* Warning Badge */}
             {warnings && (
@@ -322,11 +313,9 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                             {device.manufacturer && <span>{device.manufacturer}</span>}
                             {device.implant_date && <span>Implanted: {device.implant_date}</span>}
                           </div>
-                          {device.mri_status && (
-                            <div className="mt-1">
-                              <MriCompactBadge status={device.mri_status} />
-                            </div>
-                          )}
+                          <div className="mt-1">
+                            <MriCompactBadge manufacturer={device.manufacturer} />
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -356,11 +345,6 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                             {lead.connector && <span>{lead.connector}</span>}
                             {lead.implant_date && <span>Implanted: {lead.implant_date}</span>}
                           </div>
-                          {lead.mri_status && (
-                            <div className="mt-1">
-                              <MriCompactBadge status={lead.mri_status} />
-                            </div>
-                          )}
                         </div>
                       </div>
                     ))}
@@ -465,23 +449,43 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   );
 };
 
-// Compact MRI Badge used in both compact and expanded views
-const MriCompactBadge: React.FC<{ status: string }> = ({ status }) => {
-  if (status === 'mr_conditional' || status === 'conditional') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-green-700 dark:text-green-400 bg-green-500/10 border border-green-500/20 font-medium" aria-label="MRI Conditional">
-        <ShieldCheck className="h-3 w-3" /> MR Conditional
-      </span>
-    );
-  }
-  if (status === 'unsafe' || status === 'no_info') {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-red-700 dark:text-red-400 bg-red-500/10 border border-red-500/20 font-medium" aria-label="MRI Unsafe">
-        <ShieldAlert className="h-3 w-3" /> {status === 'unsafe' ? 'Unsafe' : 'No Info'}
-      </span>
-    );
+// MRI check URLs — links to manufacturer's own MRI compatibility tool
+const MRI_CHECK_URLS: Record<string, string> = {
+  'medtronic': 'https://www.medtronic.com/mrisurescan',
+  'biotronik': 'https://www.promricheck.com',
+  'abbott': 'https://mri.merlin.net/',
+  'st. jude': 'https://mri.merlin.net/',
+  'sjm': 'https://mri.merlin.net/',
+  'boston scientific': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
+  'guidant': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
+  'microport': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
+  'sorin': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
+};
+
+function getMriCheckUrl(manufacturer: string): string | null {
+  const manu = (manufacturer || '').toLowerCase();
+  for (const [key, url] of Object.entries(MRI_CHECK_URLS)) {
+    if (manu.includes(key)) return url;
   }
   return null;
+}
+
+// Compact MRI link badge — opens manufacturer's MRI check page
+const MriCompactBadge: React.FC<{ manufacturer?: string }> = ({ manufacturer }) => {
+  const url = getMriCheckUrl(manufacturer || '');
+  if (!url) return null;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-foreground/70 bg-muted border border-border font-medium cursor-pointer hover:bg-accent transition-colors"
+      aria-label="Check MRI compatibility"
+      title={`Open ${manufacturer} MRI compatibility check`}
+      onClick={(e) => { e.stopPropagation(); window.electronAPI.openExternal(url); }}
+      role="button"
+    >
+      <ExternalLink className="h-3 w-3" /> Check MRI
+    </span>
+  );
 };
 
 export default PatientDetail;

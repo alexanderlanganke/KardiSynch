@@ -152,10 +152,9 @@ export class AutomationManager {
             LEFT JOIN Reports r ON r.patient_id = p.id
         `;
 
-        // If NOT forcing, only check unknown/missing
+        // If NOT forcing, only check unknown/missing warning status
         if (!force) {
-            query += ` WHERE (p.mri_status IS NULL OR p.mri_status = '{"status":"unknown"}' OR p.mri_status = '')
-                        OR (p.manufacturer_warning_status IS NULL OR p.manufacturer_warning_status = '{"status":"unknown"}' OR p.manufacturer_warning_status = '') `;
+            query += ` WHERE (p.manufacturer_warning_status IS NULL OR p.manufacturer_warning_status = '{"status":"unknown"}' OR p.manufacturer_warning_status = '') `;
         }
 
         query += ` ORDER BY r.interrogation_date DESC`;
@@ -193,19 +192,9 @@ export class AutomationManager {
         const mriHashMatch = row.mri_data_hash === hash && row.mri_status;
         const warningHashMatch = row.manufacturer_warning_hash === warningHash && row.manufacturer_warning_status;
 
-        // MRI Check
-        if (force || (!mriHashMatch && !this.processedHashes.has(hash))) {
-            this.addToQueue({
-                type: 'mri',
-                patientId: row.id,
-                patientName: `${row.last_name}, ${row.first_name}`,
-                manufacturer: row.manufacturer,
-                model: row.device_model,
-                serial: row.device_serial_number,
-                leads,
-                hash
-            });
-        }
+        // MRI checks removed — regulatory concern: automated MRI safety
+        // information constitutes medical device functionality. Users are now
+        // directed to manufacturer MRI check websites instead.
 
         // Warning Check
         if (force || (!warningHashMatch && !this.processedWarningHashes.has(warningHash))) {

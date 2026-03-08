@@ -54,6 +54,9 @@ export interface IElectronAPI {
   triggerMriCheck: (patientId: string) => Promise<void>;
   retriggerAllMriChecks: () => Promise<void>;
 
+  // External links
+  openExternal: (url: string) => Promise<void>;
+
   // Visit Management
   rescanVisit: (visitId: string) => Promise<any>;
   moveVisit: (visitId: string, targetPatientId: string) => Promise<any>;

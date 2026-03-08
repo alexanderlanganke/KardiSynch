@@ -32,8 +32,8 @@ KardiSynch is a modern, self-contained application designed to streamline the ma
 - **Device & Lead Editor**: Manually edit patient device and lead history with a dedicated editor.
 
 ### 🛡️ Safety & Compliance
-- **MRI Safety Checks**: Automatic detection of MRI compatibility status based on device/lead combinations (using Medtronic ProMRI data where applicable).
-- **Activity & Notifications**: Real-time feedback on import status, MRI warnings, and background processes via a notification center.
+- **MRI Compatibility Links**: Quick links to manufacturer MRI compatibility check tools (Medtronic SureScan, Biotronik ProMRI Check, Abbott Merlin MRI, Boston Scientific ImageReady). MRI compatibility must always be verified by the responsible physician using the manufacturer's official resources.
+- **Activity & Notifications**: Real-time feedback on import status, warnings, and background processes via a notification center.
 
 ### 📊 Advanced Parsing & Visualization
 - **PDF Intelligence**: Extracts patient demographics, device details, and interrogation dates directly from PDF reports using advanced regex patterns.
@@ -80,4 +80,19 @@ npm run build
 - [ ] **DICOM Integration**: Support for imaging data.
 
 ---
-*KardiSynch is a tool for data management and visualization. It is not a diagnostic device.*
+
+## Important Regulatory Notice
+
+**KardiSynch is NOT a medical device and is NOT intended for clinical decision-making.**
+
+This software is a data management and organizational tool only. It does not provide medical advice, diagnoses, or treatment recommendations. Specifically:
+
+- **MRI compatibility** must always be independently verified by the responsible physician using the device manufacturer's official tools and documentation. KardiSynch only provides convenience links to manufacturer resources — it does not determine or display MRI safety status.
+- **Device advisories and warnings** shown in this application are sourced from manufacturer websites and may be incomplete, delayed, or inaccurate. Always consult the manufacturer directly and relevant regulatory authorities (e.g., BfArM, FDA) for authoritative safety information.
+- **Patient data parsing** is based on heuristic extraction from manufacturer report files. Extracted data (demographics, device parameters, measurements) may contain errors and must not be relied upon as the sole source of clinical information.
+- **Clinical decisions** regarding patient care, device programming, or procedural planning must be made by qualified healthcare professionals based on verified source data, not on information displayed by this software.
+
+This software has not been certified, cleared, or approved under any medical device regulation (including EU MDR 2017/745, FDA 21 CFR 820, or equivalent). It is provided as-is for organizational purposes only, with no warranty of fitness for any clinical use.
+
+---
+*KardiSynch is a tool for data management and visualization. It is not a medical product.*

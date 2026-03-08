@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, Clock } from 'lucide-react';
+import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, Clock, ExternalLink } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { usePatientStore, Patient } from './store/PatientStore';
 import { classifyPatient, daysSinceLastVisit, PriorityLevel } from './utils/clinicalPriority';
@@ -564,74 +564,51 @@ const WarningBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
   );
 };
 
-const MriBadge: React.FC<{ patient: Patient; processingId: string | null }> = ({ patient, processingId }) => {
-  const isProcessing = processingId === patient.id;
-  let status = patient.mriStatus?.status;
-  const manu = (patient.deviceManufacturer || '').toLowerCase();
+// Manufacturer MRI check URLs — opens manufacturer's own MRI compatibility tool
+const MRI_CHECK_URLS: Record<string, string> = {
+  'medtronic': 'https://www.medtronic.com/mrisurescan',
+  'biotronik': 'https://www.promricheck.com',
+  'abbott': 'https://mri.merlin.net/',
+  'st. jude': 'https://mri.merlin.net/',
+  'sjm': 'https://mri.merlin.net/',
+  'boston scientific': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
+  'guidant': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
+  'microport': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
+  'sorin': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
+};
 
-  if ((manu === 'unknown' || !manu) && !patient.devices?.length && !patient.leads?.length) {
-    status = 'unknown';
+function getMriCheckUrl(manufacturer: string): string | null {
+  const manu = (manufacturer || '').toLowerCase();
+  for (const [key, url] of Object.entries(MRI_CHECK_URLS)) {
+    if (manu.includes(key)) return url;
   }
-  if (!status) status = 'unknown';
+  return null;
+}
 
-  const formatTooltip = () => {
-    const details = patient.mriStatus?.details || 'Status Unknown';
-    const device = `Device: ${patient.deviceModel || 'Unknown'}`;
-    let leadsText = 'Leads: None';
-    if (patient.leads && patient.leads.length > 0) {
-      leadsText = 'Leads:\n' + patient.leads.map((l: any) => `- ${typeof l === 'string' ? l : l.model || 'Unknown'}`).join('\n');
+const MriBadge: React.FC<{ patient: Patient; processingId: string | null }> = ({ patient }) => {
+  const manu = patient.deviceManufacturer || '';
+  const url = getMriCheckUrl(manu);
+
+  const openMriCheck = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (url && window.electronAPI.openExternal) {
+      window.electronAPI.openExternal(url);
     }
-    return `${details}\n\n${device}\n${leadsText}`;
   };
 
-  if (isProcessing) {
-    return (
-      <div className="flex items-center gap-1 text-[10px] text-muted-foreground animate-pulse">
-        <Loader2 className="h-3 w-3 animate-spin" /> Checking...
-      </div>
-    );
-  }
-
-  if (status === 'mr_conditional' || status === 'conditional') {
-    return (
-      <div
-        className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
-        style={{ backgroundColor: 'hsl(var(--status-normal))', color: 'white', borderColor: 'hsl(142 71% 35%)' }}
-        title={formatTooltip()}
-        onClick={(e) => { e.stopPropagation(); if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id); }}
-        role="button"
-        aria-label="MRI Conditional"
-      >
-        <ShieldCheck className="h-3.5 w-3.5" /> MRI Conditional
-      </div>
-    );
-  }
-
-  if (status === 'unsafe' || status === 'no_info') {
-    return (
-      <div
-        className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
-        style={{ backgroundColor: 'hsl(var(--status-urgent))', color: 'white', borderColor: 'hsl(0 72% 41%)' }}
-        title={formatTooltip()}
-        onClick={(e) => { e.stopPropagation(); if (confirm('Retrigger check?')) window.electronAPI.triggerMriCheck(patient.id); }}
-        role="button"
-        aria-label={status === 'unsafe' ? 'MRI Unsafe' : 'Not Conditional'}
-      >
-        <ShieldAlert className="h-3.5 w-3.5" /> {status === 'unsafe' ? 'Unsafe / Warning' : 'Not Conditional'}
-      </div>
-    );
+  if (!manu || manu.toLowerCase() === 'unknown') {
+    return null;
   }
 
   return (
     <div
-      className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm"
-      style={{ backgroundColor: 'hsl(var(--status-inactive))', color: 'white', borderColor: 'hsl(220 9% 36%)' }}
-      title={formatTooltip()}
-      onClick={(e) => { e.stopPropagation(); window.electronAPI.triggerMriCheck(patient.id); }}
-      role="button"
-      aria-label="MRI status unknown"
+      className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm bg-muted hover:bg-accent text-foreground border-border"
+      title={url ? `Open ${manu} MRI compatibility check in browser` : 'No MRI check resource available for this manufacturer'}
+      onClick={url ? openMriCheck : undefined}
+      role={url ? 'button' : undefined}
+      aria-label="Check MRI compatibility"
     >
-      <HelpCircle className="h-3.5 w-3.5" /> MRI Conditional Unknown
+      <ExternalLink className="h-3 w-3" /> Check MRI
     </div>
   );
 };

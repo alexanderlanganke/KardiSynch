@@ -210,38 +210,14 @@ const Settings: React.FC = () => {
           <TabsContent value="automation">
             <Card>
               <CardHeader>
-                <CardTitle>MRI & Safety Check Configuration</CardTitle>
-                <CardDescription>Configure settings for automated MRI and manufacturer warning checks.</CardDescription>
+                <CardTitle>Safety Check Configuration</CardTitle>
+                <CardDescription>Configure settings for manufacturer warning and advisory checks.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="mri-country">Country / Region</Label>
                   <Input id="mri-country" name="mriCountry" value={settings.mriCountry} onChange={handleInputChange} placeholder="e.g. United States, Germany" />
                   <p className="text-xs text-muted-foreground">The country to select on manufacturer websites. Defaults to 'Germany'.</p>
-                </div>
-
-                <div className="space-y-2 border p-4 rounded-lg bg-orange-50/50 dark:bg-orange-950/20 border-orange-200 dark:border-orange-900/50">
-                  <div className="flex items-center justify-between">
-                    <div className="space-y-1">
-                      <Label className="text-orange-800 dark:text-orange-200">Retrigger All Checks</Label>
-                      <p className="text-xs text-muted-foreground">Force re-check MRI status for ALL patients. Runs in background.</p>
-                    </div>
-                    <Button type="button" variant="secondary"
-                      className="bg-orange-100 hover:bg-orange-200 text-orange-900 dark:bg-orange-900/40 dark:hover:bg-orange-900/60 dark:text-orange-100 border-orange-200"
-                      onClick={async () => {
-                        if (confirm("This will queue checks for EVERY patient. This may take significant time. Continue?")) {
-                          try {
-                            await window.electronAPI.retriggerAllMriChecks();
-                            alert("All checks have been queued. Watch the notification center for progress.");
-                          } catch (e) {
-                            alert("Failed to trigger checks.");
-                          }
-                        }
-                      }}
-                    >
-                      <RefreshCw className="mr-2 h-4 w-4" /> Retrigger All
-                    </Button>
-                  </div>
                 </div>
 
                 <div className="space-y-4">
@@ -316,7 +292,7 @@ const Settings: React.FC = () => {
                       );
                     })}
                   </div>
-                  <p className="text-xs text-muted-foreground">Enable automatic MRI checks for these manufacturers.</p>
+                  <p className="text-xs text-muted-foreground">Enable automatic warning/advisory checks for these manufacturers. MRI compatibility must be verified directly on manufacturer websites.</p>
                 </div>
               </CardContent>
             </Card>
