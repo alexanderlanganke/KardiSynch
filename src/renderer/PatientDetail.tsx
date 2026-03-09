@@ -202,7 +202,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       {/* Expandable Summary Header */}
       <div className="border-b border-border bg-card shrink-0">
         {/* Top bar: Back button + Compact summary row (always visible) */}
-        <div className="flex items-center h-14 px-4 gap-0">
+        <div className="flex items-center h-14 px-4 mt-8 gap-0">
           {/* Back button - not part of expandable area */}
           <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0 hover:bg-muted rounded-full shrink-0 mr-3" aria-label="Back to dashboard">
             <ArrowLeft className="h-4 w-4" />
@@ -220,7 +220,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           >
             {/* Patient name, DOB, age */}
             <div className="flex items-baseline gap-2 shrink-0">
-              <h1 className="text-sm font-bold leading-none truncate max-w-[200px]">{patient?.name}</h1>
+              <h1 className="text-sm font-bold leading-none">{patient?.name}</h1>
               <span className="text-[11px] text-muted-foreground">
                 {patient?.dob}{age !== null ? ` (${age}y)` : ''}
               </span>
