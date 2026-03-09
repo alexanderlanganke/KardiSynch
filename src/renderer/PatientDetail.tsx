@@ -451,15 +451,15 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
 // MRI check URLs — links to manufacturer's own MRI compatibility tool
 const MRI_CHECK_URLS: Record<string, string> = {
-  'medtronic': 'https://www.medtronic.com/mrisurescan',
+  'medtronic': 'https://www.medtronic.com/en-us/healthcare-professionals/mri-resources/mr-conditional-search-tool.html',
   'biotronik': 'https://www.promricheck.com',
   'abbott': 'https://mri.merlin.net/',
   'st. jude': 'https://mri.merlin.net/',
   'sjm': 'https://mri.merlin.net/',
-  'boston scientific': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
+  'boston scientific': 'https://www.bostonscientific.com/imageready/en-US/model-lookup.html',
   'guidant': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
-  'microport': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
-  'sorin': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
+  'microport': 'https://www.crm.microport.com/automri/en/cardiologist/tool',
+  'sorin': 'https://www.crm.microport.com/automri/en/cardiologist/tool',
 };
 
 function getMriCheckUrl(manufacturer: string): string | null {
