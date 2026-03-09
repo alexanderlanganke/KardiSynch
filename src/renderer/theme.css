@@ -1,8 +1,8 @@
 /* KardiSynch Theme - Consolidated, solid colors, monochromatic */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.js";
+@plugin "tailwindcss-animate";
 
 @layer base {
   :root {
@@ -167,4 +167,3 @@ body {
   background-color: hsl(var(--status-inactive));
   color: white;
 }
-
