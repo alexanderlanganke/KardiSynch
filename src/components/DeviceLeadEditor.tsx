@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Trash2, Plus, Activity, Zap } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useAppDialog } from '@/renderer/components/AppDialogProvider';
 
 // Types for our editor
 interface Device {
@@ -45,6 +46,7 @@ interface DeviceLeadEditorProps {
 }
 
 const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange, patient, onSave }) => {
+    const { showAlert } = useAppDialog();
     const [formData, setFormData] = useState<PatientData>(patient);
     const [saving, setSaving] = useState(false);
 
@@ -106,7 +108,7 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
             onOpenChange(false);
         } catch (e) {
             console.error(e);
-            alert('Failed to save changes');
+            showAlert('Failed to save changes');
         } finally {
             setSaving(false);
         }

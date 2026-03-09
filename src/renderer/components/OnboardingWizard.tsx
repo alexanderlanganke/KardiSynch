@@ -5,12 +5,14 @@ import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { FolderOpen, ArrowRight, ArrowLeft, Check } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { useAppDialog } from './AppDialogProvider';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
 }
 
 const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
+  const { showAlert } = useAppDialog();
   const [step, setStep] = useState(0);
   const [dataPath, setDataPath] = useState('');
   const [importDir, setImportDir] = useState('');
@@ -44,7 +46,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
       onComplete();
     } catch (e) {
       console.error('Failed to save settings:', e);
-      alert('Failed to save settings. You can configure them later in Settings.');
+      await showAlert('Failed to save settings. You can configure them later in Settings.');
       onComplete();
     } finally {
       setSaving(false);

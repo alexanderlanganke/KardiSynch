@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { useAppDialog } from './components/AppDialogProvider';
 
 // Logos
 import biotronikLogo from './assets/logos/biotronik.svg';
@@ -25,6 +26,7 @@ const LOGO_MAP: Record<string, string> = {
 };
 
 const Settings: React.FC = () => {
+  const { showAlert, showConfirm } = useAppDialog();
   const [settings, setSettings] = useState<{
     importDir: string;
     unmatchedDir: string;
@@ -79,7 +81,7 @@ const Settings: React.FC = () => {
       await window.electronAPI.setSettings(settings);
     } catch (error) {
       console.error('Error saving settings:', error);
-      alert('Failed to save settings.');
+      showAlert('Failed to save settings.');
     } finally {
       setLoading(false);
     }
@@ -101,15 +103,15 @@ const Settings: React.FC = () => {
   };
 
   const handleReset = async () => {
-    if (confirm('Are you sure you want to reset all settings to default? This action cannot be undone.')) {
+    if (await showConfirm('Are you sure you want to reset all settings to default? This action cannot be undone.')) {
       setLoading(true);
       try {
         const newSettings = await window.electronAPI.resetSettings();
         setSettings(newSettings);
-        alert('Settings have been reset to defaults.');
+        await showAlert('Settings have been reset to defaults.');
       } catch (error) {
         console.error('Error resetting settings:', error);
-        alert('Failed to reset settings.');
+        await showAlert('Failed to reset settings.');
       } finally {
         setLoading(false);
       }
@@ -266,10 +268,10 @@ const Settings: React.FC = () => {
                               btn.disabled = true;
                               try {
                                 const res = await window.electronAPI.checkMedtronicUpdates();
-                                if (res.updated) alert(`Medtronic Data Updated! ${res.count} items.`);
-                                else if (res.error) alert(`Update Failed: ${res.error}`);
-                                else alert(`Up to date. (${res.count} items)`);
-                              } catch { alert('Error checking updates'); }
+                                if (res.updated) await showAlert(`Medtronic Data Updated! ${res.count} items.`);
+                                else if (res.error) await showAlert(`Update Failed: ${res.error}`);
+                                else await showAlert(`Up to date. (${res.count} items)`);
+                              } catch { await showAlert('Error checking updates'); }
                               finally { btn.innerText = 'Check Updates'; btn.disabled = false; }
                             }}>Check Updates</Button>
                           )}
@@ -281,10 +283,10 @@ const Settings: React.FC = () => {
                               btn.disabled = true;
                               try {
                                 const res = await window.electronAPI.checkBostonUpdates();
-                                if (res.updated) alert(`Boston Data Updated! ${res.count} items.`);
-                                else if (res.error) alert(`Update Failed: ${res.error}`);
-                                else alert(`Up to date. (${res.count} items)`);
-                              } catch { alert('Error checking updates'); }
+                                if (res.updated) await showAlert(`Boston Data Updated! ${res.count} items.`);
+                                else if (res.error) await showAlert(`Update Failed: ${res.error}`);
+                                else await showAlert(`Up to date. (${res.count} items)`);
+                              } catch { await showAlert('Error checking updates'); }
                               finally { btn.innerText = 'Check Updates'; btn.disabled = false; }
                             }}>Check Updates</Button>
                           )}
@@ -312,13 +314,13 @@ const Settings: React.FC = () => {
                     <p className="text-xs text-muted-foreground">Re-scan all patient files and rebuild the database index.</p>
                   </div>
                   <Button type="button" variant="secondary" onClick={async () => {
-                    if (confirm('This will rescan all files and rebuild the database. Continue?')) {
+                    if (await showConfirm('This will rescan all files and rebuild the database. Continue?')) {
                       setLoading(true);
                       try {
                         const result = await window.electronAPI.rebuildDatabase();
-                        alert(`Database rebuild complete.\nProcessed ${result.patients} patients and ${result.reports} reports.`);
+                        await showAlert(`Database rebuild complete.\nProcessed ${result.patients} patients and ${result.reports} reports.`);
                       } catch (error) {
-                        alert('Failed to rebuild database.');
+                        await showAlert('Failed to rebuild database.');
                       } finally {
                         setLoading(false);
                       }
@@ -336,14 +338,14 @@ const Settings: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                       <Button variant="destructive" type="button" onClick={async () => {
-                        if (confirm('ARE YOU SURE? This will permanently DELETE ALL PATIENTS AND REPORTS.')) {
+                        if (await showConfirm('ARE YOU SURE? This will permanently DELETE ALL PATIENTS AND REPORTS.')) {
                           setLoading(true);
                           try {
                             await window.electronAPI.clearAllData();
-                            alert('All data has been deleted.');
+                            await showAlert('All data has been deleted.');
                             window.location.reload();
                           } catch (error) {
-                            alert('Failed to delete data.');
+                            await showAlert('Failed to delete data.');
                           } finally {
                             setLoading(false);
                           }

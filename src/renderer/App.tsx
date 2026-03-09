@@ -13,6 +13,7 @@ import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
 import DeviceNews from './DeviceNews';
 import OnboardingWizard from './components/OnboardingWizard';
+import { AppDialogProvider } from './components/AppDialogProvider';
 
 
 const ThemeToggle: React.FC = () => {
@@ -156,13 +157,16 @@ const App: React.FC = () => {
   if (showOnboarding) {
     return (
       <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
-        <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+        <AppDialogProvider>
+          <OnboardingWizard onComplete={() => setShowOnboarding(false)} />
+        </AppDialogProvider>
       </ThemeProvider>
     );
   }
 
   return (
     <ThemeProvider defaultTheme="dark" storageKey="vite-ui-theme">
+      <AppDialogProvider>
       <PatientProvider>
         <div
           className="flex h-screen bg-background text-foreground overflow-hidden selection:bg-primary/20"
@@ -223,6 +227,7 @@ const App: React.FC = () => {
           />
         </div>
       </PatientProvider>
+      </AppDialogProvider>
     </ThemeProvider>
   );
 };

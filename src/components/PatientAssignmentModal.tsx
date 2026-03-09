@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Search, UserPlus, FileText, AlertCircle, ArrowRight, FolderInput } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ReportViewer from './ReportViewer';
+import { useAppDialog } from '@/renderer/components/AppDialogProvider';
 
 interface Patient {
     id: string;
@@ -25,6 +26,7 @@ interface PatientAssignmentModalProps {
 }
 
 const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, mode, sourceItem, onResolve, onCancel }) => {
+    const { showAlert } = useAppDialog();
     const [activeTab, setActiveTab] = useState('existing');
     const [searchTerm, setSearchTerm] = useState('');
     const [patients, setPatients] = useState<Patient[]>([]);
@@ -111,7 +113,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
         if (selectedPatientId) {
             // Validate "Create New Visit" date
             if (mode === 'import' && visitMode === 'new' && !newVisitDate) {
-                alert('Please specify a date for the new visit.');
+                showAlert('Please specify a date for the new visit.');
                 return;
             }
 
@@ -135,12 +137,12 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
     const handleCreate = () => {
         if (!newPatient.last_name || !newPatient.dob) {
-            alert('Please fill in required patient fields (Last Name, DOB).');
+            showAlert('Please fill in required patient fields (Last Name, DOB).');
             return;
         }
 
         if (mode === 'import' && !newVisitDate) {
-            alert('Please specify a Visit Date.');
+            showAlert('Please specify a Visit Date.');
             return;
         }
 

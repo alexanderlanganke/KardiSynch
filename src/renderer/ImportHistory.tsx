@@ -6,8 +6,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { History, FileText, AlertTriangle, CheckCircle, HelpCircle } from 'lucide-react';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
+import { useAppDialog } from './components/AppDialogProvider';
 
 const ImportHistory: React.FC = () => {
+    const { showAlert, showConfirm } = useAppDialog();
     const [sessions, setSessions] = useState<any[]>([]);
     const [selectedSession, setSelectedSession] = useState<any | null>(null);
     const [events, setEvents] = useState<any[]>([]);
@@ -61,7 +63,7 @@ const ImportHistory: React.FC = () => {
             setMoveFileModalOpen(true);
         } catch (e) {
             console.error('Failed to get preview path', e);
-            alert('Original file could not be located.');
+            showAlert('Original file could not be located.');
         }
     };
 
@@ -82,7 +84,7 @@ const ImportHistory: React.FC = () => {
                 if (res && res.id) {
                     finalPatientId = res.id;
                 } else {
-                    alert('Failed to create patient: No ID returned.');
+                    showAlert('Failed to create patient: No ID returned.');
                     return;
                 }
             }
@@ -104,7 +106,7 @@ const ImportHistory: React.FC = () => {
             }
         } catch (e: any) {
             console.error('Failed to move file', e);
-            alert(`Failed to complete action: ${e.message || e}`);
+            showAlert(`Failed to complete action: ${e.message || e}`);
         }
     };
 
@@ -132,13 +134,13 @@ const ImportHistory: React.FC = () => {
                 </div>
                 <div className="flex justify-end">
                     <Button variant="outline" onClick={async () => {
-                        if (confirm('This will attempt to re-import all files currently in the Unmatched directory. Continue?')) {
+                        if (await showConfirm('This will attempt to re-import all files currently in the Unmatched directory. Continue?')) {
                             const res = await window.electronAPI.reprocessUnmatched();
                             if (res.success) {
-                                alert(`Rescan initiated. ${res.count} files moved to processing queue.`);
+                                await showAlert(`Rescan initiated. ${res.count} files moved to processing queue.`);
                                 loadHistory();
                             } else {
-                                alert('Failed to rescan: ' + res.message);
+                                await showAlert('Failed to rescan: ' + res.message);
                             }
                         }
                     }}>

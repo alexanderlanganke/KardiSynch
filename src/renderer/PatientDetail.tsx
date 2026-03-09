@@ -11,6 +11,7 @@ import DataMergeModal from '@/components/DataMergeModal';
 import { calculateAge } from './utils/trendDelta';
 import { hasActiveWarning, daysSinceLastVisit } from './utils/clinicalPriority';
 import { cn } from '@/lib/utils';
+import { useAppDialog } from './components/AppDialogProvider';
 
 interface PatientDetailProps {
   patientId: string;
@@ -18,6 +19,7 @@ interface PatientDetailProps {
 }
 
 const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
+  const { showAlert } = useAppDialog();
   const [patient, setPatient] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -61,7 +63,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       await loadPatientData();
     } catch (error) {
       console.error('Failed to update patient:', error);
-      alert(`Failed to update: ${error}`);
+      showAlert(`Failed to update: ${error}`);
     }
   };
 
@@ -84,11 +86,11 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         setScannedData(result.scannedData);
         setIsMergeOpen(true);
       } else {
-        alert('Rescan completed but no usable data found to merge.');
+        showAlert('Rescan completed but no usable data found to merge.');
       }
     } catch (error) {
       console.error('Rescan failed:', error);
-      alert('Failed to rescan visit.');
+      showAlert('Failed to rescan visit.');
     }
   };
 
@@ -128,7 +130,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       await loadPatientData();
     } catch (error) {
       console.error('Move failed:', error);
-      alert('Failed to move visit.');
+      showAlert('Failed to move visit.');
     }
   };
 
@@ -142,13 +144,13 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       if (!targetDir) return;
       const result = await window.electronAPI.exportVisitFiles(patientId, visit.id, targetDir);
       if (result.success) {
-        alert(`Successfully exported ${result.count} files to:\n${targetDir}`);
+        await showAlert(`Successfully exported ${result.count} files to:\n${targetDir}`);
       } else {
-        alert(`Export failed: ${result.message}`);
+        await showAlert(`Export failed: ${result.message}`);
       }
     } catch (error) {
       console.error('Export failed:', error);
-      alert('Failed to export files.');
+      showAlert('Failed to export files.');
     }
   };
 
