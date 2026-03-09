@@ -9,7 +9,6 @@ import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
 import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Newspaper } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import icon from './assets/icon.jpg';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
 import DeviceNews from './DeviceNews';
@@ -171,10 +170,6 @@ const App: React.FC = () => {
         >
           {/* Sidebar */}
           <aside className="w-16 flex flex-col items-center py-6 z-50 glass border-r border-border">
-            <div className="mb-8 w-10 h-10 flex items-center justify-center bg-muted rounded-xl">
-              <img src={icon} alt="KardiSynch" className="h-6 w-6 object-contain" style={{ width: '1.5rem', height: '1.5rem' }} />
-            </div>
-
             <nav className="flex flex-col space-y-4 w-full items-center" role="navigation" aria-label="Main navigation">
               <NavItem
                 active={currentView === 'dashboard' || currentView === 'patientDetail'}
