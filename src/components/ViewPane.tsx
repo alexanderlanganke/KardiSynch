@@ -41,8 +41,9 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                     const safeFiles = Array.isArray(files) ? files : [];
                     setAvailableFiles(safeFiles);
 
-                    if (safeFiles.length > 0 && !selectedFile) {
-                        setSelectedFile(getBestFile(safeFiles));
+                    const pdfs = safeFiles.filter((f: string) => !f.toLowerCase().endsWith('.xml'));
+                    if (pdfs.length > 0 && !selectedFile) {
+                        setSelectedFile(getBestFile(pdfs));
                     }
                 } catch (error) {
                     console.error('Failed to load visit files:', error);
@@ -56,22 +57,24 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         loadFiles();
     }, [selectedReport, patientId]);
 
+    // Only show non-XML files to the user; XMLs are used in background (formatted view)
+    const displayFiles = availableFiles.filter((f: string) => !f.toLowerCase().endsWith('.xml'));
+
     const getBestFile = (files: string[]) => {
-        const xmlFile = files.find((f: string) => f.toLowerCase().endsWith('.xml'));
         const pdfFile = files.find((f: string) => f.toLowerCase().endsWith('.pdf'));
-        return xmlFile || pdfFile || files[0];
+        return pdfFile || files[0] || null;
     };
 
-    const effectiveSelectedFile = selectedFile || (availableFiles.length > 0 ? getBestFile(availableFiles) : null);
+    const effectiveSelectedFile = selectedFile || (displayFiles.length > 0 ? getBestFile(displayFiles) : null);
 
     React.useEffect(() => {
-        if (availableFiles.length > 0 && !selectedFile) {
-            setSelectedFile(getBestFile(availableFiles));
+        if (displayFiles.length > 0 && !selectedFile) {
+            setSelectedFile(getBestFile(displayFiles));
         } else if (!selectedReport) {
             setSelectedFile(null);
             setIsControlsExpanded(true);
         }
-    }, [availableFiles, selectedFile, selectedReport]);
+    }, [displayFiles, selectedFile, selectedReport]);
 
     React.useEffect(() => {
         if (effectiveSelectedFile) {
@@ -82,7 +85,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     // Keyboard Navigation
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if (!isActive || !availableFiles.length) return;
+            if (!isActive || !displayFiles.length) return;
 
             if (e.key === 'ArrowLeft') {
                 cycleFile('prev');
@@ -93,22 +96,22 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [isActive, availableFiles, effectiveSelectedFile]);
+    }, [isActive, displayFiles, effectiveSelectedFile]);
 
     const cycleFile = (direction: 'next' | 'prev') => {
-        if (!availableFiles.length || !effectiveSelectedFile) return;
+        if (!displayFiles.length || !effectiveSelectedFile) return;
 
-        const currentIndex = availableFiles.indexOf(effectiveSelectedFile);
+        const currentIndex = displayFiles.indexOf(effectiveSelectedFile);
         if (currentIndex === -1) return;
 
         let newIndex;
         if (direction === 'next') {
-            newIndex = (currentIndex + 1) % availableFiles.length;
+            newIndex = (currentIndex + 1) % displayFiles.length;
         } else {
-            newIndex = (currentIndex - 1 + availableFiles.length) % availableFiles.length;
+            newIndex = (currentIndex - 1 + displayFiles.length) % displayFiles.length;
         }
 
-        setSelectedFile(availableFiles[newIndex]);
+        setSelectedFile(displayFiles[newIndex]);
     };
 
     const handleDragOver = (e: React.DragEvent) => {
@@ -219,7 +222,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                 </button>
                             </div>
 
-                            {availableFiles.length > 1 && viewMode === 'raw' && (
+                            {displayFiles.length > 1 && viewMode === 'raw' && (
                                 <>
                                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); cycleFile('prev'); }} title="Previous Document">
                                         <ChevronLeft className="h-3 w-3" />
@@ -305,7 +308,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                         </div>
 
                         {/* File Selector (only in raw mode) */}
-                        {selectedReport && availableFiles.length > 0 && viewMode === 'raw' && (
+                        {selectedReport && displayFiles.length > 0 && viewMode === 'raw' && (
                             <div className="flex items-center gap-2 pl-6">
                                 <span className="text-xs text-muted-foreground">File:</span>
                                 <Select value={effectiveSelectedFile || ''} onValueChange={setSelectedFile}>
@@ -313,7 +316,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                         <SelectValue placeholder="Select file" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {availableFiles.map((file: string, idx: number) => {
+                                        {displayFiles.map((file: string, idx: number) => {
                                             const fileName = file.split(/[/\\]/).pop();
                                             return (
                                                 <SelectItem key={idx} value={file}>{fileName}</SelectItem>
@@ -321,7 +324,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                         })}
                                     </SelectContent>
                                 </Select>
-                                {availableFiles.length > 1 && (
+                                {displayFiles.length > 1 && (
                                     <div className="flex items-center gap-0.5">
                                         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => cycleFile('prev')} title="Previous Document">
                                             <ChevronLeft className="h-3.5 w-3.5" />
