@@ -1,5 +1,3 @@
-export type PriorityLevel = 'urgent' | 'attention' | 'normal';
-
 interface PatientLike {
   mriStatus?: { status: string; details: string };
   manufacturerWarningStatus?: { status: string; details: string; link?: string };
@@ -13,17 +11,44 @@ interface ReportLike {
   interrogation_date?: string;
 }
 
-const OVERDUE_DAYS = 180; // 6 months
+const NOTABLE_DAYS = 180; // Surface "last report" fact when older than this
 
-export function classifyPatient(patient: PatientLike, latestReport?: ReportLike): PriorityLevel {
-  // Urgent: manufacturer safety warnings or critical battery only
-  if (hasActiveWarning(patient)) return 'urgent';
-  if (hasCriticalBattery(latestReport)) return 'urgent';
+export interface PatientFlag {
+  label: string;
+}
 
-  // Attention: overdue follow-up
-  if (isOverdueFollowUp(patient, latestReport)) return 'attention';
+/** Returns factual data points to surface on a patient card. */
+export function getPatientFlags(patient: PatientLike, latestReport?: ReportLike): PatientFlag[] {
+  const flags: PatientFlag[] = [];
 
-  return 'normal';
+  // Factual: manufacturer has posted an advisory or recall
+  const warningStatus = patient.manufacturerWarningStatus?.status;
+  if (warningStatus === 'advisory') {
+    flags.push({ label: 'Manufacturer advisory posted' });
+  } else if (warningStatus === 'recall') {
+    flags.push({ label: 'Manufacturer recall posted' });
+  }
+
+  // Factual: battery status reported by device
+  if (latestReport?.batteryStatus) {
+    const bs = latestReport.batteryStatus.toLowerCase();
+    if (bs.includes('eri') || bs.includes('eos') || bs.includes('eol')) {
+      flags.push({ label: `Battery status: ${latestReport.batteryStatus}` });
+    }
+  }
+
+  // Factual: no reports on file
+  const dateStr = latestReport?.interrogation_date || patient.lastReportDate;
+  if (!dateStr) {
+    flags.push({ label: 'No reports on file' });
+  } else {
+    const days = daysSinceLastVisit(patient, latestReport);
+    if (days !== null && days > NOTABLE_DAYS) {
+      flags.push({ label: `Last report: ${days} days ago` });
+    }
+  }
+
+  return flags;
 }
 
 export function hasActiveWarning(patient: PatientLike): boolean {
@@ -43,13 +68,13 @@ export function hasUnsafeMri(patient: PatientLike): boolean {
 
 export function isOverdueFollowUp(patient: PatientLike, latestReport?: ReportLike): boolean {
   const dateStr = latestReport?.interrogation_date || patient.lastReportDate;
-  if (!dateStr) return true; // No report at all = overdue
+  if (!dateStr) return true; // No report at all
 
   const lastDate = new Date(dateStr);
   if (isNaN(lastDate.getTime())) return false;
 
   const daysSince = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-  return daysSince > OVERDUE_DAYS;
+  return daysSince > NOTABLE_DAYS;
 }
 
 export function daysSinceLastVisit(patient: PatientLike, latestReport?: ReportLike): number | null {
@@ -62,18 +87,3 @@ export function daysSinceLastVisit(patient: PatientLike, latestReport?: ReportLi
   return Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
 }
 
-export function getPriorityLabel(level: PriorityLevel): string {
-  switch (level) {
-    case 'urgent': return 'Urgent';
-    case 'attention': return 'Needs Attention';
-    case 'normal': return 'Normal';
-  }
-}
-
-export function getPriorityColor(level: PriorityLevel): string {
-  switch (level) {
-    case 'urgent': return 'var(--status-urgent)';
-    case 'attention': return 'var(--status-attention)';
-    case 'normal': return 'var(--status-normal)';
-  }
-}

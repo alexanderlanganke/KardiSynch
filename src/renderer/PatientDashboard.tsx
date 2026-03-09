@@ -4,10 +4,10 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, Loader2, HelpCircle, ChevronDown, ChevronRight, AlertTriangle, Clock, ExternalLink } from 'lucide-react';
+import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, ExternalLink, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { usePatientStore, Patient } from './store/PatientStore';
-import { classifyPatient, daysSinceLastVisit, PriorityLevel } from './utils/clinicalPriority';
+import { getPatientFlags, daysSinceLastVisit } from './utils/clinicalPriority';
 import { cn } from '@/lib/utils';
 
 // Manufacturer Logos
@@ -49,12 +49,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
-  // Priority section collapse state
-  const [collapsedSections, setCollapsedSections] = useState<Record<PriorityLevel, boolean>>({
-    urgent: false,
-    attention: false,
-    normal: false,
-  });
 
   const [filters, setFilters] = useState<FilterState>({
     dob: '',
@@ -126,15 +120,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     });
   }, [filteredPatients, sortField, sortDirection]);
 
-  // Classify patients into priority buckets
-  const priorityBuckets = useMemo(() => {
-    const buckets: Record<PriorityLevel, Patient[]> = { urgent: [], attention: [], normal: [] };
-    for (const patient of sortedPatients) {
-      const priority = classifyPatient(patient);
-      buckets[priority].push(patient);
-    }
-    return buckets;
-  }, [sortedPatients]);
 
   const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
   const [editFormData, setEditFormData] = useState<any>({});
@@ -205,9 +190,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
-  const toggleSection = (level: PriorityLevel) => {
-    setCollapsedSections(prev => ({ ...prev, [level]: !prev[level] }));
-  };
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <ArrowUpDown className="h-3 w-3 opacity-30 ml-1" />;
@@ -223,6 +205,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   const renderPatientCard = (patient: Patient) => {
     const logo = getManufacturerLogo(patient.deviceManufacturer) || unknownLogo;
     const days = daysSinceLastVisit(patient);
+    const flags = getPatientFlags(patient);
     const isEditing = editingPatientId === patient.id;
 
     return (
@@ -278,6 +261,19 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                   ID: {patient.hospitalPatientId || 'No ID'}
                 </span>
               </div>
+              {flags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {flags.map((flag, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium bg-muted text-muted-foreground border-border"
+                    >
+                      <Info className="h-2.5 w-2.5 shrink-0" />
+                      {flag.label}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* DOB Column */}
@@ -354,39 +350,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     );
   };
 
-  const renderPrioritySection = (level: PriorityLevel, patients: Patient[]) => {
-    if (patients.length === 0) return null;
-
-    const isCollapsed = collapsedSections[level];
-    const config = {
-      urgent: { label: 'Urgent', icon: <AlertTriangle className="h-4 w-4" />, className: 'priority-urgent', countClass: 'status-urgent' },
-      attention: { label: 'Needs Attention', icon: <Clock className="h-4 w-4" />, className: 'priority-attention', countClass: 'status-attention' },
-      normal: { label: 'Normal', icon: null, className: 'priority-normal', countClass: 'status-normal' },
-    }[level];
-
-    return (
-      <div key={level} className={cn("rounded-lg", config.className)}>
-        <button
-          className="w-full flex items-center gap-2 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:text-foreground transition-colors"
-          onClick={() => toggleSection(level)}
-          aria-expanded={!isCollapsed}
-          aria-label={`${config.label} patients section`}
-        >
-          {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-          {config.icon}
-          <span>{config.label}</span>
-          <Badge className={cn("ml-2 h-5 text-[10px] px-1.5 rounded-full", config.countClass)}>
-            {patients.length}
-          </Badge>
-        </button>
-        {!isCollapsed && (
-          <div className="space-y-1 pb-2">
-            {patients.map(renderPatientCard)}
-          </div>
-        )}
-      </div>
-    );
-  };
 
   return (
     <div className="container mx-auto pt-2 px-6 pb-2 max-w-7xl space-y-2 h-full flex flex-col overflow-hidden">
@@ -471,7 +434,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         </Card>
       )}
 
-      {/* Patient List - Priority Sections */}
+      {/* Patient List */}
       <div className="flex flex-col flex-1 min-h-0 gap-1 rounded-xl bg-background border border-transparent overflow-hidden">
         {/* Header Row */}
         <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted rounded-lg mb-0 select-none shrink-0 z-10">
@@ -510,11 +473,9 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
               <p>No patients found matching criteria.</p>
             </div>
           ) : (
-            <>
-              {renderPrioritySection('urgent', priorityBuckets.urgent)}
-              {renderPrioritySection('attention', priorityBuckets.attention)}
-              {renderPrioritySection('normal', priorityBuckets.normal)}
-            </>
+            <div className="space-y-1 pb-2">
+              {sortedPatients.map(renderPatientCard)}
+            </div>
           )}
         </div>
       </div>

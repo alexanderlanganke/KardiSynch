@@ -168,15 +168,3 @@ body {
   color: white;
 }
 
-/* Priority section indicators */
-.priority-urgent {
-  border-left: 3px solid hsl(var(--status-urgent));
-}
-
-.priority-attention {
-  border-left: 3px solid hsl(var(--status-attention));
-}
-
-.priority-normal {
-  border-left: 3px solid hsl(var(--status-normal));
-}
