@@ -20,8 +20,8 @@ describe('Abbott Parser', () => {
         if (!report) return;
 
         expect(report.manufacturer).toBe('Abbott');
-        expect(report.patient.last_name).toBeTruthy(); // Was specific name
-        expect(report.patient.first_name).toBeTruthy(); // Was specific name
+        expect(report.patient.last_name).toBeTruthy();
+        expect(report.patient.first_name).toBeTruthy();
         expect(report.device.model).toBe('SJM Atrial Lead 2088TC Tendril STS'); // Wait, the regex might pick up the first "Model Number" it sees which was the lead. 
         // In the text: "2457 Model Number: SJM Atrial Lead..."
         // Then later "101 Programmer Model Number 3650"
@@ -39,15 +39,7 @@ describe('Abbott Parser', () => {
         expect(report.leads?.length).toBeGreaterThan(0);
 
         // Check PDF Linking
-        // The ID is 6805398. 
-        // The directory structure is mock_import_dir/PDFs/Live.combined/2025-12-30/...
-        // The parser searches for a directory matching '6805398'.
-        // Does 'Live.combined' or '2025-12-30' contain it?
-        // Wait, looking at `list_dir` output earlier: `{"name":"Muster,_Test_2282_6805398_session2", "isDir":true}`
-        // Ah! I see `Muster,_Test_2282_6805398_session2` in the `list_dir` output? 
-        // Let me check the previous `list_dir` output again.
-        // Step 289 was `list_dir .../2025-12-30`. Result was Step 290: `Muster,_Test_2282_6805398_session2`.
-        // YES! The ID 6805398 IS in the directory name.
+        // The session ID 6805398 should match a directory in the mock import structure.
 
         expect(report.generatedFiles).toBeDefined();
         if (report.generatedFiles && report.generatedFiles.length > 0) {

@@ -1,4 +1,4 @@
-import { UnifiedReport } from '../reports';
+import { UnifiedReport, BatteryData } from '../reports';
 import { XMLParser } from 'fast-xml-parser';
 
 export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedReport | null> => {
@@ -24,11 +24,18 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
         // 1. Patient Info
         let firstName = '';
         let lastName = 'Unknown';
+        if (demographics?.nameFirst) {
+            firstName = demographics.nameFirst;
+        }
         if (demographics?.nameLast) {
-            // Format seems to be "Last, First" or just "Last"
-            const parts = demographics.nameLast.split(',');
-            if (parts.length > 0) lastName = parts[0].trim();
-            if (parts.length > 1) firstName = parts[1].trim();
+            if (!firstName && demographics.nameLast.includes(',')) {
+                // Fallback: "Last, First" format stored in nameLast
+                const parts = demographics.nameLast.split(',');
+                lastName = parts[0].trim();
+                firstName = parts[1].trim();
+            } else {
+                lastName = demographics.nameLast;
+            }
         }
         const dob = demographics?.BirthDate || '';
 
@@ -57,7 +64,7 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
         const clinic = tests?.PacemakerClinic;
         // Handle array if multiple clinics (though usually one per file)
         const latestClinic = Array.isArray(clinic) ? clinic[clinic.length - 1] : clinic;
-        const interrogationDate = latestClinic?.Date || new Date().toISOString();
+        const interrogationDate = latestClinic?.Date || '';
 
         // 4. Telemetry / Measurements
         const evaluation = latestClinic?.Evaluation;
@@ -65,12 +72,14 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
         const thresholds = evaluation?.Thresholds;
 
         // Battery
-        const battery: any = {};
-        if (telemetry?.BatteryImpedance_ohms) {
-            // Impedance isn't voltage/status, but it's something. 
-            // The unified report expects voltage/status/lastCharge.
-            // We can store it in raw_text or custom fields if needed, but for now let's skip if no voltage.
-            // Actually, let's map what we can.
+        const battery: BatteryData = {};
+        if (telemetry?.BatteryVoltage != null) {
+            const val = parseFloat(telemetry.BatteryVoltage);
+            if (!isNaN(val)) battery.voltage = { value: val, unit: 'V' };
+        }
+        if (telemetry?.BatteryImpedance_ohms != null) {
+            const val = parseFloat(telemetry.BatteryImpedance_ohms);
+            if (!isNaN(val)) battery.status = `Impedance: ${val} Ohm`;
         }
 
         // Leads
@@ -129,23 +138,37 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
                 // Measurements
                 if (measureChamber) {
                     const sensing = findLeadMeasure(measureChamber, 'Sensing');
-                    if (sensing) {
-                        leadData.sensing = { value: parseFloat(sensing.Amplitude_millivolts), unit: 'mV' };
+                    if (sensing?.Amplitude_millivolts != null) {
+                        const val = parseFloat(sensing.Amplitude_millivolts);
+                        if (!isNaN(val)) leadData.sensing = { value: val, unit: 'mV' };
                     }
 
                     const capture = findLeadMeasure(measureChamber, 'Capture');
-                    if (capture) {
-                        leadData.pacing_threshold = { value: parseFloat(capture.Amplitude_volts), unit: 'V' };
+                    if (capture?.Amplitude_volts != null) {
+                        const val = parseFloat(capture.Amplitude_volts);
+                        if (!isNaN(val)) leadData.pacing_threshold = { value: val, unit: 'V' };
                     }
 
                     const impedance = findLeadMeasure(measureChamber, 'Lead');
-                    if (impedance) {
-                        leadData.impedance = { value: parseFloat(impedance.BipolarImpedance_ohms), unit: 'Ohm' };
+                    if (impedance?.BipolarImpedance_ohms != null) {
+                        const val = parseFloat(impedance.BipolarImpedance_ohms);
+                        if (!isNaN(val)) leadData.impedance = { value: val, unit: 'Ohm' };
                     }
                 }
 
                 leads.push(leadData);
             });
+        }
+
+        // Infer device type from model name
+        let deviceType: string = 'Pacemaker';
+        const modelUpper = model.toUpperCase();
+        if (modelUpper.includes('CRT-D')) {
+            deviceType = 'CRT-D';
+        } else if (modelUpper.includes('CRT-P') || modelUpper.includes('CRT')) {
+            deviceType = 'CRT-P';
+        } else if (modelUpper.includes('ICD')) {
+            deviceType = 'ICD';
         }
 
         const report: UnifiedReport = {
@@ -157,7 +180,7 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
                 dob: dob
             },
             device: {
-                type: 'Pacemaker', // Inferred from "Pacemaker" tag
+                type: deviceType,
                 model: model,
                 serial_number: serial
             },

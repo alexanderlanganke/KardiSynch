@@ -1,7 +1,7 @@
 // src/main/parsers/biotronik-parser.ts
 
 import { XMLParser } from 'fast-xml-parser';
-import { UnifiedReport, LeadData, BatteryData, Measurement } from '../reports';
+import { UnifiedReport, LeadData } from '../reports';
 
 /**
 * --- Biotronik XML Parser ---
@@ -134,6 +134,25 @@ function findTableByAttribute(data: any, attributeName: string): any[] | null {
 }
 
 /**
+ * Finds entries by trying multiple attribute name variants (e.g. German + English).
+ */
+function findEntryMultilang(table: any[] | any | null, ...names: string[]): string | null {
+    for (const name of names) {
+        const result = findEntry(table, name);
+        if (result) return result;
+    }
+    return null;
+}
+
+function findAllEntriesMultilang(table: any[] | any | null, ...names: string[]): string[] {
+    for (const name of names) {
+        const result = findAllEntries(table, name);
+        if (result.length > 0) return result;
+    }
+    return [];
+}
+
+/**
 * The main parser function.
 * @param xmlData The raw XML string content from the .xml file.
 * @returns Our standardized JSON object, or null if parsing fails.
@@ -156,12 +175,11 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         }
 
         // --- Settings / Lead Data Table ---
-        // Instead of hardcoding '9002', we look for the table containing 'Elektrodenmodell' or 'Kanäle'
+        // Search for table containing lead model info (German or English)
         let settingsTable = findTableByAttribute(xml, 'Elektrodenmodell');
-        if (!settingsTable) {
-            // Fallback: try searching for 'Kanäle' if Elektrodenmodell is missing
-            settingsTable = findTableByAttribute(xml, 'Kanäle');
-        }
+        if (!settingsTable) settingsTable = findTableByAttribute(xml, 'LeadModel');
+        if (!settingsTable) settingsTable = findTableByAttribute(xml, 'Kanäle');
+        if (!settingsTable) settingsTable = findTableByAttribute(xml, 'Channels');
 
         const statsTable = findTable(xml, '9473'); // Contains arrhythmia stats
 
@@ -190,14 +208,13 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
 
         // --- Assemble the final standardized object ---
         const personalData = xml['InterfaceData']?.['Patient']?.['PersonalData'];
-        console.log('PersonalData keys:', personalData ? Object.keys(personalData) : 'PersonalData is missing');
 
         // Extract hardware info from Table 9002 (Settings)
-        let channels = findAllEntries(settingsTable, 'Kanäle');
+        let channels = findAllEntriesMultilang(settingsTable, 'Kanäle', 'Channels');
 
-        const manufacturers = findAllEntries(settingsTable, 'Hersteller');
-        const models = findAllEntries(settingsTable, 'Elektrodenmodell');
-        const serials = findAllEntries(settingsTable, 'Seriennummer');
+        const manufacturers = findAllEntriesMultilang(settingsTable, 'Hersteller', 'Manufacturer');
+        const models = findAllEntriesMultilang(settingsTable, 'Elektrodenmodell', 'LeadModel');
+        const serials = findAllEntriesMultilang(settingsTable, 'Seriennummer', 'SerialNumber');
 
         // INTELLIGENT ALIGNMENT FIX:
         // Biotronik XMLs sometimes contain multiple blocks of 'Kanäle' (e.g., historical vs current),
@@ -322,6 +339,20 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
             leads.push(lead);
         }
 
+        // Infer device type from model name
+        const deviceModelStr = findEntry(summaryTable, 'CATAGGREGATDESCR') || '';
+        const deviceModelUpper = deviceModelStr.toUpperCase();
+        let deviceType: string = 'Unknown';
+        if (deviceModelUpper.includes('CRT-D') || deviceModelUpper.includes('HF-T')) {
+            deviceType = 'CRT-D';
+        } else if (deviceModelUpper.includes('CRT-P') || deviceModelUpper.includes('HF-P')) {
+            deviceType = 'CRT-P';
+        } else if (deviceModelUpper.includes('ICD') || deviceModelUpper.includes('DEFI') || deviceModelUpper.includes('LUMAX') || deviceModelUpper.includes('IFORIA') || deviceModelUpper.includes('ILIVIA')) {
+            deviceType = 'ICD';
+        } else if (deviceModelUpper.includes('HSM') || deviceModelUpper.includes('ENTOVIS') || deviceModelUpper.includes('EDORA') || deviceModelUpper.includes('EFFECTA')) {
+            deviceType = 'Pacemaker';
+        }
+
         const standardizedData: UnifiedReport = {
             manufacturer: findEntry(summaryTable, 'MANUFACTURERDESCR') || 'Biotronik',
             interrogation_date: xml['InterfaceData']['Examination']['ExaminationDate'],
@@ -331,8 +362,8 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
                 dob: personalData?.['DOB'] || personalData?.['DateOfBirth'] || personalData?.['Geburtsdatum'] || personalData?.['BirthDate'] || '',
             },
             device: {
-                type: 'Unknown',
-                model: findEntry(summaryTable, 'CATAGGREGATDESCR') || '',
+                type: deviceType,
+                model: deviceModelStr,
                 serial_number: findEntry(summaryTable, 'SERHSM') || '',
             },
             battery: {
@@ -341,7 +372,7 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
                     unit: 'V'
                 },
                 remaining_longevity: {
-                    value: findEntry(settingsTable, 'Batterie-Restkapazität') || '',
+                    value: findEntryMultilang(settingsTable, 'Batterie-Restkapazität', 'BatteryRemainingCapacity') || '',
                     unit: '%'
                 },
                 status: findEntry(summaryTable, 'FU1BATTERYSTATUS') || 'Unknown',
@@ -351,20 +382,13 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
 
             arrhythmia_summary: {
                 atrial_fibrillation_burden: {
-                    value: findEntry(statsTable, 'Atriale Arrhythmielast') || '',
+                    value: findEntryMultilang(statsTable, 'Atriale Arrhythmielast', 'Atrial Arrhythmia Burden') || '',
                     unit: '%'
                 },
                 ventricular_tachycardia_episodes: nsTCount,
             },
             raw_text: xmlData,
         };
-
-        console.log('Parsed Biotronik data:', {
-            manufacturer: standardizedData.manufacturer,
-            interrogation_date: standardizedData.interrogation_date,
-            patient: standardizedData.patient,
-            device: standardizedData.device
-        });
 
         return standardizedData;
 

@@ -12,7 +12,6 @@ describe('Parsers', () => {
         it('should parse a valid Biotronik XML file', () => {
             const xmlContent = fs.readFileSync(path.join(fixturesDir, 'mock_biotronik.txt'), 'utf-8');
             const result = parseBiotronikXML(xmlContent);
-            console.log('Biotronik Result:', JSON.stringify(result, null, 2));
 
             expect(result).not.toBeNull();
             expect(result?.manufacturer).toBe('Biotronik');
@@ -27,7 +26,6 @@ describe('Parsers', () => {
         it('should parse a valid BNK file', () => {
             const bnkContent = fs.readFileSync(path.join(fixturesDir, 'mock_boston.bnk'), 'utf-8');
             const result = parseBostonScientificBnk(bnkContent);
-            console.log('Boston Result:', JSON.stringify(result, null, 2));
 
             expect(result).not.toBeNull();
             expect(result?.manufacturer).toBe('Boston Scientific');

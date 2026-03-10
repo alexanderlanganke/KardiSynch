@@ -391,7 +391,7 @@ export class AutomationManager {
                     sendNotification(`Warning Check for ${item.patientName}: ${result.status.toUpperCase()}`, notifType);
                 }
 
-                console.log(`[AutomationManager] Warning Check Complete for ${item.patientName}:`, result);
+                console.log(`[AutomationManager] Warning Check Complete for ${item.patientId}:`, result);
 
                 sendProcessStatus({
                     type: 'complete',
@@ -465,7 +465,7 @@ export class AutomationManager {
                     manufacturerWarningStatus: updates.manufacturerWarningStatus !== undefined ? updates.manufacturerWarningStatus : patient.manufacturerWarningStatus,
                     manufacturerWarningHash: updates.manufacturerWarningHash !== undefined ? updates.manufacturerWarningHash : patient.manufacturerWarningHash
                 });
-                console.log(`[AutomationManager] Persisted updates for ${patient.name} to XML.`);
+                console.log(`[AutomationManager] Persisted updates for ${patientId} to XML.`);
             }
         } catch (e) {
             console.error('[AutomationManager] Failed to persist XML:', e);
