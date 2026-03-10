@@ -19,7 +19,7 @@ describe('Biotronik Filename Parsing', () => {
         const report = extractStructuredData('', filename);
 
         expect(report.patient.last_name).toBe('Beispiel');
-        expect(report.patient.first_name).toBe('Erika');
+        expect(report.patient.first_name).toBe('Anna');
         expect(report.device.serial_number).toBe('12345');
     });
 });
