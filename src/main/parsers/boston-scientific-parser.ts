@@ -33,16 +33,34 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
       dataMap.set(key, value);
     }
 
+    // Infer device type from model or explicit key
+    let deviceType: string = 'Unknown';
+    const modelValue = (dataMap.get('Device.Model') || '').toUpperCase();
+    const deviceTypeValue = dataMap.get('Device.DeviceType') || '';
+    if (deviceTypeValue) {
+      deviceType = deviceTypeValue;
+    } else if (modelValue.includes('CRT-D')) {
+      deviceType = 'CRT-D';
+    } else if (modelValue.includes('CRT-P')) {
+      deviceType = 'CRT-P';
+    } else if (modelValue.includes('S-ICD') || modelValue.includes('EMBLEM') || modelValue.includes('SQ-RX')) {
+      deviceType = 'S-ICD';
+    } else if (modelValue.includes('ICD') || modelValue.includes('DYNAGEN') || modelValue.includes('ORIGEN') || modelValue.includes('AUTOGEN')) {
+      deviceType = 'ICD';
+    } else if (modelValue.includes('ACCOLADE') || modelValue.includes('FORMIO') || modelValue.includes('PROPONENT')) {
+      deviceType = 'Pacemaker';
+    }
+
     const report: UnifiedReport = {
       manufacturer: 'Boston Scientific',
-      interrogation_date: dataMap.get('Brady.LastInterrogationDate') || new Date().toISOString().split('T')[0],
+      interrogation_date: dataMap.get('Brady.LastInterrogationDate') || '',
       patient: {
         first_name: dataMap.get('Patient.PatientFirstName') || '',
         last_name: dataMap.get('Patient.PatientLastName') || '',
         dob: dataMap.get('Patient.PatientDOB') || '',
       },
       device: {
-        type: 'Unknown',
+        type: deviceType,
         model: dataMap.get('Device.Model') || '',
         serial_number: dataMap.get('Device.SerialNumber') || '',
         implant_date: dataMap.get('Device.ImplantDate') || '',
@@ -62,7 +80,7 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
       raw_text: bnkData,
     };
 
-    console.log(`BNK Parsed - Name: ${report.patient.first_name} ${report.patient.last_name}, DOB: ${report.patient.dob}, Date: ${report.interrogation_date}`);
+    console.log('BNK file parsed successfully.');
     return report;
   } catch (error) {
     console.error("Failed to parse Boston Scientific BNK file:", error);
@@ -250,18 +268,18 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
 
     const lead: any = { name: name, impedance: { value: '', unit: 'Ohms' }, sensing: { value: '', unit: 'mV' }, pacing_threshold: { value: '', unit: 'V' } };
 
-    // Impedance
-    const impRegex = new RegExp(`${chamber}.*?Impedance.*?(\\d{3,4})\\s*Ohms`, 'i');
+    // Impedance (limit search span to avoid matching wrong chamber)
+    const impRegex = new RegExp(`${chamber}[\\s\\S]{0,300}?Impedance[^\\n]{0,100}?(\\d{3,4})\\s*Ohms`, 'i');
     const impMatch = text.match(impRegex);
     if (impMatch) lead.impedance.value = impMatch[1];
 
     // Sensing
-    const senseRegex = new RegExp(`${chamber}.*?Sensing.*?(\\d+(?:\\.\\d+)?)\\s*mV`, 'i');
+    const senseRegex = new RegExp(`${chamber}[\\s\\S]{0,300}?Sensing[^\\n]{0,100}?(\\d+(?:\\.\\d+)?)\\s*mV`, 'i');
     const senseMatch = text.match(senseRegex);
     if (senseMatch) lead.sensing.value = senseMatch[1];
 
     // Threshold
-    const threshRegex = new RegExp(`${chamber}.*?Threshold.*?(\\d+(?:\\.\\d+)?)\\s*V`, 'i');
+    const threshRegex = new RegExp(`${chamber}[\\s\\S]{0,300}?Threshold[^\\n]{0,100}?(\\d+(?:\\.\\d+)?)\\s*V`, 'i');
     const threshMatch = text.match(threshRegex);
     if (threshMatch) lead.pacing_threshold.value = threshMatch[1];
 
@@ -282,7 +300,7 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
     report.arrhythmia_summary.atrial_fibrillation_burden = { value: afMatch[1], unit: '%' };
   }
 
-  console.log(`PDF Parsed - Name: ${report.patient.first_name} ${report.patient.last_name}, DOB: ${report.patient.dob}, Date: ${report.interrogation_date}`);
+  console.log('Standard Boston Scientific PDF parsed.');
   return report;
 }
 
@@ -325,7 +343,7 @@ function parseSicdBostonPdf(text: string): UnifiedReport {
     });
   }
 
-  console.log(`S-ICD PDF Parsed - Name: ${report.patient.first_name} ${report.patient.last_name}`);
+  console.log('S-ICD Boston Scientific PDF parsed.');
   return report;
 }
 

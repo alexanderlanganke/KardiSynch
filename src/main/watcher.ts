@@ -276,7 +276,7 @@ const processTempDirectory = async (tempDir: string) => {
               const { findPatientBySerial } = await import('./database');
               const existing = await findPatientBySerial(report.device.serial_number);
               if (existing) {
-                console.log(`Recovered patient identity via Serial Number: ${existing.last_name}, ${existing.first_name}`);
+                console.log(`Recovered patient identity via Serial Number for ${path.basename(file)}.`);
                 targetPatient = existing;
               }
             } catch (e) {
@@ -565,7 +565,7 @@ const processTempDirectory = async (tempDir: string) => {
         }
 
         if (patient) {
-          console.log(`Found existing patient for PDF ${path.basename(file)}: ${patient.last_name}, ${patient.first_name}`);
+          console.log(`Found existing patient for PDF ${path.basename(file)}.`);
 
           // AUTO MATCHED
           const datePrefix = report.interrogation_date.split('T')[0];

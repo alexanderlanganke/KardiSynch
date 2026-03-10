@@ -29,7 +29,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
 
         const report: UnifiedReport = {
             manufacturer: 'Medtronic',
-            interrogation_date: new Date().toISOString(), // Fallback
+            interrogation_date: '',
             patient: {
                 first_name: '',
                 last_name: '',
@@ -67,7 +67,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
 
         // A. Patient Name: Look for "Name, Firstname" format
         // Heuristic: First string that matches "Word, Word" pattern
-        const nameRegex = /^([A-Z][a-z]+), ([A-Z].*)$/;
+        const nameRegex = /^([A-Za-z\u00C0-\u00FF][A-Za-z\u00C0-\u00FF'-]+),\s+([A-Za-z\u00C0-\u00FF].*)$/;
         const nameMatch = strings.find(s => nameRegex.test(s));
 
         if (nameMatch) {
@@ -84,10 +84,12 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
         if (modelString) {
             report.device.model = modelString;
             // Infer type
-            if (modelString.includes('CRT-D') || modelString.includes('DR') && modelString.includes('Protecta')) {
-                report.device.type = 'ICD';
+            if (modelString.includes('CRT-D')) {
+                report.device.type = 'CRT-D';
             } else if (modelString.includes('CRT-P')) {
                 report.device.type = 'CRT-P';
+            } else if (modelString.includes('ICD') || (modelString.includes('DR') && modelString.includes('Protecta'))) {
+                report.device.type = 'ICD';
             }
         }
 
@@ -285,15 +287,6 @@ function parseRawValues(buffer: Buffer) {
     return values;
 }
 
-function extractStringAt(buffer: Buffer, offset: number): string {
-    if (offset >= buffer.length) return '';
-    let end = offset;
-    while (end < buffer.length && buffer[end] !== 0x00 && buffer[end] !== 0x0A) {
-        end++;
-    }
-    return buffer.slice(offset, end).toString('utf8').trim();
-}
-
 /**
  * Helper to find a Field value in the Medtronic XML structure.
  */
@@ -376,7 +369,8 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
 /**
  * Parses the PublicDiscreteData.xml content from a Medtronic PKG.
  */
-export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
+export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
+  try {
     const parser = new XMLParser({
         ignoreAttributes: false,
         attributeNamePrefix: "@_"
@@ -638,14 +632,14 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
 
         // Medtronic sometimes has empty strings for unused leads, check if location or model exists
         if (leadLocation || (modelParam && findValueInComposite(modelParam, 'Current'))) {
-            let model = '';
+            let leadModel = '';
             let serial = '';
             let manufacturer = '';
-            let implantDate = '';
+            let leadImplantDate = '';
 
             if (modelParam) {
                 const val = findValueInComposite(modelParam, 'Current');
-                if (val) model = val;
+                if (val) leadModel = val;
             }
             if (serialParam) {
                 const val = findValueInComposite(serialParam, 'Current');
@@ -657,18 +651,18 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
             }
             if (dateParam) {
                 const val = findValueInComposite(dateParam, 'Current');
-                if (val) implantDate = val;
+                if (val) leadImplantDate = val;
             }
 
             // Only add if we have some minimal info (e.g. Model or Serial)
-            if (model || serial) {
+            if (leadModel || serial) {
                 const lead: LeadData = {
                     name: `${leadLocation} Lead`,
                     anatomic_location: leadLocation,
-                    model: model,
+                    model: leadModel,
                     serial: serial,
                     manufacturer: manufacturer || 'Medtronic', // Default if missing
-                    implant_date: implantDate
+                    implant_date: leadImplantDate
                 };
 
                 // MATCH ELECTRICAL VALUES BASED ON LOCATION
@@ -731,7 +725,7 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
 
     return {
         manufacturer: 'Medtronic',
-        interrogation_date: savedDate ? savedDate.split('T')[0] : new Date().toISOString(),
+        interrogation_date: savedDate ? savedDate.split('T')[0] : '',
         patient: {
             first_name: firstName,
             last_name: lastName,
@@ -750,4 +744,8 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport => {
         leads: leads,
         raw_text: xmlData
     };
+  } catch (error) {
+    console.error('Failed to parse Medtronic XML:', error);
+    return null;
+  }
 };

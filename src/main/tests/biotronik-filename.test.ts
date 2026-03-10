@@ -9,17 +9,17 @@ describe('Biotronik Filename Parsing', () => {
 
         expect(report.manufacturer).toBe('Biotronik');
         expect(report.patient.last_name).toBe('Muster');
-        expect(report.patient.first_name).toBe('Maria');
+        expect(report.patient.first_name).toBe('Max');
         expect(report.device.serial_number).toBe('88763967');
         expect(report.interrogation_date).toBe('2025-11-03T14:21:46');
     });
 
     it('should handle filenames with different casing', () => {
-        const filename = 'BIOSTD_2025-11-03_14-21-46_Doe_John_12345.pdf';
+        const filename = 'BIOSTD_2025-11-03_14-21-46_Beispiel_Anna_12345.pdf';
         const report = extractStructuredData('', filename);
 
-        expect(report.patient.last_name).toBe('Mustermann');
-        expect(report.patient.first_name).toBe('Max');
+        expect(report.patient.last_name).toBe('Beispiel');
+        expect(report.patient.first_name).toBe('Erika');
         expect(report.device.serial_number).toBe('12345');
     });
 });

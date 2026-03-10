@@ -19,8 +19,8 @@ describe('Medtronic PDD Debug', () => {
 
 
             expect(report).toBeDefined();
-            expect(report?.patient.last_name).toBeTruthy(); // Was Mustermann
-            expect(report?.patient.first_name).toBeTruthy(); // Was Peter
+            expect(report?.patient.last_name).toBeTruthy();
+            expect(report?.patient.first_name).toBeTruthy();
             expect(report?.device.model).toContain('Protecta');
             expect(report?.device.serial_number).toBe('PTC610468S');
 

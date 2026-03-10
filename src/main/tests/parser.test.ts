@@ -28,8 +28,8 @@ describe('parseFile', () => {
         manufacturer: "Biotronik",
         interrogation_date: "",
         patient: {
-            first_name: "Max",
-            last_name: "Mustermann",
+            first_name: "Test",
+            last_name: "Patient",
             dob: "",
             patient_id: "1"
         },
@@ -57,8 +57,8 @@ describe('parseFile', () => {
         manufacturer: "Boston Scientific",
         interrogation_date: "",
         patient: {
-            first_name: "Max",
-            last_name: "Mustermann",
+            first_name: "Test",
+            last_name: "Patient",
             dob: "",
             patient_id: "1"
         },

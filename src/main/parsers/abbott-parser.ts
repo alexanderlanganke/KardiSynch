@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
-import { UnifiedReport, LeadData, BatteryData, Measurement } from '../reports';
+import { UnifiedReport, LeadData } from '../reports';
 
 /**
  * Extracts raw text from a DOCX (ZIP) file by reading word/document.xml
@@ -58,16 +58,29 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
     const lastName = nameParts.length > 0 ? nameParts[0].trim() : '';
     const firstName = nameParts.length > 1 ? nameParts[1].trim() : '';
 
-    console.log(`[Abbott Parser Debug] Extracted Name: ${lastName}, ${firstName}`);
-    console.log(`[Abbott Parser Debug] Raw Text Start: ${text.substring(0, 500)}`);
-
     const dateMatch = text.match(patterns.sessionTimestamp);
-    const interrogationDate = dateMatch ? new Date(dateMatch[1]).toISOString() : new Date().toISOString();
+    let interrogationDate = '';
+    if (dateMatch) {
+        const parts = dateMatch[1].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
+        if (parts) {
+            const d = new Date(
+                parseInt(parts[3]), parseInt(parts[1]) - 1, parseInt(parts[2]),
+                parseInt(parts[4]), parseInt(parts[5]), parseInt(parts[6])
+            );
+            interrogationDate = d.toISOString();
+        }
+    }
 
-    // Attempt to find DOB, regex might need adjustment
-    // Pattern guess: "Date of Birth: 01/01/1980" or similar
     const dobMatch = text.match(/Date of Birth:?\s*(\d{1,2}\/\d{1,2}\/\d{4})/i);
-    const dob = dobMatch ? new Date(dobMatch[1]).toISOString().split('T')[0] : '1900-01-01'; // Fallback
+    let dob = '';
+    if (dobMatch) {
+        const parts = dobMatch[1].match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+        if (parts) {
+            const month = parts[1].padStart(2, '0');
+            const day = parts[2].padStart(2, '0');
+            dob = `${parts[3]}-${month}-${day}`;
+        }
+    }
 
     // Device Info
     const modelMatch = text.match(patterns.model);
@@ -79,6 +92,7 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
     // Leads
     const atrialSerial = text.match(patterns.atrialSerial)?.[1] || '';
     const rvSerial = text.match(patterns.rvSerial)?.[1] || '';
+    const lvSerial = text.match(patterns.lvSerial)?.[1] || '';
 
     const rvImp = text.match(patterns.rvImp);
     const rvSense = text.match(patterns.rvSense);
@@ -105,6 +119,14 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
         });
     }
 
+    // LV Lead Data
+    if (lvSerial) {
+        leads.push({
+            name: 'LV',
+            serial: lvSerial,
+        });
+    }
+
 
     // --- Extract Session ID from Filename ---
     // Filename in temp dir: UUID_OriginalName.log e.g. "..._6805398.log"
@@ -113,6 +135,17 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
     const filename = path.basename(filePath);
     const idMatch = filename.match(/_?(\d+)\.log$/i);
     const sessionId = idMatch ? idMatch[1] : undefined;
+
+    // Infer device type from model
+    let deviceType: string = 'Pacemaker';
+    const modelStr = modelMatch ? modelMatch[1].trim().toUpperCase() : '';
+    if (modelStr.includes('CRT-D') || modelStr.includes('QUADRA')) {
+        deviceType = 'CRT-D';
+    } else if (modelStr.includes('CRT-P')) {
+        deviceType = 'CRT-P';
+    } else if (modelStr.includes('ICD') || modelStr.includes('FORTIFY') || modelStr.includes('ELLIPSE') || modelStr.includes('UNIFY')) {
+        deviceType = 'ICD';
+    }
 
     return {
         manufacturer: 'Abbott',
@@ -124,7 +157,7 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
             dob: dob
         },
         device: {
-            type: 'Pacemaker',
+            type: deviceType,
             model: modelMatch ? modelMatch[1].trim() : 'Unknown',
             serial_number: serialMatch ? serialMatch[1].trim() : 'Unknown'
         },
