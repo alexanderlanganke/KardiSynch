@@ -4,7 +4,6 @@ import { checkWarningStatus } from './warningLookupService';
 import { getDb } from '../database';
 import { sendNotification, sendProcessStatus } from '../windowManager';
 import { ScraperService } from './ScraperService';
-import fs from 'fs';
 import path from 'path';
 
 const SCRAPER_TIMEOUT_MS = 60000; // 60s timeout per scraper check
@@ -62,26 +61,24 @@ export class AutomationManager {
         return path.join(app.getPath('userData'), 'automation_hash_cache.json');
     }
 
-    private loadHashCache() {
+    private async loadHashCache() {
         try {
-            if (fs.existsSync(this.hashCachePath)) {
-                const data = JSON.parse(fs.readFileSync(this.hashCachePath, 'utf8'));
-                this.processedHashes = new Set(data.mri || []);
-                this.processedWarningHashes = new Set(data.warning || []);
-                console.log(`[AutomationManager] Loaded hash cache: ${this.processedHashes.size} MRI, ${this.processedWarningHashes.size} warning hashes.`);
-            }
-        } catch (e) {
-            console.warn('[AutomationManager] Failed to load hash cache:', e);
+            const data = JSON.parse(await require('fs/promises').readFile(this.hashCachePath, 'utf8'));
+            this.processedHashes = new Set(data.mri || []);
+            this.processedWarningHashes = new Set(data.warning || []);
+            console.log(`[AutomationManager] Loaded hash cache: ${this.processedHashes.size} MRI, ${this.processedWarningHashes.size} warning hashes.`);
+        } catch (e: any) {
+            if (e.code !== 'ENOENT') console.warn('[AutomationManager] Failed to load hash cache:', e);
         }
     }
 
-    private saveHashCache() {
+    private async saveHashCache() {
         try {
             const data = {
                 mri: Array.from(this.processedHashes),
                 warning: Array.from(this.processedWarningHashes)
             };
-            fs.writeFileSync(this.hashCachePath, JSON.stringify(data));
+            await require('fs/promises').writeFile(this.hashCachePath, JSON.stringify(data));
         } catch (e) {
             console.warn('[AutomationManager] Failed to save hash cache:', e);
         }
@@ -133,7 +130,14 @@ export class AutomationManager {
         `;
 
         db.get(query, [patientId], (err, row: any) => {
-            if (err || !row) return;
+            if (err) {
+                console.error(`[AutomationManager] Failed to query patient ${patientId}:`, err);
+                return;
+            }
+            if (!row) {
+                console.warn(`[AutomationManager] No data found for patient ${patientId}`);
+                return;
+            }
             this.enqueueFromRow(row, false);
         });
     }
@@ -179,9 +183,11 @@ export class AutomationManager {
         try {
             if (row.data) {
                 const parsed = JSON.parse(row.data);
-                leads = parsed.leads || [];
+                leads = (parsed.leads || []).filter((l: any) => l && (l.model || l.serial || l.name));
             }
-        } catch (e) { /* ignore */ }
+        } catch (e) {
+            console.warn(`[AutomationManager] Failed to parse lead data for ${row.id}:`, e);
+        }
 
         const hash = this.calculateHash(row.manufacturer, row.device_model, row.device_serial_number || '', leads);
         const warningHash = this.calculateWarningHash(row.manufacturer, row.device_model, row.device_serial_number || '', leads);
@@ -212,12 +218,12 @@ export class AutomationManager {
     }
 
     private calculateHash(manufacturer: string, model: string, serial: string, leads: any[]): string {
-        const data = `${manufacturer}|${model}|${serial}|${leads.length}|${leads.map(l => l.model).join(',')}`;
+        const data = `${manufacturer}|${model}|${serial}|${leads.length}|${leads.filter(l => l).map(l => l.model || '').join(',')}`;
         return Buffer.from(data).toString('base64');
     }
 
     private calculateWarningHash(manufacturer: string, model: string, serial: string, leads: any[] = []): string {
-        const leadData = leads.map(l => `${l.manufacturer || manufacturer}:${l.model}:${l.serial}`).join('|');
+        const leadData = leads.filter(l => l).map(l => `${l.manufacturer || manufacturer}:${l.model || ''}:${l.serial || ''}`).join('|');
         const data = `${manufacturer}|${model}|${serial}|${leadData}`;
         return Buffer.from(data).toString('base64');
     }
@@ -252,7 +258,7 @@ export class AutomationManager {
             this.isProcessing = false;
             this.broadcastStatus();
             // Phase 2: Save hash cache after draining queue
-            this.saveHashCache();
+            await this.saveHashCache();
             return;
         }
 
@@ -279,7 +285,7 @@ export class AutomationManager {
             // Queue fully drained
             this.isProcessing = false;
             this.broadcastStatus();
-            this.saveHashCache();
+            await this.saveHashCache();
         }
     }
 
@@ -333,7 +339,15 @@ export class AutomationManager {
                     'UPDATE Patients SET mri_status = ?, mri_data_hash = ? WHERE id = ?',
                     [JSON.stringify(result), item.hash, item.patientId],
                     async (err) => {
-                        if (!err) this.persistToXML(item.patientId, { mriStatus: result, mriDataHash: item.hash });
+                        if (err) {
+                            console.error(`[AutomationManager] Failed to save MRI status for ${item.patientId}:`, err);
+                            return;
+                        }
+                        try {
+                            await this.persistToXML(item.patientId, { mriStatus: result, mriDataHash: item.hash });
+                        } catch (e) {
+                            console.error(`[AutomationManager] Failed to persist MRI XML for ${item.patientId}:`, e);
+                        }
                         this.broadcastUpdate(item.patientId, { type: 'mri', status: result });
                     }
                 );
@@ -358,9 +372,13 @@ export class AutomationManager {
                     // 2. Check Leads
                     if (item.leads && item.leads.length > 0) {
                         for (const lead of item.leads) {
+                            if (!lead || (!lead.model && !lead.serial)) {
+                                console.warn(`[AutomationManager] Skipping invalid lead entry for ${item.patientId}`);
+                                continue;
+                            }
                             const leadManu = lead.manufacturer || item.manufacturer;
-                            const leadRes = await checkWarningStatus(leadManu, lead.model, lead.serial);
-                            components.push({ ...leadRes, type: 'lead', model: lead.model, serial: lead.serial });
+                            const leadRes = await checkWarningStatus(leadManu, lead.model || 'Unknown', lead.serial);
+                            components.push({ ...leadRes, type: 'lead', model: lead.model || 'Unknown', serial: lead.serial || '' });
 
                             if (leadRes.status === 'recall') worstStatus = 'recall';
                             else if (leadRes.status === 'advisory' && worstStatus !== 'recall') worstStatus = 'advisory';
@@ -405,7 +423,15 @@ export class AutomationManager {
                     'UPDATE Patients SET manufacturer_warning_status = ?, manufacturer_warning_hash = ? WHERE id = ?',
                     [JSON.stringify(result), item.hash, item.patientId],
                     async (err) => {
-                        if (!err) this.persistToXML(item.patientId, { manufacturerWarningStatus: result, manufacturerWarningHash: item.hash });
+                        if (err) {
+                            console.error(`[AutomationManager] Failed to save warning status for ${item.patientId}:`, err);
+                            return;
+                        }
+                        try {
+                            await this.persistToXML(item.patientId, { manufacturerWarningStatus: result, manufacturerWarningHash: item.hash });
+                        } catch (e) {
+                            console.error(`[AutomationManager] Failed to persist warning XML for ${item.patientId}:`, e);
+                        }
                         this.broadcastUpdate(item.patientId, { type: 'warning', status: result });
                     }
                 );

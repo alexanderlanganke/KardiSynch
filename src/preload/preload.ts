@@ -100,5 +100,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Debug tools
   selectFile: (filters?: { name: string; extensions: string[] }[]) => ipcRenderer.invoke('select-file', filters),
   analyzeBiotronikXml: (filePath: string) => ipcRenderer.invoke('analyze-biotronik-xml', filePath),
+  analyzeAbbottLog: (filePath: string) => ipcRenderer.invoke('analyze-abbott-log', filePath),
 });
 

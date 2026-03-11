@@ -60,6 +60,7 @@ export interface IElectronAPI {
   // Debug tools
   selectFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | undefined>;
   analyzeBiotronikXml: (filePath: string) => Promise<any>;
+  analyzeAbbottLog: (filePath: string) => Promise<any>;
 
   // Visit Management
   rescanVisit: (visitId: string) => Promise<any>;

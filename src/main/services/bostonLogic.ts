@@ -8,19 +8,16 @@ import { BostonDeviceData } from './bostonScraper';
 let bostonDataCache: BostonDeviceData[] | null = null;
 let lastLoadTime = 0;
 
-const getBostonData = (): BostonDeviceData[] => {
+const getBostonData = async (): Promise<BostonDeviceData[]> => {
     // Reload if cache is empty or old (e.g. > 1 hour)
     if (!bostonDataCache || Date.now() - lastLoadTime > 3600000) {
         try {
             const p = path.join(app.getPath('userData'), 'boston_data.json');
-            if (fs.existsSync(p)) {
-                bostonDataCache = JSON.parse(fs.readFileSync(p, 'utf8'));
-                lastLoadTime = Date.now();
-            } else {
-                return [];
-            }
-        } catch (e) {
-            console.error('[Boston Logic] Failed to load data:', e);
+            const data = await fs.promises.readFile(p, 'utf8');
+            bostonDataCache = JSON.parse(data);
+            lastLoadTime = Date.now();
+        } catch (e: any) {
+            if (e.code !== 'ENOENT') console.error('[Boston Logic] Failed to load data:', e);
             return [];
         }
     }
@@ -29,7 +26,7 @@ const getBostonData = (): BostonDeviceData[] => {
 
 export async function checkBoston(model: string, leads: any[]): Promise<MRIStatusResult> {
     console.log(`[Boston Logic] Checking Boston Scientific device: ${model} with ${leads.length} leads.`);
-    const data = getBostonData();
+    const data = await getBostonData();
     console.log(`[Boston Logic] Loaded ${data.length} entries from database.`);
 
     if (data.length === 0) {
@@ -151,7 +148,7 @@ export async function checkBoston(model: string, leads: any[]): Promise<MRIStatu
 
     console.log(`[Boston Logic] Checking ${leads.length} leads against ${data.filter(d => d.type === 'lead').length} known leads...`);
 
-    for (const l of leads) {
+    for (const l of leads.filter(l => l)) {
         const lModel = clean(l.model || l.name);
         console.log(`[Boston Logic] Checking Lead: ${l.model || l.name} (Clean: ${lModel})`);
         const lMatch = data.find(d =>

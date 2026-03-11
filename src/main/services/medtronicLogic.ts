@@ -17,17 +17,15 @@ import path from 'path';
 import bundledData from '../assets/medtronic_data.json';
 
 // Helper to get fresh data
-const getMedtronicData = () => {
+const getMedtronicData = async () => {
     try {
-        // Check user data (where scraper writes)
         const userDataPath = path.join(app.getPath('userData'), 'medtronic_data.json');
-        if (fs.existsSync(userDataPath)) {
-            return JSON.parse(fs.readFileSync(userDataPath, 'utf8'));
-        }
-    } catch (e) {
-        console.warn('Failed to load local medtronic data, using bundled fallback.', e);
+        const data = await fs.promises.readFile(userDataPath, 'utf8');
+        return JSON.parse(data);
+    } catch (e: any) {
+        if (e.code !== 'ENOENT') console.warn('Failed to load local medtronic data, using bundled fallback.', e);
+        return bundledData;
     }
-    return bundledData;
 };
 
 export async function checkMedtronic(model: string, leads: any[] = []): Promise<MRIStatusResult> {
@@ -38,7 +36,7 @@ export async function checkMedtronic(model: string, leads: any[] = []): Promise<
 
     // 1. Find Device Support
     // Use dynamic data source
-    const data = getMedtronicData();
+    const data = await getMedtronicData();
 
     // We check if input is contained in JSON modelName/Number OR vice versa.
     const deviceMatch = data.find((d: any) => {

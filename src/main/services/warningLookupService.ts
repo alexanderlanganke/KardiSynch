@@ -279,7 +279,18 @@ export const checkWarningStatus = async (
         if (manuLower.includes('medtronic')) return await checkMedtronicWarning(safeModel);
         if (manuLower.includes('abbott') || manuLower.includes('st. jude')) return await checkAbbottWarning(safeModel, safeSerial);
         if (manuLower.includes('boston') || manuLower.includes('guidant')) return await checkBostonWarning(safeModel, safeSerial);
-        if (manuLower.includes('biotronik')) return await checkBiotronikWarning(safeSerial || '');
+        if (manuLower.includes('biotronik')) {
+            if (!safeSerial) {
+                return {
+                    manufacturer: 'Biotronik',
+                    status: 'manual_check',
+                    details: 'Missing serial number for Biotronik lookup.',
+                    link: 'https://www.biotronik.com/en-int/professionals/services/device-lookup-tool',
+                    timestamp: new Date().toISOString()
+                };
+            }
+            return await checkBiotronikWarning(safeSerial);
+        }
         if (manuLower.includes('microport') || manuLower.includes('sorin') || manuLower.includes('ela')) return await checkMicroportWarning(safeModel);
 
         return {

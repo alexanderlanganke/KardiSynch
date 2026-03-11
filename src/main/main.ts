@@ -1226,6 +1226,13 @@ ipcMain.handle('analyze-biotronik-xml', async (event, filePath: string) => {
   });
 });
 
+ipcMain.handle('analyze-abbott-log', async (_event, filePath: string) => {
+  const fsAsync = await import('fs/promises');
+  const buffer = await fsAsync.readFile(filePath);
+  const { analyzeAbbottLog } = require('./parsers/abbott-analyzer');
+  return analyzeAbbottLog(buffer);
+});
+
 ipcMain.handle('open-external', async (event, url) => {
   try {
     await shell.openExternal(url);

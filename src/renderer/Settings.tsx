@@ -52,10 +52,15 @@ const Settings: React.FC = () => {
   const [appVersion, setAppVersion] = useState<string>('');
   const [loading, setLoading] = useState(false);
 
-  // Debug analyzer state
+  // Debug analyzer state (Biotronik)
   const [debugFilePath, setDebugFilePath] = useState('');
   const [debugResult, setDebugResult] = useState<any>(null);
   const [debugLoading, setDebugLoading] = useState(false);
+
+  // Debug analyzer state (Abbott)
+  const [abbottFilePath, setAbbottFilePath] = useState('');
+  const [abbottResult, setAbbottResult] = useState<any>(null);
+  const [abbottLoading, setAbbottLoading] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -534,6 +539,154 @@ const Settings: React.FC = () => {
                         </Button>
                         <pre className="rounded-lg border bg-muted p-4 text-[11px] overflow-auto max-h-64 whitespace-pre-wrap font-mono">
                           {JSON.stringify(debugResult, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Abbott Log Analyzer */}
+              <Card className="mt-4">
+                <CardHeader>
+                  <CardTitle>Abbott Log Analyzer</CardTitle>
+                  <CardDescription>
+                    Load an Abbott .log file to inspect which parser patterns match.
+                    Results are safe to share — only field labels and match status are shown, never patient values.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Abbott Log File</Label>
+                    <div className="flex gap-2 items-center">
+                      <Input value={abbottFilePath} readOnly placeholder="No file selected..." className="bg-muted" />
+                      <Button type="button" variant="outline" onClick={async () => {
+                        const filePath = await window.electronAPI.selectFile([
+                          { name: 'Log Files', extensions: ['log'] }
+                        ]);
+                        if (filePath) { setAbbottFilePath(filePath); setAbbottResult(null); }
+                      }}>
+                        <FolderOpen className="mr-2 h-4 w-4" /> Select Log
+                      </Button>
+                      <Button type="button" onClick={async () => {
+                        if (!abbottFilePath) return;
+                        setAbbottLoading(true);
+                        try {
+                          const result = await window.electronAPI.analyzeAbbottLog(abbottFilePath);
+                          setAbbottResult(result);
+                        } catch (error) {
+                          console.error('Abbott analysis failed:', error);
+                          showAlert('Failed to analyze file. Make sure it is a valid Abbott .log file.');
+                        } finally { setAbbottLoading(false); }
+                      }} disabled={!abbottFilePath || abbottLoading}>
+                        {abbottLoading ? 'Analyzing...' : 'Analyze'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {abbottResult && (
+                    <div className="space-y-4">
+                      {/* Format & Stats */}
+                      <div className="rounded-lg border p-4 space-y-3">
+                        <h3 className="text-sm font-semibold">File Overview</h3>
+                        <div className="grid grid-cols-3 gap-4 text-xs">
+                          <div className="p-2 rounded border bg-background">
+                            <span className="text-muted-foreground">Format:</span>{' '}
+                            <span className="font-medium">{abbottResult.format}</span>
+                          </div>
+                          <div className="p-2 rounded border bg-background">
+                            <span className="text-muted-foreground">Lines:</span>{' '}
+                            <span className="font-medium">{abbottResult.lineCount.toLocaleString()}</span>
+                          </div>
+                          <div className="p-2 rounded border bg-background">
+                            <span className="text-muted-foreground">Labels found:</span>{' '}
+                            <span className="font-medium">{abbottResult.stats.totalLabels}</span>
+                          </div>
+                        </div>
+                        {abbottResult.docxStructure && (
+                          <div className="grid grid-cols-3 gap-4 text-xs mt-2">
+                            <div className="p-2 rounded border bg-background">
+                              <span className="text-muted-foreground">DOCX tables:</span>{' '}
+                              <span className="font-medium">{abbottResult.docxStructure.tableCount}</span>
+                            </div>
+                            <div className="p-2 rounded border bg-background">
+                              <span className="text-muted-foreground">Text elements:</span>{' '}
+                              <span className="font-medium">{abbottResult.docxStructure.textElementCount}</span>
+                            </div>
+                            <div className="p-2 rounded border bg-background">
+                              <span className="text-muted-foreground">Paragraph styles:</span>{' '}
+                              <span className="font-medium">{abbottResult.docxStructure.paragraphStyles.length}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Pattern Match Results */}
+                      <div className="rounded-lg border p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-sm font-semibold">Pattern Match Results</h3>
+                          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                            abbottResult.stats.coveragePercent >= 75 ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' :
+                            abbottResult.stats.coveragePercent >= 50 ? 'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300' :
+                            'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300'
+                          }`}>
+                            {abbottResult.stats.matchedByParser}/{Object.keys(abbottResult.parserPatternMatches).length} patterns matched ({abbottResult.stats.coveragePercent}% of labels)
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {Object.entries(abbottResult.parserPatternMatches).map(([key, matched]: [string, any]) => (
+                            <LookupIndicator key={key} label={key} found={matched} />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Uncaptured Fields */}
+                      {abbottResult.uncapturedFields.length > 0 && (
+                        <div className="rounded-lg border p-4 space-y-2">
+                          <h3 className="text-sm font-semibold">Uncaptured Fields ({abbottResult.uncapturedFields.length})</h3>
+                          <p className="text-xs text-muted-foreground">Clinical data fields not captured by any parser pattern. These are missed opportunities for extraction.</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {abbottResult.uncapturedFields.map((field: any) => (
+                              <span key={field.label} className="text-[11px] px-2 py-0.5 rounded-full border bg-muted font-mono">
+                                {field.label} <span className="text-muted-foreground">{field.valueType}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Section Headers */}
+                      {abbottResult.sections.length > 0 && (
+                        <div className="rounded-lg border p-4 space-y-2">
+                          <h3 className="text-sm font-semibold">Section Headers ({abbottResult.sections.length})</h3>
+                          <div className="flex flex-wrap gap-1.5">
+                            {abbottResult.sections.map((header: string) => (
+                              <span key={header} className="text-[11px] px-2 py-0.5 rounded-full border bg-background font-mono">{header}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Labels Found */}
+                      {abbottResult.labels.length > 0 && (
+                        <div className="rounded-lg border p-4 space-y-2">
+                          <h3 className="text-sm font-semibold">Labels Found ({abbottResult.labels.length})</h3>
+                          <div className="flex flex-wrap gap-1.5">
+                            {abbottResult.labels.map((label: string) => (
+                              <span key={label} className="text-[11px] px-2 py-0.5 rounded-full border bg-background font-mono">{label}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Raw JSON (copyable) */}
+                      <div className="relative">
+                        <Button type="button" size="sm" variant="outline" className="absolute top-2 right-2"
+                          onClick={() => navigator.clipboard.writeText(JSON.stringify(abbottResult, null, 2))}>
+                          <Copy className="h-3 w-3 mr-1" /> Copy
+                        </Button>
+                        <pre className="rounded-lg border bg-muted p-4 text-[11px] overflow-auto max-h-64 whitespace-pre-wrap font-mono">
+                          {JSON.stringify(abbottResult, null, 2)}
                         </pre>
                       </div>
                     </div>
