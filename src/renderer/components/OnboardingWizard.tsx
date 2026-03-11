@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { FolderOpen, ArrowRight, ArrowLeft, Check } from 'lucide-react';
+import { FolderOpen, ArrowRight, ArrowLeft, ArrowDown, Check, HelpCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useAppDialog } from './AppDialogProvider';
 
@@ -86,6 +86,41 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
       description: 'Set up the folder where you will drop new reports for automatic import.',
       content: (
         <div className="space-y-4">
+          {/* Flow diagram */}
+          <div className="rounded-lg border bg-muted/40 p-3 text-xs">
+            <div className="flex flex-col items-center gap-1">
+              <div className="rounded border-2 border-primary bg-primary/10 px-3 py-1.5 font-semibold text-primary">
+                Import Directory
+              </div>
+              <div className="flex items-center gap-1 text-muted-foreground py-0.5">
+                <ArrowDown className="h-3.5 w-3.5" />
+                <span className="text-[10px]">auto-parse</span>
+              </div>
+              <div className="flex items-start justify-center gap-8">
+                <div className="flex flex-col items-center gap-1">
+                  <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
+                    <Check className="h-3 w-3" />
+                    <span className="text-[10px] font-medium">matched</span>
+                  </div>
+                  <ArrowDown className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+                  <div className="rounded border-2 border-green-600 dark:border-green-400 bg-green-600/10 px-3 py-1.5 font-semibold text-green-600 dark:text-green-400">
+                    Data Storage
+                  </div>
+                </div>
+                <div className="flex flex-col items-center gap-1">
+                  <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                    <HelpCircle className="h-3 w-3" />
+                    <span className="text-[10px] font-medium">unmatched</span>
+                  </div>
+                  <ArrowDown className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+                  <div className="rounded border-2 border-amber-600 dark:border-amber-400 bg-amber-600/10 px-3 py-1.5 font-semibold text-amber-600 dark:text-amber-400">
+                    Unmatched
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-2">
             <Label htmlFor="import-dir">Import Directory</Label>
             <div className="flex gap-2">
