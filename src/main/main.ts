@@ -664,10 +664,9 @@ ipcMain.handle('get-patient-directories', async () => {
 
     const dirs = await fs.readdir(reportsDir, { withFileTypes: true });
     const parser = new XMLParser();
-    const patients = [];
 
-    // Fetch MRI statuses from DB to enrich filesystem data
-    const mriStatuses = await new Promise<Record<string, any>>((resolve) => {
+    // Fetch MRI statuses from DB in parallel with directory processing
+    const mriStatusPromise = new Promise<Record<string, any>>((resolve) => {
       import('./database').then(({ getDb }) => {
         try {
           getDb().all('SELECT id, mri_status FROM Patients', (err, rows: any[]) => {
@@ -690,12 +689,15 @@ ipcMain.handle('get-patient-directories', async () => {
       });
     });
 
-    for (const dir of dirs) {
-      if (!dir.isDirectory()) continue;
-
+    // Process all patient directories concurrently
+    const patientDirs = dirs.filter(d => d.isDirectory());
+    const patientPromises = patientDirs.map(async (dir) => {
       const patientXmlPath = path.join(reportsDir, dir.name, 'patient.xml');
       try {
-        const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
+        const [xmlContent, visitDirEntries] = await Promise.all([
+          fs.readFile(patientXmlPath, 'utf-8'),
+          fs.readdir(path.join(reportsDir, dir.name), { withFileTypes: true }),
+        ]);
         const patientData = parser.parse(xmlContent).patient;
 
         // Extract latest device info
@@ -708,7 +710,6 @@ ipcMain.handle('get-patient-directories', async () => {
             ? patientData.devices.device
             : [patientData.devices.device];
 
-          // Get the last added device (assuming append order)
           if (devices.length > 0) {
             const latest = devices[devices.length - 1];
             deviceManufacturer = latest.manufacturer;
@@ -724,19 +725,15 @@ ipcMain.handle('get-patient-directories', async () => {
           leadsSummary = leads.map((l: any) => `${l.manufacturer} ${l.model} (${l.serial})`);
         }
 
-        // Count visits
-        const patientDirPath = path.join(reportsDir, dir.name); const visitDirs = await fs.readdir(patientDirPath, { withFileTypes: true });
-        const visitCount = visitDirs.filter(d => d.isDirectory() && d.name !== 'patient.xml').length;
-
-        // Find most recent visit
-        const visitDates = visitDirs
+        const visitCount = visitDirEntries.filter(d => d.isDirectory()).length;
+        const visitDates = visitDirEntries
           .filter(d => d.isDirectory())
           .map(d => d.name.split('_').slice(0, 3).join('-'))
           .filter(d => d.match(/\d{4}-\d{2}-\d{2}/))
           .sort()
           .reverse();
 
-        patients.push({
+        return {
           id: patientData.id,
           first_name: patientData.first_name,
           last_name: patientData.last_name,
@@ -748,15 +745,26 @@ ipcMain.handle('get-patient-directories', async () => {
           lastReportDate: visitDates[0] || null,
           deviceManufacturer,
           deviceModel,
-          mriStatus: mriStatuses[patientData.id] || null,
-          leads: leadsSummary
-        });
+          leads: leadsSummary,
+          _patientId: patientData.id, // for MRI lookup below
+        };
       } catch (err) {
         console.warn(`Failed to read patient data from ${dir.name}:`, err);
+        return null;
       }
-    }
+    });
 
-    return patients;
+    const [mriStatuses, patientResults] = await Promise.all([
+      mriStatusPromise,
+      Promise.all(patientPromises),
+    ]);
+
+    return patientResults
+      .filter((p): p is NonNullable<typeof p> => p !== null)
+      .map(({ _patientId, ...patient }) => ({
+        ...patient,
+        mriStatus: mriStatuses[_patientId] || null,
+      }));
   } catch (error) {
     console.error('[get-patient-directories] Failed:', error);
     return [];
@@ -779,28 +787,28 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
     const patientPath = path.join(reportsDir, patientDir);
     const visitDirs = await fs.readdir(patientPath, { withFileTypes: true });
     const parser = new XMLParser();
-    const visits = [];
 
-    for (const dir of visitDirs) {
-      if (!dir.isDirectory()) continue;
+    const visitPromises = visitDirs
+      .filter(d => d.isDirectory())
+      .map(async (dir) => {
+        const visitXmlPath = path.join(patientPath, dir.name, 'visit.xml');
+        try {
+          const xmlContent = await fs.readFile(visitXmlPath, 'utf-8');
+          const visitData = parser.parse(xmlContent).visit;
+          return {
+            id: visitData.report_id,
+            interrogation_date: visitData.interrogation_date,
+            manufacturer: visitData.manufacturer,
+            device_type: visitData.device_type,
+            directoryName: dir.name,
+          };
+        } catch (err) {
+          console.warn(`Failed to read visit data from ${dir.name}:`, err);
+          return null;
+        }
+      });
 
-      const visitXmlPath = path.join(patientPath, dir.name, 'visit.xml');
-      try {
-        const xmlContent = await fs.readFile(visitXmlPath, 'utf-8');
-        const visitData = parser.parse(xmlContent).visit;
-
-        visits.push({
-          id: visitData.report_id,
-          interrogation_date: visitData.interrogation_date,
-          manufacturer: visitData.manufacturer,
-          device_type: visitData.device_type,
-          directoryName: dir.name
-        });
-      } catch (err) {
-        console.warn(`Failed to read visit data from ${dir.name}:`, err);
-      }
-    }
-
+    const visits = (await Promise.all(visitPromises)).filter((v): v is NonNullable<typeof v> => v !== null);
     return visits.sort((a, b) => b.interrogation_date.localeCompare(a.interrogation_date));
   } catch (error) {
     console.error('[get-visit-directories] Failed:', error);

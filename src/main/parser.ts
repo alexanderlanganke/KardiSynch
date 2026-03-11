@@ -1,6 +1,6 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdf = require('pdf-parse');
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 import { UnifiedReport } from './reports';
@@ -44,7 +44,7 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
 
     return extractStructuredData(rawText, filename);
   } else if (fileExtension === '.xml') {
-    const xmlData = fs.readFileSync(filePath, 'utf-8');
+    const xmlData = await fs.readFile(filePath, 'utf-8');
 
     // Check for Microport/Paceart
     if (xmlData.includes('<Paceart>')) {
@@ -102,7 +102,7 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     }
     return null;
   } else if (fileExtension === '.bnk') {
-    const bnkData = fs.readFileSync(filePath, 'utf-8');
+    const bnkData = await fs.readFile(filePath, 'utf-8');
     return parseBostonScientificBnk(bnkData);
   } else if (fileExtension === '.pdd') {
     return parseMedtronicPdd(filePath);

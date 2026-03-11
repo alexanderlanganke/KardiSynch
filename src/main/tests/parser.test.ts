@@ -1,13 +1,13 @@
 // src/main/tests/parser.test.ts
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import { parseFile } from '../parser';
 import * as biotronikParser from '../parsers/biotronik-parser';
 import * as bostonScientificParser from '../parsers/boston-scientific-parser';
 
-// Mock the entire 'fs' module
-vi.mock('fs');
+// Mock the 'fs/promises' module
+vi.mock('fs/promises');
 
 // Mock the specific parsers
 vi.mock('../parsers/biotronik-parser');
@@ -22,7 +22,7 @@ describe('parseFile', () => {
     const filePath = 'BIOSTD_test.xml';
     const xmlData = '<xml></xml>';
 
-    (fs.readFileSync as vi.Mock).mockReturnValue(xmlData);
+    (fs.readFile as vi.Mock).mockResolvedValue(xmlData);
 
     const spy = vi.spyOn(biotronikParser, 'parseBiotronikXML').mockReturnValue({
         manufacturer: "Biotronik",
@@ -43,7 +43,7 @@ describe('parseFile', () => {
 
     await parseFile(filePath);
 
-    expect(fs.readFileSync).toHaveBeenCalledWith(filePath, 'utf-8');
+    expect(fs.readFile).toHaveBeenCalledWith(filePath, 'utf-8');
     expect(spy).toHaveBeenCalledWith(xmlData);
   });
 
@@ -51,7 +51,7 @@ describe('parseFile', () => {
     const filePath = 'test.bnk';
     const bnkData = 'key=value';
 
-    (fs.readFileSync as vi.Mock).mockReturnValue(bnkData);
+    (fs.readFile as vi.Mock).mockResolvedValue(bnkData);
 
     const spy = vi.spyOn(bostonScientificParser, 'parseBostonScientificBnk').mockReturnValue({
         manufacturer: "Boston Scientific",
@@ -72,7 +72,7 @@ describe('parseFile', () => {
 
     await parseFile(filePath);
 
-    expect(fs.readFileSync).toHaveBeenCalledWith(filePath, 'utf-8');
+    expect(fs.readFile).toHaveBeenCalledWith(filePath, 'utf-8');
     expect(spy).toHaveBeenCalledWith(bnkData);
   });
 });

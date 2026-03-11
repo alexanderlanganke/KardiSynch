@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { findPatient, createPatient, createReport, getSettings } from './database';
@@ -24,9 +24,7 @@ let dataDir: string;
 export const initializeStorage = async () => {
   const settings = await getSettings();
   dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
+  await fs.mkdir(dataDir, { recursive: true });
 };
 
 /**
@@ -244,20 +242,18 @@ export const storeFile = async (
   // Create visit subdirectory: YYYY_MM_DD_reportId
   const visitDir = path.join(patientDir, `${dateString}_${reportId}`);
 
-  if (!fs.existsSync(visitDir)) {
-    fs.mkdirSync(visitDir, { recursive: true });
-  }
+  await fs.mkdir(visitDir, { recursive: true });
 
   /*
    * Handle cross-device moves (EXDEV) by falling back to copy+unlink.
    */
   const destPath = path.join(visitDir, path.basename(sourcePath));
   try {
-    fs.renameSync(sourcePath, destPath);
+    await fs.rename(sourcePath, destPath);
   } catch (error: any) {
     if (error.code === 'EXDEV') {
-      fs.copyFileSync(sourcePath, destPath);
-      fs.unlinkSync(sourcePath);
+      await fs.copyFile(sourcePath, destPath);
+      await fs.unlink(sourcePath);
     } else {
       throw error;
     }
@@ -269,28 +265,32 @@ export const storeFile = async (
     let existingDevices: any[] = [];
     let existingLeads: any[] = [];
 
-    // Read existing data if available
-    if (fs.existsSync(patientXmlPath)) {
-      try {
-        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false });
-        const parsed = parser.parse(xmlContent);
+    // Read existing data if available (single read for devices, leads, MRI, warnings)
+    let mriStatus: any = null;
+    let mriDataHash: string | null = null;
+    try {
+      const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
+      const parser = new XMLParser({ ignoreAttributes: false });
+      const parsed = parser.parse(xmlContent);
 
-        if (parsed.patient) {
-          if (parsed.patient.devices && parsed.patient.devices.device) {
-            existingDevices = Array.isArray(parsed.patient.devices.device)
-              ? parsed.patient.devices.device
-              : [parsed.patient.devices.device];
-          }
-          if (parsed.patient.leads && parsed.patient.leads.lead) {
-            existingLeads = Array.isArray(parsed.patient.leads.lead)
-              ? parsed.patient.leads.lead
-              : [parsed.patient.leads.lead];
-          }
+      if (parsed.patient) {
+        if (parsed.patient.devices && parsed.patient.devices.device) {
+          existingDevices = Array.isArray(parsed.patient.devices.device)
+            ? parsed.patient.devices.device
+            : [parsed.patient.devices.device];
         }
-      } catch (e) {
-        console.error('Error reading existing patient.xml:', e);
+        if (parsed.patient.leads && parsed.patient.leads.lead) {
+          existingLeads = Array.isArray(parsed.patient.leads.lead)
+            ? parsed.patient.leads.lead
+            : [parsed.patient.leads.lead];
+        }
+        if (parsed.patient.mri_status) {
+          try { mriStatus = JSON.parse(parsed.patient.mri_status); } catch { }
+        }
+        mriDataHash = parsed.patient.mri_data_hash || null;
       }
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') console.error('Error reading existing patient.xml:', e);
     }
 
     // Append new device if from a report
@@ -343,33 +343,7 @@ export const storeFile = async (
       });
     }
 
-    // Write updated XML
-    // NOTE: This might overwrite MRI status if we don't preserve it. 
-    // We should read it first.
-    let mriStatus = null;
-    let mriDataHash = null;
-
-    // We already read the file above to get existingDevices/Leads. 
-    // Let's re-use that logic but slightly refactor or just read again to be safe/quick fix.
-    // Ideally we should have pulled *everything* from parsed.patient earlier.
-    // Let's assume we can re-read or just update the logic above.
-    // ACTUALLY, the logic above is inside a `if (fs.existsSync)` block but `parsed` is local scope.
-    // Let's refactor this section slightly to capture MRI data.
-
-    // RE-READ for safety/simplicity as 'parsed' is not available here.
-    if (fs.existsSync(patientXmlPath)) {
-      try {
-        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false });
-        const parsed = parser.parse(xmlContent);
-        if (parsed.patient) {
-          mriStatus = parsed.patient.mri_status ? JSON.parse(parsed.patient.mri_status) : null;
-          mriDataHash = parsed.patient.mri_data_hash || null;
-        }
-      } catch (e) { }
-    }
-
-    fs.writeFileSync(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash, null, null)); // TODO: Read warning status too if preserving
+    await fs.writeFile(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash, null, null));
   }
 
   // Generate or update visit.xml if report data provided
@@ -379,19 +353,17 @@ export const storeFile = async (
     let existingLeads: any[] = [];
 
     // Read existing visit.xml to merge logic
-    if (fs.existsSync(visitXmlPath)) {
-      try {
-        const xmlContent = fs.readFileSync(visitXmlPath, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false });
-        const parsed = parser.parse(xmlContent);
-        if (parsed.visit && parsed.visit.leads && parsed.visit.leads.lead) {
-          existingLeads = Array.isArray(parsed.visit.leads.lead)
-            ? parsed.visit.leads.lead
-            : [parsed.visit.leads.lead];
-        }
-      } catch (e) {
-        console.error('Error reading existing visit.xml for merge:', e);
+    try {
+      const xmlContent = await fs.readFile(visitXmlPath, 'utf-8');
+      const parser = new XMLParser({ ignoreAttributes: false });
+      const parsed = parser.parse(xmlContent);
+      if (parsed.visit && parsed.visit.leads && parsed.visit.leads.lead) {
+        existingLeads = Array.isArray(parsed.visit.leads.lead)
+          ? parsed.visit.leads.lead
+          : [parsed.visit.leads.lead];
       }
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') console.error('Error reading existing visit.xml for merge:', e);
     }
 
     // Merge new leads with existing leads
@@ -413,7 +385,7 @@ export const storeFile = async (
       finalReport = { ...report, leads: existingLeads };
     }
 
-    fs.writeFileSync(visitXmlPath, generateVisitXML(finalReport, reportId));
+    await fs.writeFile(visitXmlPath, generateVisitXML(finalReport, reportId));
   }
 
 };
@@ -441,7 +413,7 @@ export const updatePatientXML = async (
   const reportsDir = path.join(dataDir, 'Reports');
 
   // Find patient directory
-  const dirs = await fs.promises.readdir(reportsDir);
+  const dirs = await fs.readdir(reportsDir);
   const patientDirName = dirs.find(dir => dir.startsWith(patientId));
 
   if (!patientDirName) {
@@ -463,46 +435,44 @@ export const updatePatientXML = async (
     let existingDevices: any[] = [];
     let existingLeads: any[] = [];
 
-    if (fs.existsSync(patientXmlPath)) {
-      try {
-        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false });
-        const parsed = parser.parse(xmlContent);
+    try {
+      const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
+      const parser = new XMLParser({ ignoreAttributes: false });
+      const parsed = parser.parse(xmlContent);
 
-        if (parsed.patient) {
-          if (parsed.patient.devices && parsed.patient.devices.device) {
-            existingDevices = Array.isArray(parsed.patient.devices.device)
-              ? parsed.patient.devices.device
-              : [parsed.patient.devices.device];
-          }
-          if (parsed.patient.leads && parsed.patient.leads.lead) {
-            existingLeads = Array.isArray(parsed.patient.leads.lead)
-              ? parsed.patient.leads.lead
-              : [parsed.patient.leads.lead];
-          }
-
-          // Preserve existing MRI data if not provided
-          if (!mriStatus && parsed.patient.mri_status) {
-            try {
-              mriStatus = JSON.parse(parsed.patient.mri_status);
-            } catch (e) { }
-          }
-          if (!mriDataHash && parsed.patient.mri_data_hash) {
-            mriDataHash = parsed.patient.mri_data_hash;
-          }
-          // Preserve Warning Data
-          if (!manufacturerWarningStatus && parsed.patient.manufacturer_warning_status) {
-            try {
-              manufacturerWarningStatus = JSON.parse(parsed.patient.manufacturer_warning_status);
-            } catch (e) { }
-          }
-          if (!manufacturerWarningHash && parsed.patient.manufacturer_warning_hash) {
-            manufacturerWarningHash = parsed.patient.manufacturer_warning_hash;
-          }
+      if (parsed.patient) {
+        if (parsed.patient.devices && parsed.patient.devices.device) {
+          existingDevices = Array.isArray(parsed.patient.devices.device)
+            ? parsed.patient.devices.device
+            : [parsed.patient.devices.device];
         }
-      } catch (e) {
-        console.error('Error reading existing patient.xml during update:', e);
+        if (parsed.patient.leads && parsed.patient.leads.lead) {
+          existingLeads = Array.isArray(parsed.patient.leads.lead)
+            ? parsed.patient.leads.lead
+            : [parsed.patient.leads.lead];
+        }
+
+        // Preserve existing MRI data if not provided
+        if (!mriStatus && parsed.patient.mri_status) {
+          try {
+            mriStatus = JSON.parse(parsed.patient.mri_status);
+          } catch (e) { }
+        }
+        if (!mriDataHash && parsed.patient.mri_data_hash) {
+          mriDataHash = parsed.patient.mri_data_hash;
+        }
+        // Preserve Warning Data
+        if (!manufacturerWarningStatus && parsed.patient.manufacturer_warning_status) {
+          try {
+            manufacturerWarningStatus = JSON.parse(parsed.patient.manufacturer_warning_status);
+          } catch (e) { }
+        }
+        if (!manufacturerWarningHash && parsed.patient.manufacturer_warning_hash) {
+          manufacturerWarningHash = parsed.patient.manufacturer_warning_hash;
+        }
       }
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') console.error('Error reading existing patient.xml during update:', e);
     }
 
     if (!devices) devices = existingDevices;
@@ -526,7 +496,7 @@ export const updatePatientXML = async (
     manufacturerWarningHash
   );
 
-  fs.writeFileSync(patientXmlPath, newXml);
+  await fs.writeFile(patientXmlPath, newXml);
 };
 
 /**
@@ -539,13 +509,13 @@ export const moveReport = async (reportId: string, oldPatientId: string, newPati
   const reportsDir = path.join(dataDir, 'Reports');
 
   // Find old patient directory
-  const patientDirs = fs.readdirSync(reportsDir);
+  const patientDirs = await fs.readdir(reportsDir);
   const oldPatientDirName = patientDirs.find(d => d.startsWith(oldPatientId));
   if (!oldPatientDirName) throw new Error('Old patient directory not found');
   const oldPatientPath = path.join(reportsDir, oldPatientDirName);
 
   // Find visit directory
-  const visitDirs = fs.readdirSync(oldPatientPath);
+  const visitDirs = await fs.readdir(oldPatientPath);
   const visitDirName = visitDirs.find(d => d.includes(reportId));
   if (!visitDirName) throw new Error('Visit directory not found');
   const visitPath = path.join(oldPatientPath, visitDirName);
@@ -559,18 +529,16 @@ export const moveReport = async (reportId: string, oldPatientId: string, newPati
   const newPatientDirName = `${newPatient.id}_${safeName}`;
   const newPatientPath = path.join(reportsDir, newPatientDirName);
 
-  if (!fs.existsSync(newPatientPath)) {
-    fs.mkdirSync(newPatientPath, { recursive: true });
-  }
+  await fs.mkdir(newPatientPath, { recursive: true });
 
   // Move visit directory
   const newVisitPath = path.join(newPatientPath, visitDirName);
   try {
-    fs.renameSync(visitPath, newVisitPath);
+    await fs.rename(visitPath, newVisitPath);
   } catch (error: any) {
     if (error.code === 'EXDEV') {
-      fs.cpSync(visitPath, newVisitPath, { recursive: true });
-      fs.rmSync(visitPath, { recursive: true, force: true });
+      await fs.cp(visitPath, newVisitPath, { recursive: true });
+      await fs.rm(visitPath, { recursive: true, force: true });
     } else {
       throw error;
     }
@@ -593,7 +561,7 @@ export const exportVisitFiles = async (
   const reportsDir = path.join(dataDir, 'Reports');
 
   // Find patient directory
-  const dirs = await fs.promises.readdir(reportsDir);
+  const dirs = await fs.readdir(reportsDir);
   const patientDirName = dirs.find(dir => dir.startsWith(patientId));
 
   if (!patientDirName) {
@@ -603,7 +571,7 @@ export const exportVisitFiles = async (
   const patientPath = path.join(reportsDir, patientDirName);
 
   // Find visit directory
-  const visitDirs = await fs.promises.readdir(patientPath);
+  const visitDirs = await fs.readdir(patientPath);
   const visitDirName = visitDirs.find(dir => dir.includes(visitId));
 
   if (!visitDirName) {
@@ -613,15 +581,13 @@ export const exportVisitFiles = async (
   const visitPath = path.join(patientPath, visitDirName);
 
   // Validate target directory
-  if (!fs.existsSync(targetDirectory)) {
-    try {
-      await fs.promises.mkdir(targetDirectory, { recursive: true });
-    } catch {
-      throw new Error(`Target directory does not exist and could not be created: ${targetDirectory}`);
-    }
+  try {
+    await fs.mkdir(targetDirectory, { recursive: true });
+  } catch {
+    throw new Error(`Target directory does not exist and could not be created: ${targetDirectory}`);
   }
 
-  const files = await fs.promises.readdir(visitPath);
+  const files = await fs.readdir(visitPath);
   let copiedCount = 0;
 
   for (const file of files) {
@@ -630,9 +596,9 @@ export const exportVisitFiles = async (
     const sourceFile = path.join(visitPath, file);
     const destFile = path.join(targetDirectory, file);
 
-    const stats = await fs.promises.stat(sourceFile);
+    const stats = await fs.stat(sourceFile);
     if (stats.isFile()) {
-      await fs.promises.copyFile(sourceFile, destFile);
+      await fs.copyFile(sourceFile, destFile);
       copiedCount++;
     }
   }
