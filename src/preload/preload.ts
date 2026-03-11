@@ -96,5 +96,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   exportVisitFiles: (patientId: string, visitId: string, targetDirectory: string) => ipcRenderer.invoke('export-visit-files', patientId, visitId, targetDirectory),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
+
+  // Debug tools
+  selectFile: (filters?: { name: string; extensions: string[] }[]) => ipcRenderer.invoke('select-file', filters),
+  analyzeBiotronikXml: (filePath: string) => ipcRenderer.invoke('analyze-biotronik-xml', filePath),
 });
 

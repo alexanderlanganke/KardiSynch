@@ -1165,6 +1165,31 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+// Debug: File selection and Biotronik XML analyzer
+ipcMain.handle('select-file', async (event, filters?: { name: string; extensions: string[] }[]) => {
+  const mainWindow = getMainWindow();
+  const options: any = {
+    properties: ['openFile'],
+    filters: filters || [{ name: 'All Files', extensions: ['*'] }],
+  };
+
+  if (process.platform === 'linux') {
+    const result = await dialog.showOpenDialog(options);
+    return result.filePaths[0];
+  }
+
+  if (!mainWindow) return;
+  const result = await dialog.showOpenDialog(mainWindow, options);
+  return result.filePaths[0];
+});
+
+ipcMain.handle('analyze-biotronik-xml', async (event, filePath: string) => {
+  const fs = await import('fs');
+  const xmlData = fs.readFileSync(filePath, 'utf-8');
+  const { analyzeBiotronikXml } = await import('./parsers/biotronik-analyzer');
+  return analyzeBiotronikXml(xmlData);
+});
+
 ipcMain.handle('open-external', async (event, url) => {
   try {
     await shell.openExternal(url);

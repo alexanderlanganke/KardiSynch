@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle } from 'lucide-react';
+import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useAppDialog } from './components/AppDialogProvider';
 
@@ -24,6 +24,8 @@ const LOGO_MAP: Record<string, string> = {
   'Impulse Dynamics': impulseLogo,
   'MicroPort': microportLogo
 };
+
+const DEBUG_MODE = import.meta.env.VITE_DEBUG_MODE === 'true';
 
 const Settings: React.FC = () => {
   const { showAlert, showConfirm } = useAppDialog();
@@ -49,6 +51,11 @@ const Settings: React.FC = () => {
   const [updateStatus, setUpdateStatus] = useState<string>('Idle');
   const [appVersion, setAppVersion] = useState<string>('');
   const [loading, setLoading] = useState(false);
+
+  // Debug analyzer state
+  const [debugFilePath, setDebugFilePath] = useState('');
+  const [debugResult, setDebugResult] = useState<any>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
 
   useEffect(() => {
     const fetchSettings = async () => {
@@ -133,6 +140,7 @@ const Settings: React.FC = () => {
           <TabsTrigger value="automation">Automation</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
           <TabsTrigger value="about">About</TabsTrigger>
+          {DEBUG_MODE && <TabsTrigger value="debug"><Bug className="h-3.5 w-3.5 mr-1.5" />Debug</TabsTrigger>}
         </TabsList>
 
         <form onSubmit={saveSettings}>
@@ -425,6 +433,116 @@ const Settings: React.FC = () => {
             </Card>
           </TabsContent>
 
+          {DEBUG_MODE && (
+            <TabsContent value="debug">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Parser Structure Analyzer</CardTitle>
+                  <CardDescription>
+                    Load an XML file to inspect its internal structure without extracting patient data.
+                    Results are safe to share — only tag names and attribute names are shown, never values.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Biotronik XML Analyzer</Label>
+                    <div className="flex gap-2 items-center">
+                      <Input value={debugFilePath} readOnly placeholder="No file selected..." className="bg-muted" />
+                      <Button type="button" variant="outline" onClick={async () => {
+                        const filePath = await window.electronAPI.selectFile([
+                          { name: 'XML Files', extensions: ['xml'] }
+                        ]);
+                        if (filePath) { setDebugFilePath(filePath); setDebugResult(null); }
+                      }}>
+                        <FolderOpen className="mr-2 h-4 w-4" /> Select XML
+                      </Button>
+                      <Button type="button" onClick={async () => {
+                        if (!debugFilePath) return;
+                        setDebugLoading(true);
+                        try {
+                          const result = await window.electronAPI.analyzeBiotronikXml(debugFilePath);
+                          setDebugResult(result);
+                        } catch (error) {
+                          console.error('Analysis failed:', error);
+                          showAlert('Failed to analyze file. Make sure it is a valid XML file.');
+                        } finally { setDebugLoading(false); }
+                      }} disabled={!debugFilePath || debugLoading}>
+                        {debugLoading ? 'Analyzing...' : 'Analyze'}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {debugResult && (
+                    <div className="space-y-4">
+                      {/* Parser Lookup Summary */}
+                      <div className="rounded-lg border p-4 space-y-3">
+                        <h3 className="text-sm font-semibold">Parser Lookup Results</h3>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          <LookupIndicator label="Summary Table" found={debugResult.parserLookups.summaryTable.found}
+                            detail={debugResult.parserLookups.summaryTable.found
+                              ? `via "${debugResult.parserLookups.summaryTable.foundVia}" in table "${debugResult.parserLookups.summaryTable.inTable}"`
+                              : 'MANUFACTURERDESCR / CATAGGREGATDESCR not found in any table'} />
+                          <LookupIndicator label="Settings Table" found={debugResult.parserLookups.settingsTable.found}
+                            detail={debugResult.parserLookups.settingsTable.found
+                              ? `via "${debugResult.parserLookups.settingsTable.foundVia}" in table "${debugResult.parserLookups.settingsTable.inTable}"`
+                              : 'Elektrodenmodell / LeadModel / Kanäle / Channels not found'} />
+                          <LookupIndicator label="Stats Table (9473)" found={debugResult.parserLookups.statsTable.found} />
+                          <LookupIndicator label="Episode Table" found={debugResult.parserLookups.episodeTable.found} />
+                          <LookupIndicator label="Personal Data" found={debugResult.parserLookups.personalData.found}
+                            detail={debugResult.parserLookups.personalData.found
+                              ? `Keys: ${debugResult.parserLookups.personalData.availableKeys.join(', ')}`
+                              : undefined} />
+                        </div>
+                      </div>
+
+                      {/* Section Hierarchy */}
+                      <div className="rounded-lg border p-4 space-y-2">
+                        <h3 className="text-sm font-semibold">Section Hierarchy</h3>
+                        <div className="text-xs space-y-1">
+                          {Object.entries(debugResult.sectionHierarchy).map(([section, keys]: [string, any]) => (
+                            <div key={section}>
+                              <span className="font-medium text-muted-foreground">{section}:</span>{' '}
+                              <span>{keys.join(', ')}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Tables */}
+                      <div className="rounded-lg border p-4 space-y-3">
+                        <h3 className="text-sm font-semibold">Tables ({debugResult.tables.length})</h3>
+                        {debugResult.tables.map((table: any, idx: number) => (
+                          <div key={idx} className="border rounded p-3 text-xs space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="font-semibold">{table.tableName}</span>
+                              <span className="text-muted-foreground">{table.source} &middot; {table.entryCount} entries</span>
+                            </div>
+                            <div><span className="text-muted-foreground">Attributes:</span> {table.attributeNames.join(', ') || '(none)'}</div>
+                            <div><span className="text-muted-foreground">Value types:</span> {table.valueTypes.join(', ') || '(none)'}</div>
+                            {table.hasForeignKeys && (
+                              <div><span className="text-muted-foreground">ForeignKeys:</span> {table.foreignKeyCount} &middot; Attributes: {table.foreignKeyAttributeNames.join(', ')}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Raw JSON (copyable) */}
+                      <div className="relative">
+                        <Button type="button" size="sm" variant="outline" className="absolute top-2 right-2"
+                          onClick={() => navigator.clipboard.writeText(JSON.stringify(debugResult, null, 2))}>
+                          <Copy className="h-3 w-3 mr-1" /> Copy
+                        </Button>
+                        <pre className="rounded-lg border bg-muted p-4 text-[11px] overflow-auto max-h-64 whitespace-pre-wrap font-mono">
+                          {JSON.stringify(debugResult, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+
           <div className="mt-6 flex justify-end gap-4">
             <Button type="button" variant="ghost" onClick={() => window.location.reload()}>
               <RotateCcw className="mr-2 h-4 w-4" /> Reload
@@ -506,6 +624,19 @@ const DirectoryInput: React.FC<{
       </Button>
     </div>
     <p className="text-xs text-muted-foreground">{description}</p>
+  </div>
+);
+
+// Debug lookup result indicator
+const LookupIndicator: React.FC<{ label: string; found: boolean; detail?: string }> = ({ label, found, detail }) => (
+  <div className="flex items-start gap-2 p-2 rounded border bg-background">
+    {found
+      ? <CircleCheck className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+      : <CircleX className="h-4 w-4 text-destructive mt-0.5 shrink-0" />}
+    <div>
+      <span className="font-medium">{label}</span>
+      {detail && <p className="text-muted-foreground mt-0.5">{detail}</p>}
+    </div>
   </div>
 );
 

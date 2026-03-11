@@ -57,6 +57,10 @@ export interface IElectronAPI {
   // External links
   openExternal: (url: string) => Promise<void>;
 
+  // Debug tools
+  selectFile: (filters?: { name: string; extensions: string[] }[]) => Promise<string | undefined>;
+  analyzeBiotronikXml: (filePath: string) => Promise<any>;
+
   // Visit Management
   rescanVisit: (visitId: string) => Promise<any>;
   moveVisit: (visitId: string, targetPatientId: string) => Promise<any>;
