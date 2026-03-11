@@ -13,6 +13,7 @@ let unmatchedDir: string;
 let dataDir: string;
 let watcherTimeout: NodeJS.Timeout | null = null;
 let currentWatcher: import('fs').FSWatcher | null = null;
+let isProcessing = false;
 
 // interactive mode globals
 let pendingManualSortRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
@@ -1001,8 +1002,13 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
   unmatchedDir = appUnmatchedDir;
   dataDir = appDataDir;
 
-  // Helper for safe batch processing
+  // Helper for safe batch processing (with re-entrance guard)
   const executeBatchProcessing = async () => {
+    if (isProcessing) {
+      console.log('[Watcher] Batch processing already in progress, skipping.');
+      return;
+    }
+    isProcessing = true;
     let tempDir: string | null = null;
     try {
       tempDir = await createTempDirectory();
@@ -1018,6 +1024,8 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
           console.error('Failed to cleanup temp dir after error:', cleanupErr);
         }
       }
+    } finally {
+      isProcessing = false;
     }
   };
 
@@ -1037,6 +1045,7 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
   // DEBUG: Polling fallback
   setInterval(async () => {
+    if (isProcessing) return;
     try {
       try {
         await fs.access(importDir);
@@ -1051,9 +1060,9 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
           if (!watcherTimeout) {
             if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
               console.log('POLLING: Triggering processing fallback...');
-              watcherTimeout = setTimeout(() => {
-                executeBatchProcessing();
+              watcherTimeout = setTimeout(async () => {
                 watcherTimeout = null;
+                await executeBatchProcessing();
               }, 1000);
             }
           }
@@ -1070,8 +1079,8 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
       const existingFiles = await getFilesRecursively(importDir);
       if (existingFiles.length > 0) {
         console.log(`Found ${existingFiles.length} existing files in import directory. Processing...`);
-        setTimeout(() => {
-          executeBatchProcessing();
+        setTimeout(async () => {
+          await executeBatchProcessing();
         }, 3000);
       }
     } catch (error) {
@@ -1099,6 +1108,7 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
             console.log(`Watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
 
             watcherTimeout = setTimeout(async () => {
+              watcherTimeout = null;
               console.log('Watcher timeout triggered. Checking for files...');
               const finalFiles = await getFilesRecursively(importDir);
               console.log(`Found ${finalFiles.length} files in import directory.`);
@@ -1107,8 +1117,7 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
                 return;
               }
               console.log('File changes stabilized. Starting processing...');
-              executeBatchProcessing();
-              watcherTimeout = null;
+              await executeBatchProcessing();
             }, stabilizationTime);
           })();
         }

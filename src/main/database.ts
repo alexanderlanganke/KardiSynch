@@ -145,6 +145,12 @@ export const initializeDatabase = (customDbPath: string): Promise<sqlite3.Databa
         reject(err);
       } else {
         console.log(`[Database] Connected to ${dbPath}`);
+        // Enable WAL mode and busy timeout for file-based databases
+        // (not supported for :memory: databases)
+        if (dbPath !== ':memory:') {
+          db.run('PRAGMA journal_mode = WAL');
+          db.run('PRAGMA busy_timeout = 5000');
+        }
         createTables(db);
         dbInstance = db;
         resolve(db);

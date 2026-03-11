@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
@@ -7,9 +7,9 @@ import { UnifiedReport, LeadData } from '../reports';
 /**
  * Extracts raw text from a DOCX (ZIP) file by reading word/document.xml
  */
-function extractTextFromDocx(filePath: string): string | null {
+function extractTextFromDocx(buffer: Buffer): string | null {
     try {
-        const zip = new AdmZip(filePath);
+        const zip = new AdmZip(buffer);
         const xmlContent = zip.readAsText('word/document.xml');
         if (!xmlContent) return null;
 
@@ -175,7 +175,7 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
  */
 export async function parseAbbottLog(filePath: string): Promise<UnifiedReport | null> {
     try {
-        const buffer = fs.readFileSync(filePath);
+        const buffer = await fs.readFile(filePath);
         // PK \x03 \x04
         const isZip = buffer.length > 4 && buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04;
 
@@ -183,7 +183,7 @@ export async function parseAbbottLog(filePath: string): Promise<UnifiedReport | 
 
         if (isZip) {
             console.log('Detected Abbott Log as ZIP/DOCX format.');
-            const extracted = extractTextFromDocx(filePath);
+            const extracted = extractTextFromDocx(buffer);
             if (!extracted) {
                 console.error('Failed to extract text from ZIP Abbott log');
                 return null;
