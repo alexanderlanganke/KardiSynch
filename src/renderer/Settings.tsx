@@ -4,7 +4,7 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck } from 'lucide-react';
+import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useAppDialog } from './components/AppDialogProvider';
 
@@ -144,21 +144,22 @@ const Settings: React.FC = () => {
                 <CardDescription>Configure where the application looks for files and stores data.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                <FileFlowDiagram />
                 <DirectoryInput
                   id="import-dir" name="importDir" label="Import Directory"
-                  description="The folder where you drop new PDF reports."
+                  description="New report files go here. The app watches this folder and automatically parses incoming files."
                   value={settings.importDir} onChange={handleInputChange}
                   onBrowse={() => handleDirectorySelection('importDir')}
                 />
                 <DirectoryInput
                   id="unmatched-dir" name="unmatchedDir" label="Unmatched Directory"
-                  description="Files that cannot be processed will be moved here."
+                  description="Files that fail parsing or can't be matched to a patient are moved here for manual review."
                   value={settings.unmatchedDir} onChange={handleInputChange}
                   onBrowse={() => handleDirectorySelection('unmatchedDir')}
                 />
                 <DirectoryInput
                   id="data-path" name="dataPath" label="Data Storage Path"
-                  description="Where processed patient data and reports are stored."
+                  description="Successfully matched reports are stored here, organized by patient and visit."
                   value={settings.dataPath} onChange={handleInputChange}
                   onBrowse={() => handleDirectorySelection('dataPath')}
                 />
@@ -169,7 +170,7 @@ const Settings: React.FC = () => {
                   <div className="space-y-4">
                     <DirectoryInput
                       id="usb-target-dir" name="usbTargetDirectory" label="Export Target Directory"
-                      description="Files found in source directories will be moved here."
+                      description="Files found on USB source directories are copied here before being processed by the Import Directory."
                       value={settings.usbTargetDirectory || ''} onChange={handleInputChange}
                       onBrowse={() => handleDirectorySelection('usbTargetDirectory')}
                     />
@@ -200,7 +201,7 @@ const Settings: React.FC = () => {
                       }}>
                         <FolderOpen className="mr-2 h-4 w-4" /> Add Source Directory
                       </Button>
-                      <p className="text-xs text-muted-foreground">Directories to watch for new files.</p>
+                      <p className="text-xs text-muted-foreground">Directories on USB drives to watch. Files found here are copied to the Export Target Directory.</p>
                     </div>
                   </div>
                 </div>
@@ -437,6 +438,58 @@ const Settings: React.FC = () => {
     </div>
   );
 };
+
+// Visual flow diagram showing how files move between directories
+const FileFlowDiagram: React.FC = () => (
+  <div className="rounded-lg border bg-muted/40 p-4 text-xs mb-2">
+    <div className="flex flex-col items-center gap-1">
+      {/* Row 1: USB Source → Import Directory */}
+      <div className="flex items-center gap-3 w-full justify-center">
+        <div className="rounded border bg-background px-3 py-1.5 font-medium text-muted-foreground whitespace-nowrap">
+          USB Source Dirs
+        </div>
+        <div className="flex items-center gap-1 text-muted-foreground">
+          <span className="text-[10px]">copy</span>
+          <ArrowRight className="h-3.5 w-3.5" />
+        </div>
+        <div className="rounded border-2 border-primary bg-primary/10 px-3 py-1.5 font-semibold text-primary whitespace-nowrap">
+          Import Directory
+        </div>
+        <span className="text-muted-foreground ml-1">&#8592; you drop files here</span>
+      </div>
+
+      {/* Arrow down */}
+      <div className="flex items-center gap-1 text-muted-foreground py-0.5">
+        <ArrowDown className="h-3.5 w-3.5" />
+        <span className="text-[10px]">auto-parse</span>
+      </div>
+
+      {/* Row 2: Branch into matched / unmatched */}
+      <div className="flex items-start justify-center gap-12">
+        <div className="flex flex-col items-center gap-1">
+          <div className="flex items-center gap-1 text-green-600 dark:text-green-400">
+            <Check className="h-3 w-3" />
+            <span className="text-[10px] font-medium">matched</span>
+          </div>
+          <ArrowDown className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />
+          <div className="rounded border-2 border-green-600 dark:border-green-400 bg-green-600/10 px-3 py-1.5 font-semibold text-green-600 dark:text-green-400 whitespace-nowrap">
+            Data Storage
+          </div>
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+            <HelpCircle className="h-3 w-3" />
+            <span className="text-[10px] font-medium">unmatched</span>
+          </div>
+          <ArrowDown className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+          <div className="rounded border-2 border-amber-600 dark:border-amber-400 bg-amber-600/10 px-3 py-1.5 font-semibold text-amber-600 dark:text-amber-400 whitespace-nowrap">
+            Unmatched Directory
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+);
 
 // Reusable directory input component
 const DirectoryInput: React.FC<{
