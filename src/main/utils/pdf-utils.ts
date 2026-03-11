@@ -1,5 +1,5 @@
 import { createWorker } from 'tesseract.js';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 import { UnifiedReport } from '../reports';
@@ -13,7 +13,7 @@ const pdfParse = require('pdf-parse');
  * @returns A promise that resolves with the extracted text.
  */
 export const extractTextFromPdf = async (filePath: string): Promise<string> => {
-    const dataBuffer = fs.readFileSync(filePath);
+    const dataBuffer = await fs.readFile(filePath);
 
     // 1. Try pdf-parse
     try {

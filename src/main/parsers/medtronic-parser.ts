@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import AdmZip from 'adm-zip';
@@ -17,7 +17,7 @@ import { extractTextFromPdf, extractStructuredData } from '../utils/pdf-utils';
  */
 export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport | null> => {
     try {
-        const buffer = fs.readFileSync(filePath);
+        const buffer = await fs.readFile(filePath);
         const pddString = buffer.toString('utf8'); // For text-based searches
         const entries = parsePDDStructure(buffer);
 
@@ -312,22 +312,25 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
 
     try {
         // 1. Unzip
-        const zip = new AdmZip(filePath);
+        const zipBuffer = await fs.readFile(filePath);
+        const zip = new AdmZip(zipBuffer);
         zip.extractAllTo(tempDir, true);
 
         // 2. Find XML
         const xmlPath = path.join(tempDir, 'Public', 'PublicDiscreteData.xml');
         let report: UnifiedReport | null = null;
 
-        if (fs.existsSync(xmlPath)) {
-            const xmlData = fs.readFileSync(xmlPath, 'utf-8');
+        try {
+            const xmlData = await fs.readFile(xmlPath, 'utf-8');
             report = parseMedtronicXML(xmlData);
+        } catch (e: any) {
+            if (e.code !== 'ENOENT') throw e;
         }
 
         // 3. Find PDF
         const reportsDir = path.join(tempDir, 'Reports');
-        if (fs.existsSync(reportsDir)) {
-            const files = fs.readdirSync(reportsDir);
+        try {
+            const files = await fs.readdir(reportsDir);
             const pdfFile = files.find(f => f.toLowerCase().endsWith('.pdf'));
 
             if (pdfFile) {
@@ -337,7 +340,7 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
 
                 const extractedPdfName = `EXTRACTED_${path.basename(filePath, '.pkg')}.pdf`;
                 const extractedPdfPath = path.join(path.dirname(filePath), extractedPdfName);
-                fs.copyFileSync(pdfPath, extractedPdfPath);
+                await fs.copyFile(pdfPath, extractedPdfPath);
 
                 if (!report) {
                     report = pdfData;
@@ -350,6 +353,8 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
 
                 report.generatedFiles = [extractedPdfPath];
             }
+        } catch (e: any) {
+            if (e.code !== 'ENOENT') throw e;
         }
 
         return report;
@@ -359,7 +364,7 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
         return null;
     } finally {
         try {
-            fs.rmSync(tempDir, { recursive: true, force: true });
+            await fs.rm(tempDir, { recursive: true, force: true });
         } catch (e) {
             console.warn("Failed to clean up temp dir:", e);
         }

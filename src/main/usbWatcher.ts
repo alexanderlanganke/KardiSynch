@@ -1,4 +1,4 @@
-import fs from 'fs';
+import fs from 'fs/promises';
 import path from 'path';
 import { AppSettings } from './settingsService';
 import { loadManifest, isFileProcessed, markFileProcessed } from './usbTargetManifest';
@@ -47,64 +47,67 @@ export const stopUsbWatcher = () => {
 const poll = async () => {
     if (!currentSettings || !isPolling) return;
 
-    // 1. Process Source Directories (Move to Target & Import)
     if (currentSettings.usbSourceDirectories) {
         for (const sourceDir of currentSettings.usbSourceDirectories) {
-            // Check if source exists (it might be a removable drive)
-            if (fs.existsSync(sourceDir)) {
+            try {
+                await fs.access(sourceDir);
                 try {
-                    processSourceDirectory(sourceDir, sourceDir);
+                    await processSourceDirectory(sourceDir, sourceDir);
                 } catch (error) {
                     console.error(`[UsbWatcher] Error processing source ${sourceDir}:`, error);
                 }
+            } catch {
+                // Source doesn't exist (removable drive)
             }
         }
     }
 
-    // 2. Process Target Directory (Copy to Import if new)
-    if (currentSettings.usbTargetDirectory && fs.existsSync(currentSettings.usbTargetDirectory)) {
+    if (currentSettings.usbTargetDirectory) {
         try {
-            processTargetDirectory(currentSettings.usbTargetDirectory, currentSettings.usbTargetDirectory);
-        } catch (error) {
-            console.error(`[UsbWatcher] Error processing target ${currentSettings.usbTargetDirectory}:`, error);
+            await fs.access(currentSettings.usbTargetDirectory);
+            try {
+                await processTargetDirectory(currentSettings.usbTargetDirectory, currentSettings.usbTargetDirectory);
+            } catch (error) {
+                console.error(`[UsbWatcher] Error processing target ${currentSettings.usbTargetDirectory}:`, error);
+            }
+        } catch {
+            // Target doesn't exist
         }
     }
 };
 
-const processSourceDirectory = (currentDir: string, sourceBase: string) => {
-    let files: fs.Dirent[];
+const processSourceDirectory = async (currentDir: string, sourceBase: string) => {
+    let files: import('fs').Dirent[];
     try {
-        files = fs.readdirSync(currentDir, { withFileTypes: true });
+        files = await fs.readdir(currentDir, { withFileTypes: true });
     } catch (e) {
         return;
     }
 
     for (const file of files) {
         const fullPath = path.join(currentDir, file.name);
-
         if (file.isDirectory()) {
-            processSourceDirectory(fullPath, sourceBase);
+            await processSourceDirectory(fullPath, sourceBase);
         } else if (file.isFile()) {
-            handleSourceFile(fullPath, sourceBase);
+            await handleSourceFile(fullPath, sourceBase);
         }
     }
 };
 
-const processTargetDirectory = (currentDir: string, targetBase: string) => {
-    let files: fs.Dirent[];
+const processTargetDirectory = async (currentDir: string, targetBase: string) => {
+    let files: import('fs').Dirent[];
     try {
-        files = fs.readdirSync(currentDir, { withFileTypes: true });
+        files = await fs.readdir(currentDir, { withFileTypes: true });
     } catch (e) {
         return;
     }
 
     for (const file of files) {
         const fullPath = path.join(currentDir, file.name);
-
         if (file.isDirectory()) {
-            processTargetDirectory(fullPath, targetBase);
+            await processTargetDirectory(fullPath, targetBase);
         } else if (file.isFile()) {
-            handleTargetFile(fullPath, targetBase);
+            await handleTargetFile(fullPath, targetBase);
         }
     }
 };
@@ -115,7 +118,7 @@ const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): 
 
     while (retries < maxRetries) {
         try {
-            const stats = fs.statSync(filePath);
+            const stats = await fs.stat(filePath);
             const currentSize = stats.size;
 
             if (currentSize === lastSize && currentSize > 0) {
@@ -139,11 +142,13 @@ const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): 
 export const handleSourceFile = async (filePath: string, sourceBase: string) => {
     if (!currentSettings) return;
 
-    // Check stability first
     const stable = await isFileStable(filePath);
     if (!stable) {
-        if (fs.existsSync(filePath)) {
+        try {
+            await fs.access(filePath);
             console.warn(`[UsbWatcher] Source file ${filePath} is not stable. Skipping.`);
+        } catch {
+            // File doesn't exist
         }
         return;
     }
@@ -152,30 +157,21 @@ export const handleSourceFile = async (filePath: string, sourceBase: string) => 
     const targetPath = path.join(currentSettings.usbTargetDirectory, relativePath);
 
     try {
-        // 1. Copy to Target (Preserve Structure)
         const targetDir = path.dirname(targetPath);
-        if (!fs.existsSync(targetDir)) {
-            fs.mkdirSync(targetDir, { recursive: true });
-        }
-        fs.copyFileSync(filePath, targetPath);
+        await fs.mkdir(targetDir, { recursive: true });
+        await fs.copyFile(filePath, targetPath);
 
-        // 2. Verify Copy Success before Deletion
-        const sourceStats = fs.statSync(filePath);
-        const targetStats = fs.statSync(targetPath);
+        const sourceStats = await fs.stat(filePath);
+        const targetStats = await fs.stat(targetPath);
 
         if (targetStats.size === sourceStats.size) {
-            // 3. Delete from Source
-            fs.unlinkSync(filePath);
+            await fs.unlink(filePath);
             console.log(`[UsbWatcher] Moved source file ${relativePath} to Target.`);
             sendNotification(`Moved from USB to Target: ${path.basename(filePath)}`, 'info');
-
-            // NOTE: We do NOT mark as processed here. We let the handleTargetFile logic pick it up
-            // naturally from the target directory to ensure the second step of the pipeline runs.
         } else {
             console.error(`[UsbWatcher] Copy verification failed for ${filePath}.`);
             sendNotification(`Failed to move ${path.basename(filePath)}: Verification failed`, 'error');
         }
-
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process source file ${filePath}:`, error);
         sendNotification(`Error moving from USB: ${(error as Error).message}`, 'error');
@@ -188,42 +184,32 @@ export const handleTargetFile = async (filePath: string, targetBase: string) => 
     const relativePath = path.relative(targetBase, filePath);
 
     try {
-        const stats = fs.statSync(filePath);
+        const stats = await fs.stat(filePath);
 
-        // Check if already processed
         if (isFileProcessed(relativePath, stats)) {
             return;
         }
 
-        // Check stability
         const stable = await isFileStable(filePath);
         if (!stable) {
             return;
         }
 
-        // Re-check stats after stability check to be sure
-        const stableStats = fs.statSync(filePath);
+        const stableStats = await fs.stat(filePath);
 
-        // Preserve structure in Import directory
         const importPath = path.join(currentSettings.importDir, relativePath);
         const importDir = path.dirname(importPath);
 
-        // Copy to Import Directory
-        if (!fs.existsSync(importDir)) {
-            fs.mkdirSync(importDir, { recursive: true });
-        }
-        fs.copyFileSync(filePath, importPath);
+        await fs.mkdir(importDir, { recursive: true });
+        await fs.copyFile(filePath, importPath);
 
-        // Verify
-        const importStats = fs.statSync(importPath);
+        const importStats = await fs.stat(importPath);
         if (importStats.size === stableStats.size) {
             console.log(`[UsbWatcher] Copied target file ${relativePath} to Import.`);
-            // Mark as processed
             markFileProcessed(relativePath, stableStats);
         } else {
             console.error(`[UsbWatcher] Copy verification failed for target file ${filePath}.`);
         }
-
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process target file ${filePath}:`, error);
     }

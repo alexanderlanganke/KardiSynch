@@ -347,9 +347,17 @@ export const getPatientById = (patientId: string): Promise<any> => {
         let shouldRepair = false;
         let fileStats: fs.Stats | undefined;
 
-        if (patientXmlPath && fs.existsSync(patientXmlPath)) {
+        let patientXmlExists = false;
+        if (patientXmlPath) {
           try {
-            fileStats = fs.statSync(patientXmlPath);
+            await fs.promises.access(patientXmlPath);
+            patientXmlExists = true;
+          } catch { /* doesn't exist */ }
+        }
+
+        if (patientXmlPath && patientXmlExists) {
+          try {
+            fileStats = await fs.promises.stat(patientXmlPath);
             // If DB is missing row OR timestamps mismatch OR critical data is missing (e.g. bad previous repair)
             const isStale = !row || !row.last_indexed_mtime || Math.abs(fileStats.mtimeMs - row.last_indexed_mtime) > 1000;
             const isMissingData = row && (!row.device_manufacturer || !row.device_model || !row.devices);
@@ -370,7 +378,7 @@ export const getPatientById = (patientId: string): Promise<any> => {
           try {
             const { XMLParser } = await import('fast-xml-parser');
             const parser = new XMLParser({ ignoreAttributes: false });
-            const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+            const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
             const parsed = parser.parse(xmlContent);
             const p = parsed.patient;
 
@@ -520,47 +528,53 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
           reject(err);
         } else {
           // Parse JSON fields and extract file info
-          const reports = rows.map(row => {
-            let device = null;
-            let battery = null;
-            let leads = null;
-            let arrhythmia_summary = null;
-            let files: string[] = [];
+          const processRows = async () => {
+            const reports = [];
+            for (const row of rows) {
+              let device = null;
+              let battery = null;
+              let leads = null;
+              let arrhythmia_summary = null;
+              let files: string[] = [];
 
-            try {
-              // Parse the full data JSON
-              if (row.data) {
-                const fullData = JSON.parse(row.data);
-                device = fullData.device;
-                battery = fullData.battery;
-                leads = fullData.leads;
-                arrhythmia_summary = fullData.arrhythmia_summary;
+              try {
+                // Parse the full data JSON
+                if (row.data) {
+                  const fullData = JSON.parse(row.data);
+                  device = fullData.device;
+                  battery = fullData.battery;
+                  leads = fullData.leads;
+                  arrhythmia_summary = fullData.arrhythmia_summary;
+                }
+
+                // Scan for files in the report directory
+                const reportDir = path.join(dataDir, 'Reports', row.id);
+                try {
+                  const reportFiles = await fs.promises.readdir(reportDir);
+                  files = reportFiles.map(file => path.join(reportDir, file));
+                } catch {
+                  // directory doesn't exist
+                }
+              } catch (e) {
+                console.error('Error parsing report data or reading files:', e);
               }
 
-              // Scan for files in the report directory
-              const reportDir = path.join(dataDir, 'Reports', row.id);
-              if (fs.existsSync(reportDir)) {
-                const reportFiles = fs.readdirSync(reportDir);
-                files = reportFiles.map(file => path.join(reportDir, file));
-              }
-            } catch (e) {
-              console.error('Error parsing report data or reading files:', e);
+              reports.push({
+                id: row.id,
+                patient_id: row.patient_id,
+                manufacturer: row.manufacturer,
+                interrogation_date: row.interrogation_date,
+                device,
+                battery,
+                leads,
+                arrhythmia_summary,
+                files,
+                raw_text: row.raw_text
+              });
             }
-
-            return {
-              id: row.id,
-              patient_id: row.patient_id,
-              manufacturer: row.manufacturer,
-              interrogation_date: row.interrogation_date,
-              device,
-              battery,
-              leads,
-              arrhythmia_summary,
-              files,
-              raw_text: row.raw_text
-            };
-          });
-          resolve(reports);
+            return reports;
+          };
+          processRows().then(resolve).catch(reject);
         }
       }
     );
@@ -736,7 +750,9 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
   const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
   const reportsDir = path.join(dataDir, 'Reports');
 
-  if (!fs.existsSync(reportsDir)) {
+  try {
+    await fs.promises.access(reportsDir);
+  } catch {
     console.warn('[rebuildDatabase] Reports directory not found:', reportsDir);
     return { patients: 0, reports: 0 };
   }
@@ -763,50 +779,50 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
     const patientXmlPath = path.join(patientDir, 'patient.xml');
 
     // 1. Process Patient
-    if (fs.existsSync(patientXmlPath)) {
-      try {
-        const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
-        const parsed = parser.parse(xmlContent);
-        const p = parsed.patient;
+    try {
+      const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
+      const parsed = parser.parse(xmlContent);
+      const p = parsed.patient;
 
-        if (p && p.id && p.last_name && p.dob) {
-          // Upsert Patient
-          await new Promise<void>((resolve, reject) => {
-            const db = getDb();
-            db.run(
-              `INSERT OR REPLACE INTO Patients (
-                 id, first_name, last_name, dob, hospitalPatientId,
-                 device_manufacturer, device_model, device_serial, leads, devices,
-                 mri_status, mri_data_hash,
-                 manufacturer_warning_status, manufacturer_warning_hash,
-                 last_indexed_mtime
-               ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                p.id,
-                p.first_name,
-                p.last_name,
-                p.dob,
-                p.hospitalPatientId || null,
-                p.device_manufacturer || null,
-                p.device_model || null,
-                p.device_serial || null,
-                p.leads ? JSON.stringify(p.leads) : null,
-                p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
-                p.mri_status || null,
-                p.mri_data_hash || null,
-                p.manufacturer_warning_status || null,
-                p.manufacturer_warning_hash || null,
-                Date.now()
-              ],
-              (err) => {
-                if (err) reject(err);
-                else resolve();
-              }
-            );
-          });
-          patientCount++;
-        }
-      } catch (e) {
+      if (p && p.id && p.last_name && p.dob) {
+        // Upsert Patient
+        await new Promise<void>((resolve, reject) => {
+          const db = getDb();
+          db.run(
+            `INSERT OR REPLACE INTO Patients (
+               id, first_name, last_name, dob, hospitalPatientId,
+               device_manufacturer, device_model, device_serial, leads, devices,
+               mri_status, mri_data_hash,
+               manufacturer_warning_status, manufacturer_warning_hash,
+               last_indexed_mtime
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              p.id,
+              p.first_name,
+              p.last_name,
+              p.dob,
+              p.hospitalPatientId || null,
+              p.device_manufacturer || null,
+              p.device_model || null,
+              p.device_serial || null,
+              p.leads ? JSON.stringify(p.leads) : null,
+              p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
+              p.mri_status || null,
+              p.mri_data_hash || null,
+              p.manufacturer_warning_status || null,
+              p.manufacturer_warning_hash || null,
+              Date.now()
+            ],
+            (err) => {
+              if (err) reject(err);
+              else resolve();
+            }
+          );
+        });
+        patientCount++;
+      }
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') {
         console.error(`[rebuildDatabase] Failed to process patient XML for ${dir.name}:`, e);
       }
     }
@@ -869,33 +885,35 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
 
       // 2. Fallback / Baseline: Visit.xml
       const visitXmlPath = path.join(visitDir, 'visit.xml');
-      if (fs.existsSync(visitXmlPath)) {
-        try {
-          const xmlContent = await fs.promises.readFile(visitXmlPath, 'utf-8');
-          const parsed = parser.parse(xmlContent);
-          const v = parsed.visit;
-          if (v) {
-            // Merge XML data as fallback/baseline
-            if (!reportData.id) reportData.id = v.report_id;
-            if (reportData.interrogation_date === 'Invalid Date') reportData.interrogation_date = v.interrogation_date;
-            if (reportData.manufacturer === 'Unknown') reportData.manufacturer = v.manufacturer;
+      try {
+        const xmlContent = await fs.promises.readFile(visitXmlPath, 'utf-8');
+        const parsed = parser.parse(xmlContent);
+        const v = parsed.visit;
+        if (v) {
+          // Merge XML data as fallback/baseline
+          if (!reportData.id) reportData.id = v.report_id;
+          if (reportData.interrogation_date === 'Invalid Date') reportData.interrogation_date = v.interrogation_date;
+          if (reportData.manufacturer === 'Unknown') reportData.manufacturer = v.manufacturer;
 
-            if (v.device_type && reportData.device.type === 'Unknown') reportData.device.type = v.device_type;
-            if (v.device_model && reportData.device.model === 'Unknown') reportData.device.model = v.device_model;
-            if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
+          if (v.device_type && reportData.device.type === 'Unknown') reportData.device.type = v.device_type;
+          if (v.device_model && reportData.device.model === 'Unknown') reportData.device.model = v.device_model;
+          if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
 
-            // Parse Leads from XML if not already found by deep scan
-            if (v.leads && v.leads.lead && reportData.leads.length === 0) {
-              const rawLeads = Array.isArray(v.leads.lead) ? v.leads.lead : [v.leads.lead];
-              reportData.leads = rawLeads.map((l: any) => ({
-                model: l.model,
-                serial_number: l.serial,
-                position: l.position || 'Unknown'
-              }));
-            }
-            if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
+          // Parse Leads from XML if not already found by deep scan
+          if (v.leads && v.leads.lead && reportData.leads.length === 0) {
+            const rawLeads = Array.isArray(v.leads.lead) ? v.leads.lead : [v.leads.lead];
+            reportData.leads = rawLeads.map((l: any) => ({
+              model: l.model,
+              serial_number: l.serial,
+              position: l.position || 'Unknown'
+            }));
           }
-        } catch (e) { console.error('Error reading visit.xml', e); }
+          if (v.device_serial && reportData.device.serial_number === 'Unknown') reportData.device.serial_number = v.device_serial;
+        }
+      } catch (e: any) {
+        if (e.code !== 'ENOENT') {
+          console.error('Error reading visit.xml', e);
+        }
       }
 
       // Upsert Report to DB
@@ -1126,7 +1144,9 @@ export const syncDatabase = async (): Promise<{ newPatients: number; newReports:
     const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
     const reportsDir = path.join(dataDir, 'Reports');
 
-    if (!fs.existsSync(reportsDir)) {
+    try {
+      await fs.promises.access(reportsDir);
+    } catch {
       return { newPatients: 0, newReports: 0 };
     }
 
@@ -1149,46 +1169,46 @@ export const syncDatabase = async (): Promise<{ newPatients: number; newReports:
       if (!patientExists) {
         // [NEW PATIENT FOUND] -> Import
         const patientXmlPath = path.join(patientPath, 'patient.xml');
-        if (fs.existsSync(patientXmlPath)) {
-          try {
-            const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
-            const parsed = parser.parse(xmlContent);
-            const p = parsed.patient;
+        try {
+          const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
+          const parsed = parser.parse(xmlContent);
+          const p = parsed.patient;
 
-            if (p) {
-              await new Promise<void>((resolve, reject) => {
-                db.run(
-                  `INSERT OR REPLACE INTO Patients (
-                     id, first_name, last_name, dob, hospitalPatientId,
-                     device_manufacturer, device_model, device_serial, leads, devices, last_indexed_mtime,
-                     mri_status, mri_data_hash
-                   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [
-                    p.id,
-                    p.first_name,
-                    p.last_name,
-                    p.dob,
-                    p.hospitalPatientId || null,
-                    p.device_manufacturer || null,
-                    p.device_model || null,
-                    p.device_serial || null,
-                    p.leads ? JSON.stringify(p.leads) : null,
-                    p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
+          if (p) {
+            await new Promise<void>((resolve, reject) => {
+              db.run(
+                `INSERT OR REPLACE INTO Patients (
+                   id, first_name, last_name, dob, hospitalPatientId,
+                   device_manufacturer, device_model, device_serial, leads, devices, last_indexed_mtime,
+                   mri_status, mri_data_hash
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [
+                  p.id,
+                  p.first_name,
+                  p.last_name,
+                  p.dob,
+                  p.hospitalPatientId || null,
+                  p.device_manufacturer || null,
+                  p.device_model || null,
+                  p.device_serial || null,
+                  p.leads ? JSON.stringify(p.leads) : null,
+                  p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
 
-                    Date.now(),
-                    p.mri_status || null,
-                    p.mri_data_hash || null
-                  ],
-                  (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                  }
-                );
-              });
-              newPatients++;
-              existingPatientIds.add(p.id); // Add to set so we don't re-add
-            }
-          } catch (e) {
+                  Date.now(),
+                  p.mri_status || null,
+                  p.mri_data_hash || null
+                ],
+                (err) => {
+                  if (err) reject(err);
+                  else resolve();
+                }
+              );
+            });
+            newPatients++;
+            existingPatientIds.add(p.id); // Add to set so we don't re-add
+          }
+        } catch (e: any) {
+          if (e.code !== 'ENOENT') {
             console.warn(`[syncDatabase] Failed to import new patient ${pDir.name}:`, e);
           }
         }

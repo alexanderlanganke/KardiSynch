@@ -1,4 +1,5 @@
-import fs from 'fs';
+import fs from 'fs/promises';
+import fsSync from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendManualSortingRequest, sendImportSessionUpdate } from './windowManager';
@@ -11,12 +12,21 @@ let importDir: string;
 let unmatchedDir: string;
 let dataDir: string;
 let watcherTimeout: NodeJS.Timeout | null = null;
-let currentWatcher: fs.FSWatcher | null = null;
+let currentWatcher: import('fs').FSWatcher | null = null;
 
 // interactive mode globals
 let pendingManualSortRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
 let pendingDeviceSelectionRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
 
+const withTimeout = <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((resolve) => setTimeout(() => {
+      console.warn(`[Watcher] Promise timed out after ${ms}ms, using fallback`);
+      resolve(fallback);
+    }, ms))
+  ]);
+};
 
 export const resolveManualSorting = (response: any) => {
   if (pendingManualSortRequest) {
@@ -41,22 +51,22 @@ export const getUnmatchedFilePath = (filename: string) => {
  * Creates a temporary directory for processing a batch of files.
  * @returns The path to the newly created temporary directory.
  */
-const createTempDirectory = (): string => {
+const createTempDirectory = async (): Promise<string> => {
   const tempDir = path.join(importDir, `_TEMP_${uuidv4()}`);
-  fs.mkdirSync(tempDir, { recursive: true });
+  await fs.mkdir(tempDir, { recursive: true });
   return tempDir;
 };
 
 /**
  * Moves a file, handling cross-device moves (EXDEV) by falling back to copy+unlink.
  */
-const moveFile = (src: string, dest: string) => {
+const moveFile = async (src: string, dest: string) => {
   try {
-    fs.renameSync(src, dest);
+    await fs.rename(src, dest);
   } catch (error: any) {
     if (error.code === 'EXDEV') {
-      fs.copyFileSync(src, dest);
-      fs.unlinkSync(src);
+      await fs.copyFile(src, dest);
+      await fs.unlink(src);
     } else {
       throw error;
     }
@@ -66,19 +76,17 @@ const moveFile = (src: string, dest: string) => {
 /**
  * Recursively finds all files in a directory, excluding temporary directories.
  */
-const getFilesRecursively = (dir: string): string[] => {
+const getFilesRecursively = async (dir: string): Promise<string[]> => {
   let results: string[] = [];
   try {
-    const list = fs.readdirSync(dir);
+    const list = await fs.readdir(dir);
     for (const file of list) {
-      // Skip temp directories and system files
       if (file.startsWith('_TEMP_') || file.startsWith('.')) continue;
-
       const filePath = path.join(dir, file);
       try {
-        const stat = fs.statSync(filePath);
+        const stat = await fs.stat(filePath);
         if (stat && stat.isDirectory()) {
-          results = results.concat(getFilesRecursively(filePath));
+          results = results.concat(await getFilesRecursively(filePath));
         } else {
           results.push(filePath);
         }
@@ -96,17 +104,14 @@ const getFilesRecursively = (dir: string): string[] => {
  * Moves all files from the import directory (and subdirectories) to a temporary directory.
  * @param tempDir The destination temporary directory.
  */
-const stageFilesToTempDir = (tempDir: string) => {
-  const allFiles = getFilesRecursively(importDir);
-
+const stageFilesToTempDir = async (tempDir: string) => {
+  const allFiles = await getFilesRecursively(importDir);
   for (const filePath of allFiles) {
-    // Generate a unique filename to prevent collisions when flattening directories
     const originalName = path.basename(filePath);
     const uniqueName = `${uuidv4()}_${originalName}`;
     const newPath = path.join(tempDir, uniqueName);
-
     try {
-      moveFile(filePath, newPath);
+      await moveFile(filePath, newPath);
     } catch (error) {
       console.error(`Error moving file ${filePath} to temp directory:`, error);
       sendNotification(`Error staging file ${originalName}: ${(error as Error).message}`, 'error');
@@ -136,7 +141,7 @@ const processTempDirectory = async (tempDir: string) => {
   const sessionId = uuidv4();
   await createImportSession(sessionId);
 
-  const allFiles = fs.readdirSync(tempDir).map(f => path.join(tempDir, f));
+  const allFiles = (await fs.readdir(tempDir)).map(f => path.join(tempDir, f));
   const unmatchedFiles: string[] = [];
 
   // Stats for session summary
@@ -228,17 +233,21 @@ const processTempDirectory = async (tempDir: string) => {
 
           const { sendDeviceSelectionRequest } = await import('./windowManager');
 
-          const userDeviceResult: any = await new Promise((resolve) => {
-            pendingDeviceSelectionRequest = { resolve, reject: () => resolve({ action: 'skip' }) };
-            sendDeviceSelectionRequest({
-              filename: path.basename(file),
-              previewData: {
-                manufacturer: report.manufacturer,
-                device: report.device,
-                leads: report.leads // Pass leads for context
-              }
-            });
-          });
+          const userDeviceResult: any = await withTimeout(
+            new Promise((resolve) => {
+              pendingDeviceSelectionRequest = { resolve, reject: () => resolve({ action: 'skip' }) };
+              sendDeviceSelectionRequest({
+                filename: path.basename(file),
+                previewData: {
+                  manufacturer: report.manufacturer,
+                  device: report.device,
+                  leads: report.leads // Pass leads for context
+                }
+              });
+            }),
+            5 * 60 * 1000,
+            { action: 'skip' }
+          );
 
           if (userDeviceResult.action === 'save' && userDeviceResult.deviceData) {
             const d = userDeviceResult.deviceData;
@@ -289,22 +298,26 @@ const processTempDirectory = async (tempDir: string) => {
             console.log(`No clear match for unnamed file ${path.basename(file)}. Requesting manual input...`);
 
             // Ask user what to do
-            const userDecision: any = await new Promise((resolve) => {
-              pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
-              sendManualSortingRequest({
-                filename: path.basename(file),
-                tempPath: file,
-                previewData: {
-                  patientName: "UNKNOWN (Missing in Log)",
-                  dob: report.patient.dob || "Unknown",
-                  date: report.interrogation_date,
-                  serial: report.device?.serial_number || "Unknown",
-                  manufacturer: report.manufacturer,
-                  deviceModel: report.device?.model,
-                  leads: report.leads
-                }
-              });
-            });
+            const userDecision: any = await withTimeout(
+              new Promise((resolve) => {
+                pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
+                sendManualSortingRequest({
+                  filename: path.basename(file),
+                  tempPath: file,
+                  previewData: {
+                    patientName: "UNKNOWN (Missing in Log)",
+                    dob: report.patient.dob || "Unknown",
+                    date: report.interrogation_date,
+                    serial: report.device?.serial_number || "Unknown",
+                    manufacturer: report.manufacturer,
+                    deviceModel: report.device?.model,
+                    leads: report.leads
+                  }
+                });
+              }),
+              5 * 60 * 1000,
+              { action: 'unmatched' }
+            );
 
             if (userDecision.action === 'assign-patient') {
               const { getPatientById } = await import('./database');
@@ -586,22 +599,26 @@ const processTempDirectory = async (tempDir: string) => {
             // Patient found but NO visit found for this date. Trigger Manual Sorting.
             console.log(`Patient found but no matching visit for ${path.basename(file)}. Requesting manual confirmation...`);
 
-            const userDecision: any = await new Promise((resolve) => {
-              pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
-              sendManualSortingRequest({
-                filename: path.basename(file),
-                tempPath: file,
-                previewData: {
-                  patientName: `${patient.first_name} ${patient.last_name}`,
-                  dob: patient.dob,
-                  date: report.interrogation_date,
-                  serial: report.device?.serial_number,
-                  manufacturer: report.manufacturer,
-                  deviceModel: report.device?.model,
-                  leads: report.leads
-                }
-              });
-            });
+            const userDecision: any = await withTimeout(
+              new Promise((resolve) => {
+                pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
+                sendManualSortingRequest({
+                  filename: path.basename(file),
+                  tempPath: file,
+                  previewData: {
+                    patientName: `${patient.first_name} ${patient.last_name}`,
+                    dob: patient.dob,
+                    date: report.interrogation_date,
+                    serial: report.device?.serial_number,
+                    manufacturer: report.manufacturer,
+                    deviceModel: report.device?.model,
+                    leads: report.leads
+                  }
+                });
+              }),
+              5 * 60 * 1000,
+              { action: 'unmatched' }
+            );
 
             console.log(`User decision for ${path.basename(file)}:`, userDecision);
 
@@ -728,24 +745,26 @@ const processTempDirectory = async (tempDir: string) => {
           console.log(`No clear match for ${path.basename(file)}. Requesting manual input...`);
 
           // Ask user what to do
-          const userDecision: any = await new Promise((resolve) => {
-            pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
-            sendManualSortingRequest({
-              filename: path.basename(file), // Only send filename, not full path which might be in temp
-              tempPath: file, // Keep track if needed by renderer for preview (might be tricky with temp) -> Actually renderer can't access temp easily if sandboxed? 
-              // Renderer is local file access allowed usually in Electron if webSecurity is managed? 
-              // KardiSynch seems to be open.
-              previewData: {
-                patientName: `${report.patient.first_name} ${report.patient.last_name}`,
-                dob: report.patient.dob,
-                date: report.interrogation_date,
-                serial: report.device?.serial_number,
-                manufacturer: report.manufacturer,
-                deviceModel: report.device?.model,
-                leads: report.leads
-              }
-            });
-          });
+          const userDecision: any = await withTimeout(
+            new Promise((resolve) => {
+              pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
+              sendManualSortingRequest({
+                filename: path.basename(file),
+                tempPath: file,
+                previewData: {
+                  patientName: `${report.patient.first_name} ${report.patient.last_name}`,
+                  dob: report.patient.dob,
+                  date: report.interrogation_date,
+                  serial: report.device?.serial_number,
+                  manufacturer: report.manufacturer,
+                  deviceModel: report.device?.model,
+                  leads: report.leads
+                }
+              });
+            }),
+            5 * 60 * 1000,
+            { action: 'unmatched' }
+          );
 
           console.log(`User decision for ${path.basename(file)}:`, userDecision);
 
@@ -879,13 +898,16 @@ const processTempDirectory = async (tempDir: string) => {
 
     // Move unmatched files
     for (const file of unmatchedFiles) {
-      if (fs.existsSync(file)) {
+      try {
+        await fs.access(file);
         const newPath = path.join(unmatchedDir, path.basename(file));
         try {
-          moveFile(file, newPath);
+          await moveFile(file, newPath);
         } catch (e) {
           console.error(`Error moving unmatched file ${file}:`, e);
         }
+      } catch {
+        // File doesn't exist, skip
       }
     }
 
@@ -896,10 +918,8 @@ const processTempDirectory = async (tempDir: string) => {
   } finally {
     // ALWAYS Clean up temp directory
     try {
-      if (fs.existsSync(tempDir)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        console.log(`Successfully removed temporary directory: ${tempDir}`);
-      }
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      console.log(`Successfully removed temporary directory: ${tempDir}`);
     } catch (error) {
       console.error(`Error removing temporary directory ${tempDir}:`, error);
       sendNotification(`Error cleaning up temp directory: ${(error as Error).message}`, 'error');
@@ -907,7 +927,7 @@ const processTempDirectory = async (tempDir: string) => {
 
     // Clean up any empty directories left in the Import folder
     try {
-      cleanEmptyDirectories(importDir);
+      await cleanEmptyDirectories(importDir);
     } catch (e) {
       console.error('Error cleaning up empty directories in import folder:', e);
     }
@@ -940,37 +960,38 @@ const processTempDirectory = async (tempDir: string) => {
 /**
  * Recursively removes empty directories.
  */
-function cleanEmptyDirectories(dir: string) {
-  if (!fs.existsSync(dir)) return;
-
-  // Don't delete the root import dir or temp dirs currently in use
+async function cleanEmptyDirectories(dir: string) {
   if (path.basename(dir).startsWith('_TEMP_')) return;
 
-  let items;
+  let items: string[];
   try {
-    items = fs.readdirSync(dir);
+    items = await fs.readdir(dir);
   } catch { return; }
 
   if (items.length > 0) {
     for (const item of items) {
       const fullPath = path.join(dir, item);
-      if (fs.statSync(fullPath).isDirectory()) {
-        cleanEmptyDirectories(fullPath);
-      }
+      try {
+        const stat = await fs.stat(fullPath);
+        if (stat.isDirectory()) {
+          await cleanEmptyDirectories(fullPath);
+        }
+      } catch { /* ignore */ }
     }
-    // Re-check if empty after cleaning children
-    items = fs.readdirSync(dir);
+    try {
+      items = await fs.readdir(dir);
+    } catch { return; }
   }
 
   if (items.length === 0 && dir !== importDir) {
     try {
-      fs.rmdirSync(dir);
+      await fs.rmdir(dir);
       console.log(`Removed empty directory: ${dir}`);
     } catch (e) {
       console.error(`Failed to remove empty dir ${dir}:`, e);
     }
   }
-};
+}
 
 /**
  * Initializes the file watcher, which monitors the _IMPORT directory for new files.
@@ -984,15 +1005,15 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
   const executeBatchProcessing = async () => {
     let tempDir: string | null = null;
     try {
-      tempDir = createTempDirectory();
-      stageFilesToTempDir(tempDir);
+      tempDir = await createTempDirectory();
+      await stageFilesToTempDir(tempDir);
       await processTempDirectory(tempDir);
     } catch (e) {
       console.error('Error during batch processing:', e);
       // Fallback cleanup if processTempDirectory didn't run or failed catastrophically
-      if (tempDir && fs.existsSync(tempDir)) {
+      if (tempDir) {
         try {
-          fs.rmSync(tempDir, { recursive: true, force: true });
+          await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
         } catch (cleanupErr) {
           console.error('Failed to cleanup temp dir after error:', cleanupErr);
         }
@@ -1000,37 +1021,34 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
     }
   };
 
-  [importDir, unmatchedDir, dataDir].forEach(dir => {
-    try {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+  (async () => {
+    for (const dir of [importDir, unmatchedDir, dataDir]) {
+      try {
+        await fs.mkdir(dir, { recursive: true });
+      } catch (error) {
+        console.error(`Error creating directory ${dir}:`, error);
+        sendNotification(`Error creating directory ${dir}: ${(error as Error).message}`, 'error');
       }
-    } catch (error) {
-      console.error(`Error creating directory ${dir}:`, error);
-      sendNotification(`Error creating directory ${dir}: ${(error as Error).message}`, 'error');
     }
-  });
+  })();
 
 
   console.log(`Watching for file changes on ${importDir}`);
 
   // DEBUG: Polling fallback
-  setInterval(() => {
+  setInterval(async () => {
     try {
-      if (!fs.existsSync(importDir)) return;
+      try {
+        await fs.access(importDir);
+      } catch { return; }
 
-      const files = fs.readdirSync(importDir);
+      const files = await fs.readdir(importDir);
       if (files.length > 0) {
-        // Check if files are real files and not just dirs (unless we want to process dirs?)
-        // getFilesRecursively will find them.
-        // We really want to check if there is anything to process.
-        const allFiles = getFilesRecursively(importDir);
+        const allFiles = await getFilesRecursively(importDir);
 
         if (allFiles.length > 0) {
           console.log(`POLLING: Found ${allFiles.length} files in ${importDir}`);
-          // Trigger processing if files exist but watcher didn't fire
           if (!watcherTimeout) {
-            // Also check if we are NOT waiting for user input
             if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
               console.log('POLLING: Triggering processing fallback...');
               watcherTimeout = setTimeout(() => {
@@ -1047,21 +1065,22 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
   }, 5000);
 
   // Check for existing files on startup
-  try {
-    const existingFiles = getFilesRecursively(importDir);
-    if (existingFiles.length > 0) {
-      console.log(`Found ${existingFiles.length} existing files in import directory. Processing...`);
-      // We use a timeout to allow the app to fully initialize before heavy processing
-      setTimeout(() => {
-        executeBatchProcessing();
-      }, 3000);
+  (async () => {
+    try {
+      const existingFiles = await getFilesRecursively(importDir);
+      if (existingFiles.length > 0) {
+        console.log(`Found ${existingFiles.length} existing files in import directory. Processing...`);
+        setTimeout(() => {
+          executeBatchProcessing();
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error checking for existing files:', error);
     }
-  } catch (error) {
-    console.error('Error checking for existing files:', error);
-  }
+  })();
 
   try {
-    currentWatcher = fs.watch(importDir, { recursive: true }, (eventType, filename) => {
+    currentWatcher = fsSync.watch(importDir, { recursive: true }, (eventType, filename) => {
       console.log(`Watcher event: ${eventType} for file: ${filename}`);
       if (filename) {
         if (watcherTimeout) {
@@ -1069,29 +1088,29 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
         }
         // Don't interrupt manual sorting
         if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
+          (async () => {
+            const currentFiles = await getFilesRecursively(importDir);
+            const hasPdf = currentFiles.some(f => f.toLowerCase().endsWith('.pdf'));
 
-          // Check for PDF files to determine timeout duration
-          const currentFiles = getFilesRecursively(importDir);
-          const hasPdf = currentFiles.some(f => f.toLowerCase().endsWith('.pdf'));
+            // Medtronic programmers write PDFs in "waves", taking >10s to finalize.
+            // If a PDF is present, we wait 15s. Otherwise 2s is enough.
+            const stabilizationTime = hasPdf ? 15000 : 2000;
 
-          // Medtronic programmers write PDFs in "waves", taking >10s to finalize.
-          // If a PDF is present, we wait 15s. Otherwise 2s is enough.
-          const stabilizationTime = hasPdf ? 15000 : 2000;
+            console.log(`Watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
 
-          console.log(`Watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
-
-          watcherTimeout = setTimeout(() => {
-            console.log('Watcher timeout triggered. Checking for files...');
-            const finalFiles = getFilesRecursively(importDir); // Re-check
-            console.log(`Found ${finalFiles.length} files in import directory.`);
-            if (finalFiles.length === 0) {
-              console.log('No files found, skipping processing.');
-              return;
-            }
-            console.log('File changes stabilized. Starting processing...');
-            executeBatchProcessing();
-            watcherTimeout = null;
-          }, stabilizationTime);
+            watcherTimeout = setTimeout(async () => {
+              console.log('Watcher timeout triggered. Checking for files...');
+              const finalFiles = await getFilesRecursively(importDir);
+              console.log(`Found ${finalFiles.length} files in import directory.`);
+              if (finalFiles.length === 0) {
+                console.log('No files found, skipping processing.');
+                return;
+              }
+              console.log('File changes stabilized. Starting processing...');
+              executeBatchProcessing();
+              watcherTimeout = null;
+            }, stabilizationTime);
+          })();
         }
       }
     });
@@ -1121,9 +1140,11 @@ export const findVisitPath = async (visitId: string): Promise<string | null> => 
 
     // Find Patient Directory
     const reportsDir = path.join(dataDir, 'Reports');
-    if (!fs.existsSync(reportsDir)) return null;
+    let patientDirs: string[];
+    try {
+      patientDirs = await fs.readdir(reportsDir);
+    } catch { return null; }
 
-    const patientDirs = fs.readdirSync(reportsDir);
     const patientDirName = patientDirs.find(d => d.startsWith(report.patient_id));
 
     if (!patientDirName) return null;
@@ -1131,7 +1152,7 @@ export const findVisitPath = async (visitId: string): Promise<string | null> => 
     const patientDirPath = path.join(reportsDir, patientDirName);
 
     // Find Visit Directory (ends with visitId)
-    const visitDirs = fs.readdirSync(patientDirPath);
+    const visitDirs = await fs.readdir(patientDirPath);
     const visitDirName = visitDirs.find(d => d.endsWith(`_${visitId}`) || d === visitId);
 
     if (visitDirName) {
@@ -1153,11 +1174,13 @@ export const findVisitPath = async (visitId: string): Promise<string | null> => 
 export const rescanVisitDirectory = async (visitPath: string) => {
   try {
     console.log(`[Rescan] Scanning directory: ${visitPath}`);
-    if (!fs.existsSync(visitPath)) {
+    try {
+      await fs.access(visitPath);
+    } catch {
       throw new Error(`Directory not found: ${visitPath}`);
     }
 
-    const files = fs.readdirSync(visitPath).filter(f => !f.startsWith('.'));
+    const files = (await fs.readdir(visitPath)).filter(f => !f.startsWith('.'));
     const parsedReports: UnifiedReport[] = [];
 
     // Prioritize PDF and XML
@@ -1226,7 +1249,7 @@ export const moveVisit = async (visitId: string, targetPatientId: string) => {
     console.log(`[MoveVisit] Moving ${sourceVisitPath} to patient ${targetPatientId}`);
 
     // 2. Prepare Target Directory
-    const patientDirs = fs.readdirSync(path.join(dataDir, 'Reports'));
+    const patientDirs = await fs.readdir(path.join(dataDir, 'Reports'));
     const targetDirName = patientDirs.find(d => d.startsWith(targetPatientId));
     let targetDirPath = '';
 
@@ -1239,7 +1262,7 @@ export const moveVisit = async (visitId: string, targetPatientId: string) => {
       const safeDob = (patient.dob || 'NoDOB').replace(/[^a-z0-9]/gi, '_');
       const newDirName = `${targetPatientId}_${safeName}_${safeDob}`;
       targetDirPath = path.join(dataDir, 'Reports', newDirName);
-      fs.mkdirSync(targetDirPath, { recursive: true });
+      await fs.mkdir(targetDirPath, { recursive: true });
     } else {
       targetDirPath = path.join(dataDir, 'Reports', targetDirName);
     }
@@ -1257,16 +1280,19 @@ const performMove = async (sourcePath: string, targetParentPath: string, targetP
   const destPath = path.join(targetParentPath, dirName);
 
   // Check collision
-  if (fs.existsSync(destPath)) {
+  try {
+    await fs.access(destPath);
     throw new Error(`Target patient already has a visit folder named ${dirName}`);
+  } catch (e: any) {
+    if (e.message?.includes('already has')) throw e;
+    // ENOENT means no collision, which is good
   }
 
   // Move Directory
   try {
-    fs.renameSync(sourcePath, destPath);
+    await fs.rename(sourcePath, destPath);
   } catch (e: any) {
     if (e.code === 'EXDEV') {
-      // Cross-device logic could be added here
       throw new Error('Cross-device move not supported yet');
     }
     throw e;

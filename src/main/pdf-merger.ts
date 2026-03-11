@@ -1,7 +1,7 @@
 // src/main/pdf-merger.ts
 
 import { PDFDocument } from 'pdf-lib';
-import * as fs from 'fs';
+import * as fs from 'fs/promises';
 const pdf = require('pdf-parse');
 
 /**
@@ -11,7 +11,7 @@ const pdf = require('pdf-parse');
  * @returns A promise that resolves with the extracted text.
  */
 export const extractTextFromPdf = async (filePath: string): Promise<string> => {
-    const dataBuffer = fs.readFileSync(filePath);
+    const dataBuffer = await fs.readFile(filePath);
     const data = await pdf(dataBuffer);
     return data.text;
 };
@@ -61,7 +61,7 @@ export const verifyPdfMatch = (pdfText: string, reportData: UnifiedReport): bool
 export const mergePdfs = async (filePaths: string[]): Promise<Uint8Array> => {
   const mergedPdf = await PDFDocument.create();
   for (const filePath of filePaths) {
-    const pdfBytes = fs.readFileSync(filePath);
+    const pdfBytes = await fs.readFile(filePath);
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const copiedPages = await mergedPdf.copyPages(pdfDoc, pdfDoc.getPageIndices());
     copiedPages.forEach((page) => {
