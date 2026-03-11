@@ -1,0 +1,38 @@
+name: Debug Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug-release:
+    name: Debug Build
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y xvfb xauth libgtk-3-0 libnss3 libasound2t64 libxtst6
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build and publish debug release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_DEBUG_MODE: 'true'
+        run: npm run publish:gh
