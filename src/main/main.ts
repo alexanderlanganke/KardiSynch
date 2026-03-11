@@ -1192,10 +1192,38 @@ ipcMain.handle('select-file', async (event, filters?: { name: string; extensions
 });
 
 ipcMain.handle('analyze-biotronik-xml', async (event, filePath: string) => {
-  const fs = await import('fs');
-  const xmlData = fs.readFileSync(filePath, 'utf-8');
-  const { analyzeBiotronikXml } = await import('./parsers/biotronik-analyzer');
-  return analyzeBiotronikXml(xmlData);
+  const fs = await import('fs/promises');
+  const { Worker } = await import('worker_threads');
+  const xmlData = await fs.readFile(filePath, 'utf-8');
+
+  // Run analyzer off the main thread to avoid UI freeze on large files
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(
+      `const { parentPort, workerData } = require('worker_threads');
+       const { analyzeBiotronikXml } = require(workerData.modulePath);
+       try {
+         const result = analyzeBiotronikXml(workerData.xmlData);
+         parentPort.postMessage(result);
+       } catch (e) {
+         parentPort.postMessage({ error: e.message });
+       }`,
+      {
+        eval: true,
+        workerData: {
+          xmlData,
+          modulePath: require('path').join(__dirname, 'parsers', 'biotronik-analyzer'),
+        },
+      }
+    );
+    worker.on('message', (result) => {
+      if (result.error) reject(new Error(result.error));
+      else resolve(result);
+    });
+    worker.on('error', reject);
+    worker.on('exit', (code) => {
+      if (code !== 0) reject(new Error(`Worker exited with code ${code}`));
+    });
+  });
 });
 
 ipcMain.handle('open-external', async (event, url) => {

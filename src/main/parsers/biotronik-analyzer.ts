@@ -39,12 +39,13 @@ export interface BiotronikAnalysis {
 /**
  * Recursively collects all tag paths from a parsed XML object.
  * Only records object keys — never leaf values (strings, numbers, booleans).
+ * Caps at depth 8 and max 500 paths to stay fast on large files.
  */
 function collectTagPaths(obj: any, prefix: string, paths: Set<string>, depth: number): void {
-    if (depth > 15 || obj === null || obj === undefined) return;
+    if (depth > 8 || paths.size > 500 || obj === null || obj === undefined) return;
 
     if (Array.isArray(obj)) {
-        // Recurse into first element as representative (avoid huge duplication)
+        // Recurse into first element only as representative
         if (obj.length > 0 && typeof obj[0] === 'object') {
             collectTagPaths(obj[0], prefix + '[]', paths, depth + 1);
         }
@@ -53,12 +54,12 @@ function collectTagPaths(obj: any, prefix: string, paths: Set<string>, depth: nu
 
     if (typeof obj === 'object') {
         for (const key of Object.keys(obj)) {
+            if (paths.size > 500) return;
             const childPath = prefix ? `${prefix} > ${key}` : key;
             paths.add(childPath);
             collectTagPaths(obj[key], childPath, paths, depth + 1);
         }
     }
-    // Primitives (string, number, boolean) are leaf values — we skip them
 }
 
 /**
