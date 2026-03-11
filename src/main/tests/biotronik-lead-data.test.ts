@@ -107,4 +107,69 @@ describe('Biotronik XML Parser (Lead Data)', () => {
         expect(leads[0].model).toBe('ModelX');
         expect(leads[0].impedance).toBeUndefined();
     });
+
+    it('should extract leads from pacemaker XMLs using numbered "Kanal 1/2/3/4" format', () => {
+        const xmlMock = `
+        <InterfaceData xmlns:carddas="http://med.ge.com//carddas">
+            <Examination>
+                <Measurements>
+                    <Table>
+                        <TableName>TBU_HSM_DATEN</TableName>
+                        <TableEntry><AttributeName>MANUFACTURERDESCR</AttributeName><CharValue>Biotronik</CharValue></TableEntry>
+                        <TableEntry><AttributeName>CATAGGREGATDESCR</AttributeName><CharValue>Edora 8 DR-T</CharValue></TableEntry>
+                        <TableEntry><AttributeName>SERHSM</AttributeName><CharValue>99887766</CharValue></TableEntry>
+                        <TableEntry><AttributeName>FU_RA_SENSING</AttributeName><DecimalValue>2.1</DecimalValue></TableEntry>
+                        <TableEntry><AttributeName>FU_RA_IMPED</AttributeName><DecimalValue>480</DecimalValue></TableEntry>
+                        <TableEntry><AttributeName>FU_RV_SENSING</AttributeName><DecimalValue>8.5</DecimalValue></TableEntry>
+                        <TableEntry><AttributeName>FU_RV_IMPED</AttributeName><DecimalValue>520</DecimalValue></TableEntry>
+                    </Table>
+                </Measurements>
+                <AdditionalMeasurements>
+                    <Table>
+                        <TableName>9002</TableName>
+                        <!-- Numbered channels instead of repeated Kanäle -->
+                        <TableEntry><AttributeName>Kanal 1</AttributeName><CharValue>RA</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Kanal 2</AttributeName><CharValue>RV</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Kanal 3</AttributeName><CharValue>.</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Kanal 4</AttributeName><CharValue>.</CharValue></TableEntry>
+
+                        <TableEntry><AttributeName>Hersteller</AttributeName><CharValue>Biotronik</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Hersteller</AttributeName><CharValue>Biotronik</CharValue></TableEntry>
+
+                        <TableEntry><AttributeName>Elektrodenmodell</AttributeName><CharValue>Solia S 53</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Elektrodenmodell</AttributeName><CharValue>Protego S 60</CharValue></TableEntry>
+
+                        <TableEntry><AttributeName>Seriennummer</AttributeName><CharValue>44444</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Seriennummer</AttributeName><CharValue>55555</CharValue></TableEntry>
+                    </Table>
+                </AdditionalMeasurements>
+            </Examination>
+        </InterfaceData>
+        `;
+
+        const result = parseBiotronikXML(xmlMock);
+
+        expect(result).not.toBeNull();
+        const leads = result?.leads || [];
+
+        // Should find exactly 2 leads (Kanal 3/4 are '.' and should be filtered)
+        expect(leads.length).toBe(2);
+
+        // RA lead
+        expect(leads[0].name).toContain('RA');
+        expect(leads[0].model).toBe('Solia S 53');
+        expect(leads[0].serial).toBe('44444');
+        expect(leads[0].sensing?.value).toBe('2.1');
+        expect(leads[0].impedance?.value).toBe('480');
+
+        // RV lead
+        expect(leads[1].name).toContain('RV');
+        expect(leads[1].model).toBe('Protego S 60');
+        expect(leads[1].serial).toBe('55555');
+        expect(leads[1].sensing?.value).toBe('8.5');
+        expect(leads[1].impedance?.value).toBe('520');
+
+        // Device type should detect pacemaker
+        expect(result?.device.type).toBe('Pacemaker');
+    });
 });

@@ -212,6 +212,21 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         // Extract hardware info from Table 9002 (Settings)
         let channels = findAllEntriesMultilang(settingsTable, 'Kanäle', 'Channels');
 
+        // Fallback: Pacemaker XMLs use numbered "Kanal 1"..."Kanal 4" instead of repeated "Kanäle"
+        if (channels.length === 0 && settingsTable) {
+            const numberedChannels: string[] = [];
+            for (let k = 1; k <= 4; k++) {
+                const val = findEntry(settingsTable, `Kanal ${k}`);
+                if (val && val !== '.' && val !== 'Unknown') {
+                    numberedChannels.push(val);
+                }
+            }
+            if (numberedChannels.length > 0) {
+                channels = numberedChannels;
+                console.log(`[Biotronik Parser] Using numbered channel format: ${channels.join(', ')}`);
+            }
+        }
+
         const manufacturers = findAllEntriesMultilang(settingsTable, 'Hersteller', 'Manufacturer');
         const models = findAllEntriesMultilang(settingsTable, 'Elektrodenmodell', 'LeadModel');
         const serials = findAllEntriesMultilang(settingsTable, 'Seriennummer', 'SerialNumber');
