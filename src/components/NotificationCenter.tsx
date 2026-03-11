@@ -44,6 +44,7 @@ const NotificationCenter: React.FC = () => {
     const [selectedSession, setSelectedSession] = useState<string | null>(null);
     const [sessionEvents, setSessionEvents] = useState<any[]>([]);
     const [isOpen, setIsOpen] = useState(false);
+    const [activeTab, setActiveTab] = useState<string>('notifications');
 
     // Listen for notifications
     useEffect(() => {
@@ -108,6 +109,9 @@ const NotificationCenter: React.FC = () => {
     useEffect(() => {
         if (isOpen) {
             loadImportHistory();
+            if (activeTasks.length > 0) {
+                setActiveTab('activity');
+            }
         }
     }, [isOpen]);
 
@@ -143,6 +147,10 @@ const NotificationCenter: React.FC = () => {
 
     const clearAllNotifications = () => {
         setNotifications([]);
+    };
+
+    const clearAllTasks = () => {
+        setTasks([]);
     };
 
     const removeNotification = (id: number) => {
@@ -182,14 +190,19 @@ const NotificationCenter: React.FC = () => {
             <PopoverContent className="w-[480px] p-0 bg-background border-border shadow-2xl" align="end" sideOffset={8}>
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted">
                     <h4 className="font-semibold text-sm">Notification Center</h4>
-                    {notifications.length > 0 && (
+                    {activeTab === 'notifications' && notifications.length > 0 && (
                         <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={clearAllNotifications}>
+                            Clear All
+                        </Button>
+                    )}
+                    {activeTab === 'activity' && tasks.length > 0 && (
+                        <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={clearAllTasks}>
                             Clear All
                         </Button>
                     )}
                 </div>
 
-                <Tabs defaultValue={activeTasks.length > 0 ? "activity" : "notifications"} className="w-full">
+                <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
                     <TabsList className="w-full justify-start rounded-none border-b bg-transparent p-0 h-10">
                         <TabsTrigger
                             value="notifications"
