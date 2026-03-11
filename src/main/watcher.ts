@@ -12,7 +12,9 @@ let importDir: string;
 let unmatchedDir: string;
 let dataDir: string;
 let watcherTimeout: NodeJS.Timeout | null = null;
+let startupTimeout: NodeJS.Timeout | null = null;
 let currentWatcher: import('fs').FSWatcher | null = null;
+let pollingFallbackInterval: NodeJS.Timeout | null = null;
 let isProcessing = false;
 
 // interactive mode globals
@@ -67,6 +69,11 @@ const moveFile = async (src: string, dest: string) => {
   } catch (error: any) {
     if (error.code === 'EXDEV') {
       await fs.copyFile(src, dest);
+      const srcStats = await fs.stat(src);
+      const destStats = await fs.stat(dest);
+      if (destStats.size !== srcStats.size) {
+        throw new Error(`Cross-device copy verification failed for ${src} (expected ${srcStats.size} bytes, got ${destStats.size})`);
+      }
       await fs.unlink(src);
     } else {
       throw error;
@@ -1043,8 +1050,9 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
   console.log(`Watching for file changes on ${importDir}`);
 
-  // DEBUG: Polling fallback
-  setInterval(async () => {
+  // Polling fallback — catches files missed by fs.watch (e.g. network drives with no inotify)
+  if (pollingFallbackInterval) clearInterval(pollingFallbackInterval);
+  pollingFallbackInterval = setInterval(async () => {
     if (isProcessing) return;
     try {
       try {
@@ -1079,7 +1087,8 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
       const existingFiles = await getFilesRecursively(importDir);
       if (existingFiles.length > 0) {
         console.log(`Found ${existingFiles.length} existing files in import directory. Processing...`);
-        setTimeout(async () => {
+        startupTimeout = setTimeout(async () => {
+          startupTimeout = null;
           await executeBatchProcessing();
         }, 3000);
       }
@@ -1130,11 +1139,23 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 };
 
 export const stopWatcher = () => {
+  if (startupTimeout) {
+    clearTimeout(startupTimeout);
+    startupTimeout = null;
+  }
+  if (watcherTimeout) {
+    clearTimeout(watcherTimeout);
+    watcherTimeout = null;
+  }
+  if (pollingFallbackInterval) {
+    clearInterval(pollingFallbackInterval);
+    pollingFallbackInterval = null;
+  }
   if (currentWatcher) {
     currentWatcher.close();
     currentWatcher = null;
-    console.log('File watcher stopped.');
   }
+  console.log('File watcher stopped.');
 };
 
 /**

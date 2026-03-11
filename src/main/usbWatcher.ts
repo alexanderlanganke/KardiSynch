@@ -5,8 +5,22 @@ import { loadManifest, isFileProcessed, markFileProcessed } from './usbTargetMan
 import { sendNotification } from './windowManager';
 
 let isPolling = false;
+let pollRunning = false;
 let pollingInterval: NodeJS.Timeout | null = null;
 let currentSettings: AppSettings | null = null;
+
+/** Wrap a promise with a timeout so network/USB hangs don't block polling indefinitely. */
+const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error(`Operation timed out after ${ms}ms`)), ms);
+        promise.then(
+            (val) => { clearTimeout(timer); resolve(val); },
+            (err) => { clearTimeout(timer); reject(err); }
+        );
+    });
+};
+const FS_TIMEOUT = 10000; // 10s for individual fs operations (stat, access, readdir)
+const COPY_TIMEOUT = 120000; // 2min for file copies (large files on slow media)
 
 export const startUsbWatcher = (settings: AppSettings) => {
     stopUsbWatcher();
@@ -15,15 +29,18 @@ export const startUsbWatcher = (settings: AppSettings) => {
     // Load manifest on start
     loadManifest();
 
-    if ((!settings.usbSourceDirectories || settings.usbSourceDirectories.length === 0) && !settings.usbTargetDirectory) {
+    const hasSource = settings.usbSourceDirectories && settings.usbSourceDirectories.length > 0;
+    const hasTarget = !!settings.usbTargetDirectory;
+
+    if (!hasSource && !hasTarget) {
         return;
     }
 
     console.log('[UsbWatcher] Starting watcher...');
-    if (settings.usbSourceDirectories) {
+    if (hasSource) {
         console.log('[UsbWatcher] Sources:', settings.usbSourceDirectories);
     }
-    if (settings.usbTargetDirectory) {
+    if (hasTarget) {
         console.log('[UsbWatcher] Target:', settings.usbTargetDirectory);
     }
     console.log('[UsbWatcher] Import:', settings.importDir);
@@ -31,7 +48,7 @@ export const startUsbWatcher = (settings: AppSettings) => {
     isPolling = true;
     // Initial poll
     poll();
-    // Poll every 3 seconds
+    // Poll every 3 seconds (skips if previous poll is still running)
     pollingInterval = setInterval(poll, 3000);
 };
 
@@ -47,44 +64,57 @@ export const stopUsbWatcher = () => {
 const poll = async () => {
     if (!currentSettings || !isPolling) return;
 
-    if (currentSettings.usbSourceDirectories) {
-        for (const sourceDir of currentSettings.usbSourceDirectories) {
-            try {
-                await fs.access(sourceDir);
+    // Prevent concurrent polls — if a previous poll is still running, skip this cycle
+    if (pollRunning) return;
+    pollRunning = true;
+
+    try {
+        // Source → Target: only if both source directories and target directory are configured
+        if (currentSettings.usbSourceDirectories && currentSettings.usbSourceDirectories.length > 0 && currentSettings.usbTargetDirectory) {
+            for (const sourceDir of currentSettings.usbSourceDirectories) {
+                if (!isPolling) break;
                 try {
-                    await processSourceDirectory(sourceDir, sourceDir);
+                    await withTimeout(fs.access(sourceDir), FS_TIMEOUT);
+                    try {
+                        await processSourceDirectory(sourceDir, sourceDir);
+                    } catch (error) {
+                        console.error(`[UsbWatcher] Error processing source ${sourceDir}:`, error);
+                    }
+                } catch {
+                    // Source doesn't exist or timed out (removable/network drive)
+                }
+            }
+        }
+
+        // Target → Import: only if target directory is configured
+        if (currentSettings.usbTargetDirectory && isPolling) {
+            try {
+                await withTimeout(fs.access(currentSettings.usbTargetDirectory), FS_TIMEOUT);
+                try {
+                    await processTargetDirectory(currentSettings.usbTargetDirectory, currentSettings.usbTargetDirectory);
                 } catch (error) {
-                    console.error(`[UsbWatcher] Error processing source ${sourceDir}:`, error);
+                    console.error(`[UsbWatcher] Error processing target ${currentSettings.usbTargetDirectory}:`, error);
                 }
             } catch {
-                // Source doesn't exist (removable drive)
+                // Target doesn't exist or timed out (directory not accessible)
             }
         }
-    }
-
-    if (currentSettings.usbTargetDirectory) {
-        try {
-            await fs.access(currentSettings.usbTargetDirectory);
-            try {
-                await processTargetDirectory(currentSettings.usbTargetDirectory, currentSettings.usbTargetDirectory);
-            } catch (error) {
-                console.error(`[UsbWatcher] Error processing target ${currentSettings.usbTargetDirectory}:`, error);
-            }
-        } catch {
-            // Target doesn't exist
-        }
+    } finally {
+        pollRunning = false;
     }
 };
 
 const processSourceDirectory = async (currentDir: string, sourceBase: string) => {
     let files: import('fs').Dirent[];
     try {
-        files = await fs.readdir(currentDir, { withFileTypes: true });
+        files = await withTimeout(fs.readdir(currentDir, { withFileTypes: true }), FS_TIMEOUT);
     } catch (e) {
+        console.warn(`[UsbWatcher] Cannot read source directory ${currentDir}:`, (e as Error).message);
         return;
     }
 
     for (const file of files) {
+        if (!isPolling) break;
         const fullPath = path.join(currentDir, file.name);
         if (file.isDirectory()) {
             await processSourceDirectory(fullPath, sourceBase);
@@ -97,12 +127,14 @@ const processSourceDirectory = async (currentDir: string, sourceBase: string) =>
 const processTargetDirectory = async (currentDir: string, targetBase: string) => {
     let files: import('fs').Dirent[];
     try {
-        files = await fs.readdir(currentDir, { withFileTypes: true });
+        files = await withTimeout(fs.readdir(currentDir, { withFileTypes: true }), FS_TIMEOUT);
     } catch (e) {
+        console.warn(`[UsbWatcher] Cannot read target directory ${currentDir}:`, (e as Error).message);
         return;
     }
 
     for (const file of files) {
+        if (!isPolling) break;
         const fullPath = path.join(currentDir, file.name);
         if (file.isDirectory()) {
             await processTargetDirectory(fullPath, targetBase);
@@ -117,11 +149,17 @@ const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): 
     let lastSize = -1;
 
     while (retries < maxRetries) {
+        if (!isPolling) return false;
         try {
-            const stats = await fs.stat(filePath);
+            const stats = await withTimeout(fs.stat(filePath), FS_TIMEOUT);
             const currentSize = stats.size;
 
-            if (currentSize === lastSize && currentSize > 0) {
+            if (currentSize === 0) {
+                console.warn(`[UsbWatcher] Skipping zero-byte file: ${filePath}`);
+                return false;
+            }
+
+            if (currentSize === lastSize) {
                 return true; // Stable
             }
 
@@ -139,8 +177,30 @@ const isFileStable = async (filePath: string, interval = 500, maxRetries = 10): 
     return false; // Timed out
 };
 
+/** Remove empty directories walking up from dir, stopping at (not removing) stopAt. */
+const removeEmptyParents = async (dir: string, stopAt: string) => {
+    const resolved = path.resolve(dir);
+    const stopResolved = path.resolve(stopAt);
+    if (resolved === stopResolved || !resolved.startsWith(stopResolved + path.sep)) return;
+    try {
+        const entries = await fs.readdir(resolved);
+        if (entries.length === 0) {
+            await fs.rmdir(resolved);
+            await removeEmptyParents(path.dirname(resolved), stopAt);
+        }
+    } catch {
+        // Directory not empty, doesn't exist, or permission error — stop
+    }
+};
+
 export const handleSourceFile = async (filePath: string, sourceBase: string) => {
     if (!currentSettings) return;
+
+    // Source→Target requires a configured target directory
+    if (!currentSettings.usbTargetDirectory) {
+        console.warn(`[UsbWatcher] Skipping source file ${filePath}: no target directory configured.`);
+        return;
+    }
 
     const stable = await isFileStable(filePath);
     if (!stable) {
@@ -148,7 +208,7 @@ export const handleSourceFile = async (filePath: string, sourceBase: string) => 
             await fs.access(filePath);
             console.warn(`[UsbWatcher] Source file ${filePath} is not stable. Skipping.`);
         } catch {
-            // File doesn't exist
+            // File no longer exists (already processed or removed)
         }
         return;
     }
@@ -158,14 +218,16 @@ export const handleSourceFile = async (filePath: string, sourceBase: string) => 
 
     try {
         const targetDir = path.dirname(targetPath);
-        await fs.mkdir(targetDir, { recursive: true });
-        await fs.copyFile(filePath, targetPath);
+        await withTimeout(fs.mkdir(targetDir, { recursive: true }), FS_TIMEOUT);
+        await withTimeout(fs.copyFile(filePath, targetPath), COPY_TIMEOUT);
 
-        const sourceStats = await fs.stat(filePath);
-        const targetStats = await fs.stat(targetPath);
+        const sourceStats = await withTimeout(fs.stat(filePath), FS_TIMEOUT);
+        const targetStats = await withTimeout(fs.stat(targetPath), FS_TIMEOUT);
 
         if (targetStats.size === sourceStats.size) {
-            await fs.unlink(filePath);
+            await withTimeout(fs.unlink(filePath), FS_TIMEOUT);
+            // Clean up empty parent directories up to sourceBase
+            await removeEmptyParents(path.dirname(filePath), sourceBase);
             console.log(`[UsbWatcher] Moved source file ${relativePath} to Target.`);
             sendNotification(`Moved from USB to Target: ${path.basename(filePath)}`, 'info');
         } else {
@@ -184,7 +246,7 @@ export const handleTargetFile = async (filePath: string, targetBase: string) => 
     const relativePath = path.relative(targetBase, filePath);
 
     try {
-        const stats = await fs.stat(filePath);
+        const stats = await withTimeout(fs.stat(filePath), FS_TIMEOUT);
 
         if (isFileProcessed(relativePath, stats)) {
             return;
@@ -195,23 +257,25 @@ export const handleTargetFile = async (filePath: string, targetBase: string) => 
             return;
         }
 
-        const stableStats = await fs.stat(filePath);
+        const stableStats = await withTimeout(fs.stat(filePath), FS_TIMEOUT);
 
         const importPath = path.join(currentSettings.importDir, relativePath);
         const importDir = path.dirname(importPath);
 
-        await fs.mkdir(importDir, { recursive: true });
-        await fs.copyFile(filePath, importPath);
+        await withTimeout(fs.mkdir(importDir, { recursive: true }), FS_TIMEOUT);
+        await withTimeout(fs.copyFile(filePath, importPath), COPY_TIMEOUT);
 
-        const importStats = await fs.stat(importPath);
+        const importStats = await withTimeout(fs.stat(importPath), FS_TIMEOUT);
         if (importStats.size === stableStats.size) {
             console.log(`[UsbWatcher] Copied target file ${relativePath} to Import.`);
             markFileProcessed(relativePath, stableStats);
+            sendNotification(`Copied to Import: ${path.basename(filePath)}`, 'info');
         } else {
             console.error(`[UsbWatcher] Copy verification failed for target file ${filePath}.`);
+            sendNotification(`Failed to copy ${path.basename(filePath)}: Verification failed`, 'error');
         }
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process target file ${filePath}:`, error);
+        sendNotification(`Error copying to Import: ${(error as Error).message}`, 'error');
     }
 };
-
