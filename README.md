@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/alexanderlanganke/KardiSynch/releases/latest"><img alt="Latest Release" src="https://img.shields.io/github/v/release/alexanderlanganke/KardiSynch?style=flat-square"></a>
   <img alt="Platforms" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=flat-square">
-  <img alt="License" src="https://img.shields.io/badge/license-proprietary-lightgrey?style=flat-square">
+  <a href="https://github.com/alexanderlanganke/KardiSynch/blob/main/LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green?style=flat-square"></a>
   <img alt="Built with Electron" src="https://img.shields.io/badge/built%20with-Electron%20%2B%20React-47848F?style=flat-square">
 </p>
 
