@@ -1,5 +1,4 @@
 interface PatientLike {
-  mriStatus?: { status: string; details: string };
   manufacturerWarningStatus?: { status: string; details: string; link?: string };
   lastReportDate?: string;
   deviceManufacturer?: string;
@@ -56,27 +55,6 @@ export function getPatientFlags(patient: PatientLike, latestReport?: ReportLike)
 export function hasActiveWarning(patient: PatientLike): boolean {
   const status = patient.manufacturerWarningStatus?.status;
   return status === 'advisory' || status === 'recall';
-}
-
-export function hasCriticalBattery(report?: ReportLike): boolean {
-  if (!report?.batteryStatus) return false;
-  const status = report.batteryStatus.toLowerCase();
-  return status.includes('eri') || status.includes('eos') || status.includes('eol');
-}
-
-export function hasUnsafeMri(patient: PatientLike): boolean {
-  return patient.mriStatus?.status === 'unsafe';
-}
-
-export function isOverdueFollowUp(patient: PatientLike, latestReport?: ReportLike): boolean {
-  const dateStr = latestReport?.interrogation_date || patient.lastReportDate;
-  if (!dateStr) return true; // No report at all
-
-  const lastDate = new Date(dateStr);
-  if (isNaN(lastDate.getTime())) return false;
-
-  const daysSince = Math.floor((Date.now() - lastDate.getTime()) / (1000 * 60 * 60 * 24));
-  return daysSince > NOTABLE_DAYS;
 }
 
 export function daysSinceLastVisit(patient: PatientLike, latestReport?: ReportLike): number | null {

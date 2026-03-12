@@ -183,7 +183,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     bannerItems.push({ type: 'urgent', message: `Active warning: ${patient?.manufacturerWarningStatus?.details || 'Check manufacturer advisory'}`, link: patient?.manufacturerWarningStatus?.link });
   }
   if (days !== null && days > 180) {
-    bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago - follow-up may be overdue` });
+    bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago` });
   }
 
   // Build device summary string for compact view
