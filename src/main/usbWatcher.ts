@@ -9,6 +9,13 @@ let pollRunning = false;
 let pollingInterval: NodeJS.Timeout | null = null;
 let currentSettings: AppSettings | null = null;
 
+/** File extensions the parser can actually consume. Only copy these from USB. */
+const SUPPORTED_EXTENSIONS = new Set(['.pdf', '.xml', '.bnk', '.pdd', '.pkg', '.log']);
+
+function isSupportedFile(filename: string): boolean {
+    return SUPPORTED_EXTENSIONS.has(path.extname(filename).toLowerCase());
+}
+
 /** Wrap a promise with a timeout so network/USB hangs don't block polling indefinitely. */
 const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
@@ -118,7 +125,7 @@ const processSourceDirectory = async (currentDir: string, sourceBase: string) =>
         const fullPath = path.join(currentDir, file.name);
         if (file.isDirectory()) {
             await processSourceDirectory(fullPath, sourceBase);
-        } else if (file.isFile()) {
+        } else if (file.isFile() && isSupportedFile(file.name)) {
             await handleSourceFile(fullPath, sourceBase);
         }
     }
@@ -138,7 +145,7 @@ const processTargetDirectory = async (currentDir: string, targetBase: string) =>
         const fullPath = path.join(currentDir, file.name);
         if (file.isDirectory()) {
             await processTargetDirectory(fullPath, targetBase);
-        } else if (file.isFile()) {
+        } else if (file.isFile() && isSupportedFile(file.name)) {
             await handleTargetFile(fullPath, targetBase);
         }
     }
