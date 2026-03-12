@@ -1099,6 +1099,8 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
   try {
     currentWatcher = fsSync.watch(importDir, { recursive: true }, (eventType, filename) => {
+      // Ignore events from temp processing directories
+      if (filename && filename.includes('_TEMP_')) return;
       console.log(`Watcher event: ${eventType} for file: ${filename}`);
       if (filename) {
         if (watcherTimeout) {
