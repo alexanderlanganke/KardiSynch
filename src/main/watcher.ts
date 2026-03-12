@@ -1132,6 +1132,10 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
         }
       }
     });
+    currentWatcher.on('error', (err) => {
+      console.error(`Watcher error on ${importDir}:`, err);
+      sendNotification('File watcher lost connection. Polling fallback still active.', 'warning');
+    });
   } catch (error) {
     console.error(`Error starting watcher on ${importDir}:`, error);
     sendNotification(`Error starting watcher: ${(error as Error).message}`, 'error');
