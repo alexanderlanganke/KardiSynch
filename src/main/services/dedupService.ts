@@ -1,7 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { findDuplicateReports, getReportById, deleteReport, getSettings } from '../database';
-
 import { app } from 'electron';
 
 export interface DedupResult {
@@ -62,6 +61,7 @@ async function findVisitDir(patientDir: string, reportId: string): Promise<strin
 /**
  * Move all non-metadata files from src directory into dest directory.
  * Handles filename collisions by appending a suffix.
+ * Skips files that are identical (same name + same size).
  */
 async function mergeFiles(srcDir: string, destDir: string): Promise<number> {
   let merged = 0;
@@ -147,51 +147,49 @@ async function removeDirectoryAndCleanup(dir: string, stopAt: string): Promise<b
 }
 
 /**
- * Run the full dedup cleanup:
- * 1. Find duplicate report groups (same patient + same date)
- * 2. For each group, pick the best report (highest score + most files)
- * 3. Merge files from duplicates into the keeper's directory
- * 4. Delete duplicate DB rows and remove empty directories
+ * Extract the date prefix from a visit directory name.
+ * Visit dirs are named: {YYYY_MM_DD}_{reportId}
+ * Returns the date portion (e.g., "2024_01_15") or null.
  */
-export async function runDedupCleanup(
-  onProgress?: (status: { message: string; progress: number }) => void
-): Promise<DedupResult> {
-  const result: DedupResult = { groupsFound: 0, reportsRemoved: 0, directoriesRemoved: 0 };
+function getVisitDatePrefix(dirName: string): string | null {
+  const match = dirName.match(/^(\d{4}_\d{2}_\d{2})_/);
+  return match ? match[1] : null;
+}
 
-  const groups = await findDuplicateReports();
-  result.groupsFound = groups.length;
-
-  if (groups.length === 0) {
-    onProgress?.({ message: 'No duplicates found.', progress: 100 });
-    return result;
+/**
+ * Find the patient directory matching a patient ID.
+ * Patient dirs are named: "LastName_FirstName_DOB_ID" or just the ID.
+ */
+async function findPatientDir(reportsDir: string, patientId: string): Promise<string | null> {
+  try {
+    const entries = await fs.readdir(reportsDir);
+    const match = entries.find(d => d.endsWith(`_${patientId}`) || d === patientId);
+    return match ? path.join(reportsDir, match) : null;
+  } catch {
+    return null;
   }
+}
 
-  const settings = await getSettings();
-  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
-  const reportsDir = path.join(dataDir, 'Reports');
+/**
+ * Phase 1: Database-driven dedup.
+ * Finds duplicate report rows (same patient + same date) and merges them.
+ */
+async function dedupDatabaseReports(
+  reportsDir: string,
+  result: DedupResult,
+  onProgress?: (status: { message: string; progress: number }) => void
+): Promise<void> {
+  const groups = await findDuplicateReports();
+  result.groupsFound += groups.length;
 
   for (let i = 0; i < groups.length; i++) {
     const group = groups[i];
-    const progress = Math.round(((i + 1) / groups.length) * 100);
-    onProgress?.({ message: `Processing group ${i + 1}/${groups.length} (patient ${group.patient_id}, date ${group.date})`, progress });
+    const progress = Math.round(((i + 1) / groups.length) * 50); // 0-50% for phase 1
+    onProgress?.({ message: `DB dedup ${i + 1}/${groups.length} (patient ${group.patient_id}, date ${group.date})`, progress });
 
-    // Load full report data for scoring
     const reports: { id: string; row: any; score: number; fileCount: number; visitDir: string | null }[] = [];
 
-    // Find patient directory (could be named differently — search by patient_id)
-    let patientDir: string | null = null;
-    try {
-      const patientDirs = await fs.readdir(reportsDir);
-      // Patient dirs may be named with the patient ID at the end: "LastName_FirstName_DOB_ID"
-      const match = patientDirs.find(d => d.endsWith(`_${group.patient_id}`) || d === group.patient_id);
-      if (match) {
-        patientDir = path.join(reportsDir, match);
-      }
-    } catch {
-      console.warn(`[Dedup] Cannot read reports directory for patient ${group.patient_id}`);
-      continue;
-    }
-
+    const patientDir = await findPatientDir(reportsDir, group.patient_id);
     if (!patientDir) {
       console.warn(`[Dedup] Patient directory not found for ${group.patient_id}, cleaning DB only`);
     }
@@ -203,13 +201,7 @@ export async function runDedupCleanup(
       const visitDir = patientDir ? await findVisitDir(patientDir, reportId) : null;
       const fileCount = visitDir ? await countVisitFiles(visitDir) : 0;
 
-      reports.push({
-        id: reportId,
-        row,
-        score: scoreReport(row),
-        fileCount,
-        visitDir,
-      });
+      reports.push({ id: reportId, row, score: scoreReport(row), fileCount, visitDir });
     }
 
     if (reports.length < 2) continue;
@@ -226,16 +218,13 @@ export async function runDedupCleanup(
     console.log(`[Dedup] Keeping report ${keeper.id} (score=${keeper.score}, files=${keeper.fileCount}) for patient ${group.patient_id} on ${group.date}`);
 
     for (const dup of duplicates) {
-      // Merge files from duplicate into keeper's directory
       if (dup.visitDir && keeper.visitDir) {
         await mergeFiles(dup.visitDir, keeper.visitDir);
       }
 
-      // Delete the DB row
       await deleteReport(dup.id);
       result.reportsRemoved++;
 
-      // Remove the duplicate's visit directory
       if (dup.visitDir && await fileExists(dup.visitDir)) {
         const removed = await removeDirectoryAndCleanup(dup.visitDir, reportsDir);
         if (removed) result.directoriesRemoved++;
@@ -244,7 +233,148 @@ export async function runDedupCleanup(
       console.log(`[Dedup] Removed duplicate report ${dup.id} (score=${dup.score}, files=${dup.fileCount})`);
     }
   }
+}
 
-  onProgress?.({ message: 'Deduplication complete.', progress: 100 });
+/**
+ * Phase 2: Filesystem-driven dedup.
+ * Scans patient directories for visit dirs with the same date prefix,
+ * merges files into the one with the most content, and removes the rest.
+ * Catches orphaned duplicate directories that have no DB entry.
+ */
+async function dedupFilesystemDirectories(
+  reportsDir: string,
+  result: DedupResult,
+  onProgress?: (status: { message: string; progress: number }) => void
+): Promise<void> {
+  let patientDirNames: string[];
+  try {
+    patientDirNames = await fs.readdir(reportsDir);
+  } catch {
+    return;
+  }
+
+  for (let pi = 0; pi < patientDirNames.length; pi++) {
+    const progress = 50 + Math.round(((pi + 1) / patientDirNames.length) * 50); // 50-100%
+    const patientDir = path.join(reportsDir, patientDirNames[pi]);
+
+    let stat;
+    try {
+      stat = await fs.stat(patientDir);
+    } catch { continue; }
+    if (!stat.isDirectory()) continue;
+
+    let visitDirNames: string[];
+    try {
+      visitDirNames = await fs.readdir(patientDir);
+    } catch { continue; }
+
+    // Group visit dirs by date prefix
+    const dateGroups = new Map<string, string[]>();
+    for (const vd of visitDirNames) {
+      const datePrefix = getVisitDatePrefix(vd);
+      if (!datePrefix) continue;
+
+      let stat;
+      try {
+        stat = await fs.stat(path.join(patientDir, vd));
+      } catch { continue; }
+      if (!stat.isDirectory()) continue;
+
+      const group = dateGroups.get(datePrefix) || [];
+      group.push(vd);
+      dateGroups.set(datePrefix, group);
+    }
+
+    // Process groups with duplicates
+    for (const [datePrefix, dirs] of dateGroups) {
+      if (dirs.length < 2) continue;
+
+      onProgress?.({ message: `Directory dedup: ${patientDirNames[pi]} date ${datePrefix} (${dirs.length} dirs)`, progress });
+
+      // Score each directory: most non-xml files wins, then largest total size
+      const scored: { name: string; fullPath: string; fileCount: number; totalSize: number }[] = [];
+      for (const d of dirs) {
+        const fullPath = path.join(patientDir, d);
+        let entries: string[];
+        try {
+          entries = await fs.readdir(fullPath);
+        } catch { continue; }
+
+        const dataFiles = entries.filter(e => !e.endsWith('.xml'));
+        let totalSize = 0;
+        for (const f of dataFiles) {
+          try {
+            const s = await fs.stat(path.join(fullPath, f));
+            totalSize += s.size;
+          } catch { /* skip */ }
+        }
+
+        scored.push({ name: d, fullPath, fileCount: dataFiles.length, totalSize });
+      }
+
+      if (scored.length < 2) continue;
+
+      // Sort: most files first, then largest total size
+      scored.sort((a, b) => {
+        if (b.fileCount !== a.fileCount) return b.fileCount - a.fileCount;
+        return b.totalSize - a.totalSize;
+      });
+
+      const keeper = scored[0];
+      const dupes = scored.slice(1);
+
+      result.groupsFound++;
+
+      for (const dup of dupes) {
+        console.log(`[Dedup/FS] Merging ${dup.name} (${dup.fileCount} files) into ${keeper.name} (${keeper.fileCount} files)`);
+        await mergeFiles(dup.fullPath, keeper.fullPath);
+
+        const removed = await removeDirectoryAndCleanup(dup.fullPath, reportsDir);
+        if (removed) result.directoriesRemoved++;
+
+        // If there's an orphan DB row for this directory's report ID, clean it up
+        const uuidMatch = dup.name.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+        if (uuidMatch) {
+          const orphanId = uuidMatch[1];
+          const row = await getReportById(orphanId);
+          if (row) {
+            await deleteReport(orphanId);
+            result.reportsRemoved++;
+            console.log(`[Dedup/FS] Cleaned orphan DB row ${orphanId}`);
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Run the full dedup cleanup:
+ * Phase 1: Database-driven — find duplicate report rows (same patient + date), merge and clean
+ * Phase 2: Filesystem-driven — find duplicate visit directories (same date prefix), merge and clean
+ */
+export async function runDedupCleanup(
+  onProgress?: (status: { message: string; progress: number }) => void
+): Promise<DedupResult> {
+  const result: DedupResult = { groupsFound: 0, reportsRemoved: 0, directoriesRemoved: 0 };
+
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  // Phase 1: DB dedup
+  onProgress?.({ message: 'Phase 1: Checking database for duplicate reports...', progress: 0 });
+  await dedupDatabaseReports(reportsDir, result, onProgress);
+
+  // Phase 2: Filesystem dedup
+  onProgress?.({ message: 'Phase 2: Scanning directories for duplicates...', progress: 50 });
+  await dedupFilesystemDirectories(reportsDir, result, onProgress);
+
+  if (result.groupsFound === 0) {
+    onProgress?.({ message: 'No duplicates found.', progress: 100 });
+  } else {
+    onProgress?.({ message: 'Deduplication complete.', progress: 100 });
+  }
+
   return result;
 }
