@@ -17,8 +17,8 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 // Manufacturers whose MRI check requires the scraper (browser automation)
 const SCRAPER_MRI_MANUFACTURERS = ['biotronik', 'abbott', 'st. jude', 'sjm'];
-// Manufacturers whose warning check requires the scraper
-const SCRAPER_WARNING_MANUFACTURERS = ['biotronik'];
+// Manufacturers whose warning check requires the scraper (only in dev/debug mode)
+const SCRAPER_WARNING_MANUFACTURERS = process.env.NODE_ENV === 'development' ? ['biotronik'] : [];
 
 function needsScraper(item: any): boolean {
     const manu = (item.manufacturer || '').toLowerCase();

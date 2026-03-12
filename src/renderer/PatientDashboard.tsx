@@ -264,13 +264,26 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
               {flags.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-1">
                   {flags.map((flag, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium bg-muted text-muted-foreground border-border"
-                    >
-                      <Info className="h-2.5 w-2.5 shrink-0" />
-                      {flag.label}
-                    </span>
+                    flag.link ? (
+                      <button
+                        key={i}
+                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20 hover:bg-red-500/20 transition-colors cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); window.electronAPI.openExternal(flag.link!); }}
+                        title="View manufacturer advisory"
+                      >
+                        <Info className="h-2.5 w-2.5 shrink-0" />
+                        {flag.label}
+                        <ExternalLink className="h-2.5 w-2.5 shrink-0" />
+                      </button>
+                    ) : (
+                      <span
+                        key={i}
+                        className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border font-medium bg-muted text-muted-foreground border-border"
+                      >
+                        <Info className="h-2.5 w-2.5 shrink-0" />
+                        {flag.label}
+                      </span>
+                    )
                   ))}
                 </div>
               )}

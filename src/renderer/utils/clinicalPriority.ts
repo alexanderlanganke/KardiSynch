@@ -15,6 +15,7 @@ const NOTABLE_DAYS = 180; // Surface "last report" fact when older than this
 
 export interface PatientFlag {
   label: string;
+  link?: string;
 }
 
 /** Returns factual data points to surface on a patient card. */
@@ -23,10 +24,11 @@ export function getPatientFlags(patient: PatientLike, latestReport?: ReportLike)
 
   // Factual: manufacturer has posted an advisory or recall
   const warningStatus = patient.manufacturerWarningStatus?.status;
+  const warningLink = patient.manufacturerWarningStatus?.link;
   if (warningStatus === 'advisory') {
-    flags.push({ label: 'Manufacturer advisory posted' });
+    flags.push({ label: 'Manufacturer advisory posted', link: warningLink });
   } else if (warningStatus === 'recall') {
-    flags.push({ label: 'Manufacturer recall posted' });
+    flags.push({ label: 'Manufacturer recall posted', link: warningLink });
   }
 
   // Factual: battery status reported by device

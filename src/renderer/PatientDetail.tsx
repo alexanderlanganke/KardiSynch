@@ -178,9 +178,9 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const leadCount = patient?.leads?.length || 0;
 
   // Build status banner items
-  const bannerItems: { type: 'urgent' | 'attention'; message: string }[] = [];
+  const bannerItems: { type: 'urgent' | 'attention'; message: string; link?: string }[] = [];
   if (warnings) {
-    bannerItems.push({ type: 'urgent', message: `Active warning: ${patient?.manufacturerWarningStatus?.details || 'Check manufacturer advisory'}` });
+    bannerItems.push({ type: 'urgent', message: `Active warning: ${patient?.manufacturerWarningStatus?.details || 'Check manufacturer advisory'}`, link: patient?.manufacturerWarningStatus?.link });
   }
   if (days !== null && days > 180) {
     bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago - follow-up may be overdue` });
@@ -372,7 +372,15 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
               )}
             >
               {item.type === 'urgent' ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> : <Clock className="h-3.5 w-3.5 shrink-0" />}
-              <span>{item.message}</span>
+              <span className="flex-1">{item.message}</span>
+              {item.link && (
+                <button
+                  onClick={() => window.electronAPI.openExternal(item.link!)}
+                  className="inline-flex items-center gap-1 ml-2 px-2 py-0.5 rounded text-[11px] font-medium bg-red-500/20 hover:bg-red-500/30 transition-colors shrink-0"
+                >
+                  View Advisory <ExternalLink className="h-3 w-3" />
+                </button>
+              )}
             </div>
           ))}
         </div>
