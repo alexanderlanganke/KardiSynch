@@ -260,7 +260,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
             </div>
 
             {/* PDF Document — all pages rendered, scrollable */}
-            <div className="flex-1 overflow-auto p-4 bg-muted min-w-0">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 bg-muted min-w-0 min-h-0">
                 <Document
                     file={pdfUrl}
                     onLoadSuccess={onDocumentLoadSuccess}
