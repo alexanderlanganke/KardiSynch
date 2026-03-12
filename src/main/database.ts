@@ -748,6 +748,46 @@ export const createReport = (report: UnifiedReport & { patient_id: string; id: s
   });
 };
 
+/**
+ * Find duplicate reports: same patient + same interrogation date.
+ * Returns groups of report IDs that share patient_id + date prefix.
+ */
+export const findDuplicateReports = (): Promise<{ patient_id: string; date: string; reportIds: string[] }[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    // Find all (patient_id, date) combos that have more than one report
+    db.all(
+      `SELECT patient_id, SUBSTR(interrogation_date, 1, 10) as date_prefix, GROUP_CONCAT(id) as ids, COUNT(*) as cnt
+       FROM Reports
+       WHERE interrogation_date IS NOT NULL
+       GROUP BY patient_id, date_prefix
+       HAVING cnt > 1`,
+      (err, rows: any[]) => {
+        if (err) return reject(err);
+        const groups = rows.map(row => ({
+          patient_id: row.patient_id,
+          date: row.date_prefix,
+          reportIds: row.ids.split(','),
+        }));
+        resolve(groups);
+      }
+    );
+  });
+};
+
+/**
+ * Delete a report row from the database.
+ */
+export const deleteReport = (reportId: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.run('DELETE FROM Reports WHERE id = ?', [reportId], function (err) {
+      if (err) return reject(err);
+      resolve();
+    });
+  });
+};
+
 export const rebuildDatabase = async (onProgress?: (status: any) => void): Promise<{ patients: number; reports: number }> => {
   console.log('[rebuildDatabase] Starting database rebuild...');
   if (onProgress) onProgress({ type: 'start', title: 'Rebuilding Database', message: 'Initializing...', progress: 0 });

@@ -78,3 +78,21 @@ export interface UnifiedReport {
   raw_text?: string;
   generatedFiles?: string[]; // Paths to files generated during parsing (e.g. extracted PDFs)
 }
+
+/**
+ * Check whether a lead has meaningful data beyond just a name/location.
+ * A lead is considered meaningful if it has at least one of:
+ * - a model (not "Unknown")
+ * - a serial number (not "Unknown" or ".")
+ * - any electrical measurement
+ */
+export function hasLeadData(lead: LeadData): boolean {
+  if (lead.model && lead.model !== 'Unknown' && lead.model !== '.') return true;
+  if (lead.serial && lead.serial !== 'Unknown' && lead.serial !== '.') return true;
+  if (lead.impedance?.value) return true;
+  if (lead.sensing?.value) return true;
+  if (lead.pacing_threshold?.value) return true;
+  if (lead.pacing_amplitude?.value) return true;
+  if (lead.shock_impedance?.value) return true;
+  return false;
+}

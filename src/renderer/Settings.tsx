@@ -347,6 +347,34 @@ const Settings: React.FC = () => {
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-1">
+                      <Label>Deduplicate Reports</Label>
+                      <p className="text-xs text-muted-foreground">Find and merge duplicate visit entries (same patient, same date). Keeps the most complete report.</p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={async () => {
+                      if (await showConfirm('This will find duplicate reports and merge them, keeping the most complete version. Continue?')) {
+                        setLoading(true);
+                        try {
+                          const result = await window.electronAPI.dedupReports();
+                          if (result.groupsFound === 0) {
+                            await showAlert('No duplicate reports found.');
+                          } else {
+                            await showAlert(`Deduplication complete.\nFound ${result.groupsFound} duplicate groups.\nRemoved ${result.reportsRemoved} duplicate reports.\nCleaned up ${result.directoriesRemoved} directories.`);
+                          }
+                        } catch (error) {
+                          await showAlert('Failed to deduplicate reports.');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }
+                    }} disabled={loading}>
+                      <Copy className="mr-2 h-4 w-4" /> Deduplicate
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
                       <Label className="text-destructive">Reset Application Data</Label>
                       <p className="text-xs text-muted-foreground">Clear all local data and reset to defaults. This cannot be undone.</p>
                     </div>

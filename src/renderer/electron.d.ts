@@ -18,6 +18,7 @@ export interface IElectronAPI {
   onPatientListUpdate: (callback: () => void) => void;
   updatePatient: (patient: any) => Promise<any>;
   rebuildDatabase: () => Promise<any>;
+  dedupReports: () => Promise<{ groupsFound: number; reportsRemoved: number; directoriesRemoved: number }>;
   clearAllData: () => Promise<boolean>;
   checkForUpdates: () => Promise<any>;
   checkMedtronicUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;

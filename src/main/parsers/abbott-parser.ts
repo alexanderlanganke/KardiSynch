@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
-import { UnifiedReport, LeadData } from '../reports';
+import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 
 /**
  * Extracts raw text from a DOCX (ZIP) file by reading word/document.xml

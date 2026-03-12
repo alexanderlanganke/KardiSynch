@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
-import { UnifiedReport, LeadData } from '../reports';
+import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 import { extractTextFromPdf, extractStructuredData } from '../utils/pdf-utils';
 
 /**
@@ -723,7 +723,9 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
                     if (thresh) lead.pacing_threshold = thresh;
                 }
 
-                leads.push(lead);
+                if (hasLeadData(lead)) {
+                    leads.push(lead);
+                }
             }
         }
     }

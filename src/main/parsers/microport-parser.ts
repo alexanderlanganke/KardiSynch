@@ -1,4 +1,4 @@
-import { UnifiedReport, BatteryData } from '../reports';
+import { UnifiedReport, BatteryData, hasLeadData } from '../reports';
 import { XMLParser } from 'fast-xml-parser';
 
 export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedReport | null> => {
@@ -156,7 +156,9 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
                     }
                 }
 
-                leads.push(leadData);
+                if (hasLeadData(leadData)) {
+                    leads.push(leadData);
+                }
             });
         }
 

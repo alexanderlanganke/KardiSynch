@@ -1,7 +1,7 @@
 // src/main/parsers/biotronik-parser.ts
 
 import { XMLParser } from 'fast-xml-parser';
-import { UnifiedReport, LeadData } from '../reports';
+import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 
 /**
 * --- Biotronik XML Parser ---
@@ -351,7 +351,9 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
                 }
             }
 
-            leads.push(lead);
+            if (hasLeadData(lead)) {
+                leads.push(lead);
+            }
         }
 
         // Infer device type from model name

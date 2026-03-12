@@ -383,6 +383,21 @@ ipcMain.handle('rebuild-database', async () => {
   }
 });
 
+ipcMain.handle('dedup-reports', async () => {
+  try {
+    const mainWindow = getMainWindow();
+    const { runDedupCleanup } = await import('./services/dedupService');
+    return await runDedupCleanup((status) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('process-status', { ...status, taskId: 'dedup-reports' });
+      }
+    });
+  } catch (error) {
+    console.error('Failed to deduplicate reports:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
   try {
     const reports = await getPatientReports(patientId);
