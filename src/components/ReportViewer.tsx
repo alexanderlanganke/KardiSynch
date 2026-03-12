@@ -100,7 +100,6 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
 
 const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [numPages, setNumPages] = React.useState<number | null>(null);
-    const [pageNumber, setPageNumber] = React.useState(1);
     const [scale, setScale] = React.useState(1.0);
     const [pdfUrl, setPdfUrl] = React.useState<string | null>(null);
     const [loading, setLoading] = React.useState(false);
@@ -115,12 +114,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
             setLoading(true);
             setError(null);
             try {
-                console.log('[ReportViewer] Requesting PDF data for:', filePath);
                 const data = await window.electronAPI.getPdfData(filePath);
-                console.log('[ReportViewer] Received data. Type:', data?.constructor.name, 'Size:', data?.byteLength);
-
-                // Create a Blob URL from the data
-                // This avoids ArrayBuffer detachment issues because we pass a URL string to react-pdf
                 const blob = new Blob([new Uint8Array(data)], { type: 'application/pdf' });
                 url = URL.createObjectURL(blob);
                 setPdfUrl(url);
@@ -133,10 +127,8 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
         };
 
         loadPdf();
-        setPageNumber(1);
         setScale(1.0);
 
-        // Cleanup Blob URL on unmount or file change
         return () => {
             if (url) {
                 URL.revokeObjectURL(url);
@@ -145,24 +137,13 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     }, [filePath]);
 
     function onDocumentLoadSuccess({ numPages }: { numPages: number }) {
-        console.log('[ReportViewer] Document loaded successfully. Pages:', numPages);
         setNumPages(numPages);
-        setPageNumber(1);
     }
 
     function onDocumentLoadError(error: Error) {
         console.error('[ReportViewer] Document load error:', error);
         setError(`Render Error: ${error.message}`);
     }
-
-
-
-    const changePage = (offset: number) => {
-        setPageNumber(prevPageNumber => prevPageNumber + offset);
-    };
-
-    const previousPage = () => changePage(-1);
-    const nextPage = () => changePage(1);
 
     const zoomIn = () => setScale(prev => Math.min(prev + 0.1, 2.0));
     const zoomOut = () => setScale(prev => Math.max(prev - 0.1, 0.5));
@@ -212,33 +193,11 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
         <div className="flex flex-col h-full w-full min-w-0">
             {/* Controls */}
             <div className="flex-shrink-0 w-full flex items-center justify-between px-2 py-1 border-b border-border bg-card">
-                <div className="flex items-center gap-1">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        disabled={pageNumber <= 1}
-                        onClick={previousPage}
-                        title="Previous Page"
-                    >
-                        <ChevronLeft className="h-3.5 w-3.5" />
-                    </Button>
-                    <span className="text-xs text-muted-foreground px-1">
-                        {pageNumber}/{numPages || '--'}
-                    </span>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7"
-                        disabled={pageNumber >= (numPages || 0)}
-                        onClick={nextPage}
-                        title="Next Page"
-                    >
-                        <ChevronRight className="h-3.5 w-3.5" />
-                    </Button>
-                </div>
+                <span className="text-xs text-muted-foreground px-1">
+                    {numPages || '--'} {numPages === 1 ? 'page' : 'pages'}
+                </span>
 
-                {/* Search Toggle */}
+                {/* Search & Zoom */}
                 <div className="flex items-center gap-1">
                     {isSearchVisible ? (
                         <form onSubmit={handleSearch} className="flex items-center gap-1 bg-background border border-input rounded-md px-2 h-7">
@@ -300,13 +259,13 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
                 </div>
             </div>
 
-            {/* PDF Document */}
-            <div className="flex-1 overflow-auto p-4 flex justify-center bg-muted min-w-0">
+            {/* PDF Document — all pages rendered, scrollable */}
+            <div className="flex-1 overflow-auto p-4 bg-muted min-w-0">
                 <Document
                     file={pdfUrl}
                     onLoadSuccess={onDocumentLoadSuccess}
                     onLoadError={onDocumentLoadError}
-                    className="shadow-lg"
+                    className="flex flex-col items-center gap-4"
                     loading={
                         <div className="flex items-center justify-center h-full text-muted-foreground">
                             Rendering PDF...
@@ -318,13 +277,16 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
                         </div>
                     }
                 >
-                    <Page
-                        pageNumber={pageNumber}
-                        scale={scale}
-                        renderTextLayer={true}
-                        renderAnnotationLayer={true}
-                        className="bg-white"
-                    />
+                    {numPages && Array.from({ length: numPages }, (_, i) => (
+                        <Page
+                            key={i + 1}
+                            pageNumber={i + 1}
+                            scale={scale}
+                            renderTextLayer={true}
+                            renderAnnotationLayer={true}
+                            className="bg-white shadow-lg"
+                        />
+                    ))}
                 </Document>
             </div>
         </div>
