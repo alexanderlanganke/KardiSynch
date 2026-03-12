@@ -31,7 +31,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
   const handleFinish = async () => {
     setSaving(true);
     try {
-      const settings: any = {};
+      const settings: any = { onboardingCompleted: true };
       if (dataPath) settings.dataPath = dataPath;
       if (importDir) settings.importDir = importDir;
       if (enableAutomation) {
@@ -210,7 +210,10 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
           {!isLastStep && (
             <button
               className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
-              onClick={onComplete}
+              onClick={async () => {
+                await window.electronAPI.setSettings({ onboardingCompleted: true });
+                onComplete();
+              }}
             >
               Skip setup
             </button>

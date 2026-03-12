@@ -14,6 +14,7 @@ export interface AppSettings {
     updateChannel: 'stable' | 'beta';
     mriCountry: string;
     mriManufacturers: Record<string, boolean>;
+    onboardingCompleted: boolean;
 }
 
 const isDev = process.env.NODE_ENV === 'development';
@@ -27,6 +28,7 @@ const DEFAULT_SETTINGS: AppSettings = {
     usbSourceDirectories: [],
     usbTargetDirectory: '',
     updateChannel: 'stable',
+    onboardingCompleted: false,
     mriCountry: 'Germany',
     mriManufacturers: {
         'Biotronik': true,

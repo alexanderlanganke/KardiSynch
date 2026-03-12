@@ -93,7 +93,7 @@ const App: React.FC = () => {
     const checkOnboarding = async () => {
       try {
         const settings = await window.electronAPI.getSettings();
-        if (!settings || (!settings.dataPath && !settings.importDir)) {
+        if (!settings || !settings.onboardingCompleted) {
           setShowOnboarding(true);
         }
       } catch {
