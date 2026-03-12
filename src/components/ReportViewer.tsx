@@ -190,7 +190,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     }
 
     return (
-        <div className="flex flex-col h-full w-full min-w-0">
+        <div className="absolute inset-0 flex flex-col">
             {/* Controls */}
             <div className="flex-shrink-0 w-full flex items-center justify-between px-2 py-1 border-b border-border bg-card">
                 <span className="text-xs text-muted-foreground px-1">
@@ -260,7 +260,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
             </div>
 
             {/* PDF Document — all pages rendered, scrollable */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 bg-muted min-w-0 min-h-0">
+            <div className="pdf-scroll flex-1 overflow-y-scroll overflow-x-hidden p-4 bg-muted min-h-0" style={{ overscrollBehavior: 'contain' }}>
                 <Document
                     file={pdfUrl}
                     onLoadSuccess={onDocumentLoadSuccess}
