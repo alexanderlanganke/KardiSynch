@@ -98,6 +98,65 @@ pdfjs.GlobalWorkerOptions.workerSrc = new URL(
     import.meta.url,
 ).toString();
 
+const DEFAULT_PAGE_HEIGHT = 842; // A4 height in PDF points
+
+const LazyPage: React.FC<{
+    pageNumber: number;
+    scale: number;
+}> = ({ pageNumber, scale }) => {
+    const containerRef = React.useRef<HTMLDivElement>(null);
+    const [isVisible, setIsVisible] = React.useState(false);
+    const [pageSize, setPageSize] = React.useState<{ width: number; height: number } | null>(null);
+
+    React.useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    setIsVisible(true);
+                }
+            },
+            { rootMargin: '200px 0px' }
+        );
+
+        observer.observe(el);
+        return () => observer.disconnect();
+    }, []);
+
+    const onPageLoadSuccess = (page: { width: number; height: number }) => {
+        setPageSize({ width: page.width, height: page.height });
+    };
+
+    const placeholderHeight = pageSize
+        ? pageSize.height * scale
+        : DEFAULT_PAGE_HEIGHT * scale;
+
+    if (!isVisible) {
+        return (
+            <div
+                ref={containerRef}
+                style={{ height: placeholderHeight, width: '100%' }}
+                className="bg-muted/50 rounded"
+            />
+        );
+    }
+
+    return (
+        <div ref={containerRef}>
+            <Page
+                pageNumber={pageNumber}
+                scale={scale}
+                renderTextLayer={true}
+                renderAnnotationLayer={true}
+                className="bg-white shadow-lg"
+                onLoadSuccess={onPageLoadSuccess}
+            />
+        </div>
+    );
+};
+
 const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [numPages, setNumPages] = React.useState<number | null>(null);
     const [scale, setScale] = React.useState(1.0);
@@ -278,13 +337,10 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
                     }
                 >
                     {numPages && Array.from({ length: numPages }, (_, i) => (
-                        <Page
+                        <LazyPage
                             key={i + 1}
                             pageNumber={i + 1}
                             scale={scale}
-                            renderTextLayer={true}
-                            renderAnnotationLayer={true}
-                            className="bg-white shadow-lg"
                         />
                     ))}
                 </Document>
