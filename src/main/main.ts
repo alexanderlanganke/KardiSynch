@@ -816,6 +816,9 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
             manufacturer: visitData.manufacturer,
             device_type: visitData.device_type,
             directoryName: dir.name,
+            visit_type: visitData.visit_type || undefined,
+            source_domain: visitData.source_domain || undefined,
+            source_manufacturer: visitData.source_manufacturer || undefined,
           };
         } catch (err) {
           console.warn(`Failed to read visit data from ${dir.name}:`, err);
@@ -1188,6 +1191,20 @@ app.on('window-all-closed', () => {
     app.quit();
   }
 });
+
+app.on('before-quit', async () => {
+  // Cleanup web panel
+  try {
+    const { WebPanelManager } = await import('./webPanelManager');
+    WebPanelManager.getInstance().destroy();
+  } catch { /* noop */ }
+
+  // Cleanup temp downloads
+  try {
+    const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
+    await fs.rm(tempDir, { recursive: true, force: true });
+  } catch { /* noop */ }
+});
 // Debug: File selection and Biotronik XML analyzer
 ipcMain.handle('select-file', async (event, filters?: { name: string; extensions: string[] }[]) => {
   const mainWindow = getMainWindow();
@@ -1256,4 +1273,188 @@ ipcMain.handle('open-external', async (event, url) => {
     console.error('Failed to open external URL:', error);
     throw error;
   }
+});
+
+// ─── Web Panel IPC Handlers ──────────────────────────────────────
+
+ipcMain.handle('web-panel-show', async () => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  const mainWindow = getMainWindow();
+  if (mainWindow) WebPanelManager.getInstance().show(mainWindow);
+});
+
+ipcMain.handle('web-panel-hide', async () => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  const mainWindow = getMainWindow();
+  if (mainWindow) WebPanelManager.getInstance().hide(mainWindow);
+});
+
+ipcMain.handle('web-panel-navigate', async (_event, url: string) => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  WebPanelManager.getInstance().navigate(url);
+});
+
+ipcMain.handle('web-panel-go-back', async () => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  WebPanelManager.getInstance().goBack();
+});
+
+ipcMain.handle('web-panel-go-forward', async () => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  WebPanelManager.getInstance().goForward();
+});
+
+ipcMain.handle('web-panel-reload', async () => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  WebPanelManager.getInstance().reload();
+});
+
+ipcMain.handle('web-panel-get-url', async () => {
+  const { WebPanelManager } = await import('./webPanelManager');
+  return WebPanelManager.getInstance().getURL();
+});
+
+// ─── Web Panel — Bookmarks ───────────────────────────────────────
+
+ipcMain.handle('get-web-bookmarks', async () => {
+  const { getBookmarks } = await import('./webPanelConfig');
+  return getBookmarks();
+});
+
+ipcMain.handle('set-web-bookmarks', async (_event, config) => {
+  const { setBookmarks } = await import('./webPanelConfig');
+  setBookmarks(config);
+});
+
+// ─── Web Panel — Download Whitelist ──────────────────────────────
+
+ipcMain.handle('get-download-whitelist', async () => {
+  const { getDownloadWhitelist } = await import('./webPanelConfig');
+  return getDownloadWhitelist();
+});
+
+ipcMain.handle('set-download-whitelist', async (_event, config) => {
+  const { setDownloadWhitelist } = await import('./webPanelConfig');
+  setDownloadWhitelist(config);
+});
+
+// ─── Web Panel — Download Assignment ─────────────────────────────
+
+ipcMain.handle('web-panel-assign-download', async (_event, info: {
+  filePath: string;
+  patientId: string;
+  visitMode: 'new' | 'existing';
+  visitId?: string;
+  visitDate?: string;
+  sourceDomain: string;
+  sourceManufacturer: string;
+}) => {
+  try {
+    const { getPatientById, createReport } = await import('./database');
+    const { storeFile } = await import('./storage');
+    const { v4: uuidv4 } = await import('uuid');
+
+    const patient = await getPatientById(info.patientId);
+    if (!patient) throw new Error('Patient not found');
+
+    const visitDate = info.visitDate || new Date().toISOString().split('T')[0];
+    const reportId = info.visitId || uuidv4();
+
+    // Build a minimal UnifiedReport for DB + visit.xml
+    const remoteReport: any = {
+      id: reportId,
+      patient_id: info.patientId,
+      manufacturer: info.sourceManufacturer,
+      interrogation_date: visitDate,
+      device: { type: 'Unknown', model: 'Unknown', serial_number: 'Unknown' },
+      battery: null,
+      leads: [],
+      patient: {
+        first_name: patient.first_name,
+        last_name: patient.last_name,
+        dob: patient.dob,
+      },
+      // Remote visit metadata — used by extended generateVisitXML
+      _remoteSource: {
+        visit_type: 'remote',
+        source_domain: info.sourceDomain,
+        source_manufacturer: info.sourceManufacturer,
+      },
+    };
+
+    // Create a skeleton report for DB tracking
+    if (!info.visitId) {
+      await createReport(remoteReport);
+    }
+
+    await storeFile(
+      info.filePath,
+      reportId,
+      info.patientId,
+      `${patient.last_name}_${patient.first_name}`,
+      visitDate,
+      patient,
+      remoteReport
+    );
+
+    // Notify renderer to refresh
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('patient-list-update');
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[web-panel-assign-download] Failed:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('web-panel-dismiss-download', async (_event, filePath: string) => {
+  try {
+    const fsAsync = await import('fs/promises');
+    const downloadsDir = app.getPath('downloads');
+    const dest = path.join(downloadsDir, path.basename(filePath));
+    try {
+      await fsAsync.rename(filePath, dest);
+    } catch (err: any) {
+      if (err.code === 'EXDEV') {
+        await fsAsync.copyFile(filePath, dest);
+        await fsAsync.unlink(filePath);
+      } else {
+        throw err;
+      }
+    }
+    return { success: true, path: dest };
+  } catch (error) {
+    console.error('[web-panel-dismiss-download] Failed:', error);
+    throw error;
+  }
+});
+
+// ─── Web Panel — Credentials ─────────────────────────────────────
+
+ipcMain.handle('credential-save', async (_event, domain: string, username: string, password: string) => {
+  const { CredentialStore } = await import('./credentialStore');
+  CredentialStore.getInstance().save(domain, username, password);
+});
+
+ipcMain.handle('credential-get', async (_event, domain: string) => {
+  const { CredentialStore } = await import('./credentialStore');
+  return CredentialStore.getInstance().get(domain);
+});
+
+ipcMain.handle('credential-delete', async (_event, domain: string, username: string) => {
+  const { CredentialStore } = await import('./credentialStore');
+  CredentialStore.getInstance().delete(domain, username);
+});
+
+ipcMain.handle('credential-list', async () => {
+  const { CredentialStore } = await import('./credentialStore');
+  return CredentialStore.getInstance().list();
+});
+
+ipcMain.handle('credential-is-available', async () => {
+  const { CredentialStore } = await import('./credentialStore');
+  return CredentialStore.getInstance().isAvailable();
 });

@@ -2,13 +2,16 @@ import React from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Calendar, FileText, RefreshCw, FolderInput, Download } from 'lucide-react';
+import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi } from 'lucide-react';
 
 interface Visit {
     id: string;
     interrogation_date: string;
     manufacturer: string;
     fileCount?: number;
+    visit_type?: string;
+    source_domain?: string;
+    source_manufacturer?: string;
 }
 
 interface VisitTimelineProps {
@@ -41,13 +44,16 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                             No visits found
                         </div>
                     ) : (
-                        visits.map((visit) => (
+                        visits.map((visit) => {
+                            const isRemote = visit.visit_type === 'remote';
+                            return (
                             <Card
                                 key={visit.id}
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, visit)}
                                 onClick={() => onVisitSelect(visit)}
-                                className="min-w-[150px] cursor-pointer hover:border-primary transition-all hover:shadow-sm p-3 group relative"
+                                className={`min-w-[150px] cursor-pointer hover:border-primary transition-all hover:shadow-sm p-3 group relative ${isRemote ? 'border-blue-500/40 bg-blue-500/5' : ''}`}
+                                title={isRemote ? `Remote Monitoring — ${visit.source_manufacturer || visit.manufacturer}` : undefined}
                             >
                                 {/* Hover Actions Overlay */}
                                 <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-md border p-0.5 shadow-sm">
@@ -82,10 +88,16 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
 
                                 <div className="space-y-2 pt-1">
                                     <div className="flex items-center justify-between">
-                                        <div className="text-xs font-semibold">
+                                        <div className="text-xs font-semibold flex items-center gap-1">
+                                            {isRemote && <Wifi className="h-3 w-3 text-blue-400 flex-shrink-0" />}
                                             {new Date(visit.interrogation_date).toLocaleDateString()}
                                         </div>
                                     </div>
+                                    {isRemote && (
+                                        <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500/40 text-blue-400">
+                                            Remote
+                                        </Badge>
+                                    )}
                                     <div className="flex items-center justify-between">
                                         <div className="text-[10px] text-muted-foreground truncate max-w-[80px]" title={visit.manufacturer}>
                                             {visit.manufacturer || 'Unknown'}
@@ -97,7 +109,8 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                     </div>
                                 </div>
                             </Card>
-                        ))
+                            );
+                        })
                     )}
                 </div>
             </div>

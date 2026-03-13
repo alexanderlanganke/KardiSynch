@@ -67,6 +67,37 @@ export interface IElectronAPI {
   rescanVisit: (visitId: string) => Promise<any>;
   moveVisit: (visitId: string, targetPatientId: string) => Promise<any>;
   exportVisitFiles: (patientId: string, visitId: string, targetDirectory: string) => Promise<any>;
+
+  // Web Panel
+  webPanelShow: () => Promise<void>;
+  webPanelHide: () => Promise<void>;
+  webPanelNavigate: (url: string) => Promise<void>;
+  webPanelGoBack: () => Promise<void>;
+  webPanelGoForward: () => Promise<void>;
+  webPanelReload: () => Promise<void>;
+  webPanelGetUrl: () => Promise<string>;
+  onWebPanelUrlUpdated: (callback: (url: string) => void) => void;
+  onWebPanelLoading: (callback: (loading: boolean) => void) => void;
+  onWebPanelDownloadIntercepted: (callback: (info: { filePath: string; filename: string; sourceDomain: string; sourceManufacturer: string }) => void) => void;
+
+  // Web Panel — Bookmarks
+  getWebBookmarks: () => Promise<any>;
+  setWebBookmarks: (config: any) => Promise<void>;
+
+  // Web Panel — Download Whitelist
+  getDownloadWhitelist: () => Promise<any>;
+  setDownloadWhitelist: (config: any) => Promise<void>;
+
+  // Web Panel — Download Assignment
+  webPanelAssignDownload: (info: { filePath: string; patientId: string; visitMode: 'new' | 'existing'; visitId?: string; visitDate?: string; sourceDomain: string; sourceManufacturer: string }) => Promise<void>;
+  webPanelDismissDownload: (filePath: string) => Promise<void>;
+
+  // Web Panel — Credentials
+  credentialSave: (domain: string, username: string, password: string) => Promise<void>;
+  credentialGet: (domain: string) => Promise<{ username: string; password: string }[]>;
+  credentialDelete: (domain: string, username: string) => Promise<void>;
+  credentialList: () => Promise<{ domain: string; username: string; updated_at: string }[]>;
+  credentialIsAvailable: () => Promise<boolean>;
 }
 
 declare global {

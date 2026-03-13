@@ -98,6 +98,43 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportVisitFiles: (patientId: string, visitId: string, targetDirectory: string) => ipcRenderer.invoke('export-visit-files', patientId, visitId, targetDirectory),
   openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
 
+  // Web Panel
+  webPanelShow: () => ipcRenderer.invoke('web-panel-show'),
+  webPanelHide: () => ipcRenderer.invoke('web-panel-hide'),
+  webPanelNavigate: (url: string) => ipcRenderer.invoke('web-panel-navigate', url),
+  webPanelGoBack: () => ipcRenderer.invoke('web-panel-go-back'),
+  webPanelGoForward: () => ipcRenderer.invoke('web-panel-go-forward'),
+  webPanelReload: () => ipcRenderer.invoke('web-panel-reload'),
+  webPanelGetUrl: () => ipcRenderer.invoke('web-panel-get-url'),
+  onWebPanelUrlUpdated: (callback: (url: string) => void) => {
+    ipcRenderer.on('web-panel-url-updated', (_, url) => callback(url));
+  },
+  onWebPanelLoading: (callback: (loading: boolean) => void) => {
+    ipcRenderer.on('web-panel-loading', (_, loading) => callback(loading));
+  },
+  onWebPanelDownloadIntercepted: (callback: (info: any) => void) => {
+    ipcRenderer.on('web-panel-download-intercepted', (_, info) => callback(info));
+  },
+
+  // Web Panel — Bookmarks
+  getWebBookmarks: () => ipcRenderer.invoke('get-web-bookmarks'),
+  setWebBookmarks: (config: any) => ipcRenderer.invoke('set-web-bookmarks', config),
+
+  // Web Panel — Download Whitelist
+  getDownloadWhitelist: () => ipcRenderer.invoke('get-download-whitelist'),
+  setDownloadWhitelist: (config: any) => ipcRenderer.invoke('set-download-whitelist', config),
+
+  // Web Panel — Download Assignment
+  webPanelAssignDownload: (info: any) => ipcRenderer.invoke('web-panel-assign-download', info),
+  webPanelDismissDownload: (filePath: string) => ipcRenderer.invoke('web-panel-dismiss-download', filePath),
+
+  // Web Panel — Credentials
+  credentialSave: (domain: string, username: string, password: string) => ipcRenderer.invoke('credential-save', domain, username, password),
+  credentialGet: (domain: string) => ipcRenderer.invoke('credential-get', domain),
+  credentialDelete: (domain: string, username: string) => ipcRenderer.invoke('credential-delete', domain, username),
+  credentialList: () => ipcRenderer.invoke('credential-list'),
+  credentialIsAvailable: () => ipcRenderer.invoke('credential-is-available'),
+
   // Debug tools
   selectFile: (filters?: { name: string; extensions: string[] }[]) => ipcRenderer.invoke('select-file', filters),
   analyzeBiotronikXml: (filePath: string) => ipcRenderer.invoke('analyze-biotronik-xml', filePath),

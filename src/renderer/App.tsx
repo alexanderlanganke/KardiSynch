@@ -7,13 +7,15 @@ import { ThemeProvider, useTheme } from './ThemeProvider';
 import { PatientProvider } from './store/PatientStore';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
-import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Newspaper } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Newspaper, Globe } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
 import DeviceNews from './DeviceNews';
+import WebPanel from './WebPanel';
 import OnboardingWizard from './components/OnboardingWizard';
 import { AppDialogProvider } from './components/AppDialogProvider';
+import DownloadAssignmentDialog from '@/components/DownloadAssignmentDialog';
 
 
 const ThemeToggle: React.FC = () => {
@@ -76,6 +78,10 @@ const App: React.FC = () => {
   // Onboarding State
   const [showOnboarding, setShowOnboarding] = React.useState(false);
 
+  // Web Panel Download Interception State
+  const [downloadDialogOpen, setDownloadDialogOpen] = React.useState(false);
+  const [interceptedDownload, setInterceptedDownload] = React.useState<any>(null);
+
   React.useEffect(() => {
     // Listen for manual sorting requests
     window.electronAPI.onRequestManualSorting((fileInfo) => {
@@ -87,6 +93,12 @@ const App: React.FC = () => {
     window.electronAPI.onDeviceSelectionRequest((fileInfo) => {
       setDeviceSelectionFile(fileInfo);
       setDeviceSelectionOpen(true);
+    });
+
+    // Listen for web panel download interceptions
+    window.electronAPI.onWebPanelDownloadIntercepted((info) => {
+      setInterceptedDownload(info);
+      setDownloadDialogOpen(true);
     });
 
     // Check for first-run onboarding
@@ -121,6 +133,54 @@ const App: React.FC = () => {
     setDeviceSelectionFile(null);
   };
 
+  const handleDownloadAssign = () => {
+    if (!interceptedDownload) return;
+    // Close download dialog and open PatientAssignmentModal with remote source metadata
+    setDownloadDialogOpen(false);
+    setManualSortingFile({
+      fileName: interceptedDownload.filename,
+      filePath: interceptedDownload.filePath,
+      previewData: {
+        patientName: '',
+        dob: '',
+        date: new Date().toISOString().split('T')[0],
+      },
+      source: 'remote',
+      sourceDomain: interceptedDownload.sourceDomain,
+      sourceManufacturer: interceptedDownload.sourceManufacturer,
+    });
+    setManualSortingOpen(true);
+  };
+
+  const handleDownloadDismiss = () => {
+    if (interceptedDownload) {
+      window.electronAPI.webPanelDismissDownload(interceptedDownload.filePath);
+    }
+    setDownloadDialogOpen(false);
+    setInterceptedDownload(null);
+  };
+
+  // Override the manual sorting resolve to handle remote downloads differently
+  const handleManualSortingResolveWrapped = (decision: any) => {
+    if (manualSortingFile?.source === 'remote' && decision.action !== 'unmatched') {
+      // Use the web panel assignment flow instead of the watcher flow
+      window.electronAPI.webPanelAssignDownload({
+        filePath: manualSortingFile.filePath,
+        patientId: decision.patientId,
+        visitMode: decision.visitMode || 'new',
+        visitId: decision.visitMode === 'existing' ? decision.visitId : undefined,
+        visitDate: decision.visitDate || new Date().toISOString().split('T')[0],
+        sourceDomain: manualSortingFile.sourceDomain,
+        sourceManufacturer: manualSortingFile.sourceManufacturer,
+      });
+      setManualSortingOpen(false);
+      setManualSortingFile(null);
+      setInterceptedDownload(null);
+    } else {
+      handleManualSortingResolve(decision);
+    }
+  };
+
   const handlePatientSelect = (patientId: string) => {
     setCurrentPatientId(patientId);
     setCurrentView('patientDetail');
@@ -139,6 +199,8 @@ const App: React.FC = () => {
         return <Settings />;
       case 'news':
         return <DeviceNews />;
+      case 'webPanel':
+        return <WebPanel />;
       case 'patientDetail':
         if (currentPatientId) {
           return (
@@ -188,6 +250,12 @@ const App: React.FC = () => {
                 label="Device News"
               />
               <NavItem
+                active={currentView === 'webPanel'}
+                onClick={() => setCurrentView('webPanel')}
+                icon={<Globe className="h-6 w-6" />}
+                label="Web Panel"
+              />
+              <NavItem
                 active={currentView === 'settings'}
                 onClick={() => setCurrentView('settings')}
                 icon={<SettingsIcon className="h-6 w-6" />}
@@ -216,8 +284,15 @@ const App: React.FC = () => {
             open={manualSortingOpen}
             mode="import"
             sourceItem={manualSortingFile}
-            onResolve={handleManualSortingResolve}
+            onResolve={handleManualSortingResolveWrapped}
             onCancel={handleManualSortingCancel}
+          />
+
+          <DownloadAssignmentDialog
+            open={downloadDialogOpen}
+            downloadInfo={interceptedDownload}
+            onAssign={handleDownloadAssign}
+            onDismiss={handleDownloadDismiss}
           />
 
           <DeviceSelectionModal

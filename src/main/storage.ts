@@ -114,11 +114,25 @@ const generatePatientXML = (
  * Generates visit.xml content
  */
 const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
+  // Check for remote visit metadata (attached by web panel download flow)
+  const remoteSource = (report as any)?._remoteSource as
+    | { visit_type: string; source_domain: string; source_manufacturer: string }
+    | undefined;
+
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
 <visit>
   <report_id>${escapeXml(reportId)}</report_id>
   <interrogation_date>${escapeXml(report.interrogation_date)}</interrogation_date>
-  <manufacturer>${escapeXml(report.manufacturer || '')}</manufacturer>
+  <manufacturer>${escapeXml(report.manufacturer || '')}</manufacturer>`;
+
+  if (remoteSource) {
+    xml += `
+  <visit_type>${escapeXml(remoteSource.visit_type)}</visit_type>
+  <source_domain>${escapeXml(remoteSource.source_domain)}</source_domain>
+  <source_manufacturer>${escapeXml(remoteSource.source_manufacturer)}</source_manufacturer>`;
+  }
+
+  xml += `
   <device_type>${escapeXml(report.device?.type || '')}</device_type>
   <device_model>${escapeXml(report.device?.model || '')}</device_model>
   <device_serial>${escapeXml(report.device?.serial_number || '')}</device_serial>`;

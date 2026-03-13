@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useAppDialog } from './components/AppDialogProvider';
+import CredentialManagerPanel from '@/components/CredentialManagerPanel';
 
 // Logos
 import biotronikLogo from './assets/logos/biotronik.svg';
@@ -144,6 +145,7 @@ const Settings: React.FC = () => {
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="automation">Automation</TabsTrigger>
           <TabsTrigger value="database">Database</TabsTrigger>
+          <TabsTrigger value="webpanel">Web Panel</TabsTrigger>
           <TabsTrigger value="about">About</TabsTrigger>
           {DEBUG_MODE && <TabsTrigger value="debug"><Bug className="h-3.5 w-3.5 mr-1.5" />Debug</TabsTrigger>}
         </TabsList>
@@ -397,6 +399,19 @@ const Settings: React.FC = () => {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Web Panel */}
+          <TabsContent value="webpanel">
+            <Card>
+              <CardHeader>
+                <CardTitle>Web Panel Settings</CardTitle>
+                <CardDescription>Manage saved credentials for the integrated web browser. Passwords are encrypted using your OS keychain.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <CredentialManagerPanel />
               </CardContent>
             </Card>
           </TabsContent>
