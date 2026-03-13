@@ -1,7 +1,8 @@
-import { BrowserView, BrowserWindow, app, session } from 'electron';
+import { BrowserView, BrowserWindow, app, ipcMain, session } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { getMainWindow } from './windowManager';
+import { CredentialStore } from './credentialStore';
 
 const SIDEBAR_WIDTH = 64;
 const NAV_BAR_HEIGHT = 88; // nav bar + bookmark bar
@@ -30,6 +31,7 @@ class WebPanelManager {
         contextIsolation: true,
         sandbox: true,
         partition: 'persist:webpanel',
+        preload: path.join(__dirname, '../preload/webPanelPreload.js'),
       },
     });
 
@@ -81,6 +83,12 @@ class WebPanelManager {
 
     // Download interception
     this.setupDownloadInterception(ses);
+
+    // Credential detection from preload
+    this.setupCredentialDetection(wc);
+
+    // Auto-fill saved credentials on page load
+    this.setupAutoFill(wc);
 
     return this.view;
   }
@@ -211,6 +219,93 @@ class WebPanelManager {
       // Non-whitelisted or non-PDF: default Chromium download behavior
     });
   }
+
+  private setupCredentialDetection(wc: Electron.WebContents) {
+    const viewWebContentsId = wc.id;
+
+    // The webPanelPreload sends this when it detects a login form submission
+    ipcMain.on('web-panel-credentials-detected', (event, creds: { domain: string; username: string; password: string }) => {
+      // Verify sender is our BrowserView — reject messages from other renderers
+      if (event.sender.id !== viewWebContentsId) return;
+
+      // Basic validation
+      if (!creds?.domain || !creds?.username || !creds?.password) return;
+      if (typeof creds.domain !== 'string' || typeof creds.username !== 'string' || typeof creds.password !== 'string') return;
+
+      const store = CredentialStore.getInstance();
+      if (!store.isAvailable()) return;
+
+      // Check if we already have this exact credential saved
+      const existing = store.get(creds.domain);
+      const alreadySaved = existing.some(
+        (c) => c.username === creds.username && c.password === creds.password
+      );
+      if (alreadySaved) return;
+
+      // Forward to renderer for "Save password?" prompt (no password sent)
+      const win = getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('web-panel-credentials-detected', {
+          domain: creds.domain,
+          username: creds.username,
+        });
+      }
+
+      // Store temporarily so the renderer can confirm without re-sending the password
+      this.pendingCredential = creds;
+
+      // Auto-expire pending credential after 60s
+      if (this.pendingCredentialTimer) clearTimeout(this.pendingCredentialTimer);
+      this.pendingCredentialTimer = setTimeout(() => {
+        this.pendingCredential = null;
+        this.pendingCredentialTimer = null;
+      }, 60000);
+    });
+
+    ipcMain.handle('web-panel-save-pending-credential', async () => {
+      if (this.pendingCredential) {
+        const { domain, username, password } = this.pendingCredential;
+        CredentialStore.getInstance().save(domain, username, password);
+        this.pendingCredential = null;
+        if (this.pendingCredentialTimer) {
+          clearTimeout(this.pendingCredentialTimer);
+          this.pendingCredentialTimer = null;
+        }
+      }
+    });
+
+    ipcMain.handle('web-panel-dismiss-pending-credential', async () => {
+      this.pendingCredential = null;
+      if (this.pendingCredentialTimer) {
+        clearTimeout(this.pendingCredentialTimer);
+        this.pendingCredentialTimer = null;
+      }
+    });
+  }
+
+  private setupAutoFill(wc: Electron.WebContents) {
+    wc.on('did-finish-load', () => {
+      const store = CredentialStore.getInstance();
+      if (!store.isAvailable()) return;
+
+      let domain = '';
+      try {
+        domain = new URL(wc.getURL()).hostname;
+      } catch { return; }
+
+      const creds = store.get(domain);
+      if (creds.length === 0) return;
+
+      // Use the first saved credential for this domain
+      const { username, password } = creds[0];
+
+      // Send to the preload script which will fill the form
+      wc.send('web-panel-autofill', { username, password });
+    });
+  }
+
+  private pendingCredential: { domain: string; username: string; password: string } | null = null;
+  private pendingCredentialTimer: ReturnType<typeof setTimeout> | null = null;
 
   private updateBounds(mainWindow: BrowserWindow) {
     if (!this.view || !this.attached) return;

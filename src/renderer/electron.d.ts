@@ -92,9 +92,12 @@ export interface IElectronAPI {
   webPanelAssignDownload: (info: { filePath: string; patientId: string; visitMode: 'new' | 'existing'; visitId?: string; visitDate?: string; sourceDomain: string; sourceManufacturer: string }) => Promise<void>;
   webPanelDismissDownload: (filePath: string) => Promise<void>;
 
-  // Web Panel — Credentials
-  credentialSave: (domain: string, username: string, password: string) => Promise<void>;
-  credentialGet: (domain: string) => Promise<{ username: string; password: string }[]>;
+  // Web Panel — Credential Prompt
+  onWebPanelCredentialsDetected: (callback: (info: { domain: string; username: string }) => void) => void;
+  webPanelSavePendingCredential: () => Promise<void>;
+  webPanelDismissPendingCredential: () => Promise<void>;
+
+  // Web Panel — Credentials (passwords never sent to renderer — auto-fill is main-process only)
   credentialDelete: (domain: string, username: string) => Promise<void>;
   credentialList: () => Promise<{ domain: string; username: string; updated_at: string }[]>;
   credentialIsAvailable: () => Promise<boolean>;

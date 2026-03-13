@@ -128,9 +128,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   webPanelAssignDownload: (info: any) => ipcRenderer.invoke('web-panel-assign-download', info),
   webPanelDismissDownload: (filePath: string) => ipcRenderer.invoke('web-panel-dismiss-download', filePath),
 
-  // Web Panel — Credentials
-  credentialSave: (domain: string, username: string, password: string) => ipcRenderer.invoke('credential-save', domain, username, password),
-  credentialGet: (domain: string) => ipcRenderer.invoke('credential-get', domain),
+  // Web Panel — Credential Prompt
+  onWebPanelCredentialsDetected: (callback: (info: { domain: string; username: string }) => void) => {
+    ipcRenderer.on('web-panel-credentials-detected', (_, info) => callback(info));
+  },
+  webPanelSavePendingCredential: () => ipcRenderer.invoke('web-panel-save-pending-credential'),
+  webPanelDismissPendingCredential: () => ipcRenderer.invoke('web-panel-dismiss-pending-credential'),
+
+  // Web Panel — Credentials (passwords never sent to renderer — auto-fill is main-process only)
   credentialDelete: (domain: string, username: string) => ipcRenderer.invoke('credential-delete', domain, username),
   credentialList: () => ipcRenderer.invoke('credential-list'),
   credentialIsAvailable: () => ipcRenderer.invoke('credential-is-available'),

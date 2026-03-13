@@ -16,6 +16,7 @@ import WebPanel from './WebPanel';
 import OnboardingWizard from './components/OnboardingWizard';
 import { AppDialogProvider } from './components/AppDialogProvider';
 import DownloadAssignmentDialog from '@/components/DownloadAssignmentDialog';
+import CredentialSavePrompt from '@/components/CredentialSavePrompt';
 
 
 const ThemeToggle: React.FC = () => {
@@ -82,6 +83,9 @@ const App: React.FC = () => {
   const [downloadDialogOpen, setDownloadDialogOpen] = React.useState(false);
   const [interceptedDownload, setInterceptedDownload] = React.useState<any>(null);
 
+  // Credential Save Prompt State
+  const [credentialPrompt, setCredentialPrompt] = React.useState<{ domain: string; username: string } | null>(null);
+
   React.useEffect(() => {
     // Listen for manual sorting requests
     window.electronAPI.onRequestManualSorting((fileInfo) => {
@@ -99,6 +103,11 @@ const App: React.FC = () => {
     window.electronAPI.onWebPanelDownloadIntercepted((info) => {
       setInterceptedDownload(info);
       setDownloadDialogOpen(true);
+    });
+
+    // Listen for credential detection prompts
+    window.electronAPI.onWebPanelCredentialsDetected((info) => {
+      setCredentialPrompt(info);
     });
 
     // Check for first-run onboarding
@@ -300,6 +309,21 @@ const App: React.FC = () => {
             fileInfo={deviceSelectionFile}
             onResolve={handleDeviceSelectionResolve}
           />
+
+          {credentialPrompt && (
+            <CredentialSavePrompt
+              domain={credentialPrompt.domain}
+              username={credentialPrompt.username}
+              onSave={() => {
+                window.electronAPI.webPanelSavePendingCredential();
+                setCredentialPrompt(null);
+              }}
+              onDismiss={() => {
+                window.electronAPI.webPanelDismissPendingCredential();
+                setCredentialPrompt(null);
+              }}
+            />
+          )}
         </div>
       </PatientProvider>
       </AppDialogProvider>

@@ -1434,16 +1434,9 @@ ipcMain.handle('web-panel-dismiss-download', async (_event, filePath: string) =>
 });
 
 // ─── Web Panel — Credentials ─────────────────────────────────────
-
-ipcMain.handle('credential-save', async (_event, domain: string, username: string, password: string) => {
-  const { CredentialStore } = await import('./credentialStore');
-  CredentialStore.getInstance().save(domain, username, password);
-});
-
-ipcMain.handle('credential-get', async (_event, domain: string) => {
-  const { CredentialStore } = await import('./credentialStore');
-  return CredentialStore.getInstance().get(domain);
-});
+// Passwords are never sent to the renderer process.
+// Auto-fill & saving flow through webPanelManager (main-process only).
+// The renderer can only list metadata and delete entries.
 
 ipcMain.handle('credential-delete', async (_event, domain: string, username: string) => {
   const { CredentialStore } = await import('./credentialStore');
