@@ -61,18 +61,104 @@ class WebPanelManager {
       if (win && !win.isDestroyed()) win.webContents.send('web-panel-title-updated', title);
     });
 
-    // Handle new-window requests (target="_blank" links) — open in same view
+    // Handle new-window requests (target="_blank" links)
     wc.setWindowOpenHandler(({ url }) => {
+      // Allow blob URLs so we can intercept PDF blobs (e.g. CareLink exports)
+      if (url.startsWith('blob:')) {
+        return { action: 'allow' };
+      }
+      // Regular URLs — navigate in the same view
       if (url.startsWith('http:') || url.startsWith('https:')) {
         wc.loadURL(url);
       }
       return { action: 'deny' };
     });
 
+    // Intercept child windows (blob PDF exports from CareLink etc.)
+    wc.on('did-create-window', (childWindow) => {
+      this.handleChildWindow(childWindow);
+    });
+
     // Download interception
     this.setupDownloadInterception(ses);
 
     return this.view;
+  }
+
+  private handleChildWindow(childWindow: BrowserWindow) {
+    // Hide the child window — we only need it to resolve the blob
+    childWindow.hide();
+
+    const childWc = childWindow.webContents;
+
+    childWc.on('did-finish-load', async () => {
+      const url = childWc.getURL();
+
+      // Determine source domain from the blob origin (blob:https://domain/...)
+      let sourceDomain = '';
+      if (url.startsWith('blob:')) {
+        try {
+          sourceDomain = new URL(url.slice(5)).hostname;
+        } catch { /* noop */ }
+      } else {
+        try {
+          sourceDomain = new URL(url).hostname;
+        } catch { /* noop */ }
+      }
+
+      // Load whitelist
+      let downloadConfig: any;
+      try {
+        const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
+        downloadConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      } catch {
+        downloadConfig = getDefaultDownloadConfig();
+      }
+
+      const isWhitelisted = downloadConfig.remote_monitoring_domains.includes(sourceDomain);
+
+      if (isWhitelisted) {
+        try {
+          // Extract PDF bytes from the blob URL via JS in the child window
+          const pdfBytes: Buffer = await childWc.executeJavaScript(`
+            (async () => {
+              const resp = await fetch(window.location.href);
+              const buf = await resp.arrayBuffer();
+              return Array.from(new Uint8Array(buf));
+            })()
+          `).then((arr: number[]) => Buffer.from(arr));
+
+          // Verify it's a PDF (starts with %PDF)
+          if (pdfBytes.length > 4 && pdfBytes.slice(0, 5).toString('ascii').startsWith('%PDF')) {
+            const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
+            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+            const filename = `CareLink_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+            const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
+            fs.writeFileSync(tempPath, pdfBytes);
+
+            const manufacturer = downloadConfig.domain_manufacturer_map?.[sourceDomain] || 'Medtronic';
+            const win = getMainWindow();
+            if (win && !win.isDestroyed()) {
+              win.webContents.send('web-panel-download-intercepted', {
+                filePath: tempPath,
+                filename,
+                sourceDomain,
+                sourceManufacturer: manufacturer,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[WebPanel] Failed to extract PDF from blob window:', err);
+        }
+      }
+
+      childWindow.close();
+    });
+
+    // Safety: close after timeout if load never finishes
+    setTimeout(() => {
+      if (!childWindow.isDestroyed()) childWindow.close();
+    }, 30000);
   }
 
   private setupDownloadInterception(ses: Electron.Session) {
