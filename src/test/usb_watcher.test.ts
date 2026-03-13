@@ -53,7 +53,7 @@ describe('USB Watcher Integration', () => {
     });
 
     it('should copy from Source to Target and Import, then delete from Source', async () => {
-        const fileName = 'test_source.txt';
+        const fileName = 'test_source.xml';
         const filePath = path.join(SOURCE_DIR, fileName);
         fs.writeFileSync(filePath, 'source content');
 
@@ -68,7 +68,7 @@ describe('USB Watcher Integration', () => {
     }, 10000);
 
     it('should copy from Target to Import if new', async () => {
-        const fileName = 'test_target.txt';
+        const fileName = 'test_target.xml';
         const filePath = path.join(TARGET_DIR, fileName);
         fs.writeFileSync(filePath, 'target content');
 
@@ -82,7 +82,7 @@ describe('USB Watcher Integration', () => {
     }, 10000);
 
     it('should NOT re-import from Target if already processed', async () => {
-        const fileName = 'test_processed.txt';
+        const fileName = 'test_processed.xml';
         const filePath = path.join(TARGET_DIR, fileName);
         fs.writeFileSync(filePath, 'processed content');
 
@@ -105,7 +105,7 @@ describe('USB Watcher Integration', () => {
     }, 10000);
 
     it('should re-import from Target if modified', async () => {
-        const fileName = 'test_modified.txt';
+        const fileName = 'test_modified.xml';
         const filePath = path.join(TARGET_DIR, fileName);
         fs.writeFileSync(filePath, 'initial content');
 
