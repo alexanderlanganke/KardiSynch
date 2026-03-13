@@ -28,6 +28,7 @@ const DownloadAssignmentDialog: React.FC<DownloadAssignmentDialogProps> = ({
   // Friendly domain label
   const domainLabels: Record<string, string> = {
     'carelink.medtronic.com': 'CareLink',
+    'europe.carelink.net': 'CareLink',
     'biotronik-homemonitoring.com': 'Home Monitoring',
     'www.merlin.net': 'Merlin.net',
     'merlin.net': 'Merlin.net',

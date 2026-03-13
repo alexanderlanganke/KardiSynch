@@ -38,7 +38,7 @@ export function getCareLinkUrl(country: string): string {
   const isEu = EU_COUNTRIES.some(
     (c) => c.toLowerCase() === country.toLowerCase()
   );
-  return isEu ? 'https://carelink.medtronic.eu' : 'https://carelink.medtronic.com';
+  return isEu ? 'https://europe.carelink.net' : 'https://carelink.medtronic.com';
 }
 
 function getDefaultBookmarks(country: string): BookmarkConfig {
