@@ -63,20 +63,45 @@ class WebPanelManager {
       if (win && !win.isDestroyed()) win.webContents.send('web-panel-title-updated', title);
     });
 
-    // Handle new-window requests (target="_blank" links)
+    // Handle new-window requests (target="_blank" links, CareLink PDF popups)
     wc.setWindowOpenHandler(({ url }) => {
-      // Allow blob URLs so we can intercept PDF blobs (e.g. CareLink exports)
+      // Allow blob URLs so we can intercept PDF blobs
       if (url.startsWith('blob:')) {
         return { action: 'allow' };
       }
-      // Regular URLs — navigate in the same view
+
+      // Check if the current page is on a whitelisted domain.
+      // CareLink uses window.open() to serve PDFs in a popup — we need to
+      // allow the child window so we can intercept the PDF response.
+      let currentDomain = '';
+      try { currentDomain = new URL(wc.getURL()).hostname; } catch { /* noop */ }
+
+      let targetDomain = '';
+      try { targetDomain = new URL(url).hostname; } catch { /* noop */ }
+
+      const config = this.loadDownloadConfig();
+      const domains: string[] = config.remote_monitoring_domains;
+      const isFromWhitelisted = domains.some((d: string) =>
+        currentDomain === d || currentDomain.endsWith('.' + d)
+      );
+      const isToWhitelisted = domains.some((d: string) =>
+        targetDomain === d || targetDomain.endsWith('.' + d)
+      );
+
+      if (isFromWhitelisted || isToWhitelisted) {
+        // Allow child window — handleChildWindow will check for PDF content
+        console.log(`[WebPanel] Allowing popup from whitelisted domain: ${url.substring(0, 100)}`);
+        return { action: 'allow' };
+      }
+
+      // Non-whitelisted — navigate in the same view
       if (url.startsWith('http:') || url.startsWith('https:')) {
         wc.loadURL(url);
       }
       return { action: 'deny' };
     });
 
-    // Intercept child windows (blob PDF exports from CareLink etc.)
+    // Intercept child windows (PDF exports, blob windows)
     wc.on('did-create-window', (childWindow) => {
       this.handleChildWindow(childWindow);
     });
@@ -94,96 +119,106 @@ class WebPanelManager {
   }
 
   private handleChildWindow(childWindow: BrowserWindow) {
-    // Hide the child window — we only need it to resolve the blob
+    // Hide the child window — we only need it to resolve blob/PDF content
     childWindow.hide();
 
     const childWc = childWindow.webContents;
-    // Capture the parent BrowserView's current URL for domain fallback
     const parentUrl = this.view?.webContents.getURL() || '';
+    let pdfIntercepted = false;
 
     console.log('[WebPanel] Child window created, parent URL:', parentUrl);
 
+    // Use webRequest to detect PDF content-type responses in the child window
+    childWc.session.webRequest.onHeadersReceived(
+      { urls: ['*://*/*'] },
+      (details, callback) => {
+        const contentType = (details.responseHeaders?.['content-type'] || details.responseHeaders?.['Content-Type'] || [])[0] || '';
+        if (contentType.includes('application/pdf') && !pdfIntercepted) {
+          console.log('[WebPanel] Child window received PDF response:', details.url.substring(0, 100));
+          // Let it load — we'll capture it in did-finish-load via printToPDF or fetch
+        }
+        callback({ cancel: false });
+      }
+    );
+
     childWc.on('did-finish-load', async () => {
+      if (pdfIntercepted) return;
       const url = childWc.getURL();
       console.log('[WebPanel] Child window loaded:', url.substring(0, 100));
 
-      // Determine source domain: try blob origin, then child URL, then parent URL
-      let sourceDomain = '';
-      if (url.startsWith('blob:')) {
-        try {
-          sourceDomain = new URL(url.slice(5)).hostname;
-        } catch { /* noop */ }
-      }
-      if (!sourceDomain) {
-        try { sourceDomain = new URL(url).hostname; } catch { /* noop */ }
-      }
-      if (!sourceDomain && parentUrl) {
-        try { sourceDomain = new URL(parentUrl).hostname; } catch { /* noop */ }
-      }
-
+      // Determine source domain: try blob origin, child URL, then parent URL
+      const sourceDomain = this.resolveChildDomain(url, parentUrl);
       console.log('[WebPanel] Resolved child window domain:', sourceDomain);
 
-      // Load whitelist
-      let downloadConfig: any;
-      try {
-        const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
-        downloadConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      } catch {
-        downloadConfig = getDefaultDownloadConfig();
-      }
-
+      const downloadConfig = this.loadDownloadConfig();
       const domains: string[] = downloadConfig.remote_monitoring_domains;
       const isWhitelisted = domains.some((d: string) =>
         sourceDomain === d || sourceDomain.endsWith('.' + d)
       );
 
-      if (isWhitelisted) {
-        try {
-          // Extract PDF bytes from the blob URL via JS in the child window
-          const pdfBytes: Buffer = await childWc.executeJavaScript(`
+      if (!isWhitelisted) {
+        console.log('[WebPanel] Child window domain not whitelisted:', sourceDomain);
+        childWindow.close();
+        return;
+      }
+
+      try {
+        // Try extracting PDF content.
+        // For blob URLs: fetch the blob. For HTTPS URLs: the page IS the PDF.
+        let pdfBytes: Buffer;
+        if (url.startsWith('blob:')) {
+          pdfBytes = await childWc.executeJavaScript(`
             (async () => {
               const resp = await fetch(window.location.href);
               const buf = await resp.arrayBuffer();
               return Array.from(new Uint8Array(buf));
             })()
           `).then((arr: number[]) => Buffer.from(arr));
-
-          // Verify it's a PDF (starts with %PDF)
-          if (pdfBytes.length > 4 && pdfBytes.slice(0, 5).toString('ascii').startsWith('%PDF')) {
-            const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
-            if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-            const filename = `CareLink_Report_${new Date().toISOString().split('T')[0]}.pdf`;
-            const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
-            fs.writeFileSync(tempPath, pdfBytes);
-
-            const manufacturer = downloadConfig.domain_manufacturer_map?.[sourceDomain] || 'Medtronic';
-            const win = getMainWindow();
-            if (win && !win.isDestroyed()) {
-              win.webContents.send('web-panel-download-intercepted', {
-                filePath: tempPath,
-                filename,
-                sourceDomain,
-                sourceManufacturer: manufacturer,
-              });
-            }
-            console.log('[WebPanel] PDF extracted from child window:', filename);
-          } else {
-            console.log('[WebPanel] Child window content is not a PDF (no %PDF header)');
-          }
-        } catch (err) {
-          console.error('[WebPanel] Failed to extract PDF from blob window:', err);
+        } else {
+          // For server-rendered PDFs (CareLink .aspx), use printToPDF first,
+          // but also try re-fetching the URL to get raw PDF bytes
+          pdfBytes = await childWc.executeJavaScript(`
+            (async () => {
+              try {
+                const resp = await fetch(window.location.href, { credentials: 'include' });
+                const ct = resp.headers.get('content-type') || '';
+                if (ct.includes('pdf') || ct.includes('octet-stream')) {
+                  const buf = await resp.arrayBuffer();
+                  return Array.from(new Uint8Array(buf));
+                }
+              } catch(e) {}
+              return null;
+            })()
+          `).then((arr: number[] | null) => {
+            if (arr) return Buffer.from(arr);
+            // Fallback: use printToPDF (captures rendered content as PDF)
+            return childWc.printToPDF({});
+          });
         }
-      } else {
-        console.log('[WebPanel] Child window domain not whitelisted:', sourceDomain);
+
+        // Verify it's a PDF (starts with %PDF)
+        if (pdfBytes.length > 4 && pdfBytes.slice(0, 5).toString('ascii').startsWith('%PDF')) {
+          pdfIntercepted = true;
+          this.savePdfAndNotify(pdfBytes, sourceDomain, downloadConfig);
+        } else if (pdfBytes.length > 100) {
+          // printToPDF output is always a valid PDF
+          pdfIntercepted = true;
+          this.savePdfAndNotify(pdfBytes, sourceDomain, downloadConfig);
+        } else {
+          console.log('[WebPanel] Child window content is not a PDF');
+        }
+      } catch (err) {
+        console.error('[WebPanel] Failed to extract PDF from child window:', err);
       }
 
       childWindow.close();
     });
 
-    // Also handle if the child window triggers a download instead of loading content
-    childWindow.webContents.session.on('will-download', (_event, item) => {
+    // Handle if the child window triggers a will-download instead of loading content
+    childWc.session.on('will-download', (_event, item) => {
       const filename = item.getFilename();
-      if (filename.toLowerCase().endsWith('.pdf')) {
+      if (filename.toLowerCase().endsWith('.pdf') && !pdfIntercepted) {
+        pdfIntercepted = true;
         console.log('[WebPanel] Child window triggered PDF download:', filename);
         const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
@@ -192,14 +227,7 @@ class WebPanelManager {
 
         item.on('done', (_e, state) => {
           if (state === 'completed') {
-            let downloadConfig: any;
-            try {
-              const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
-              downloadConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-            } catch {
-              downloadConfig = getDefaultDownloadConfig();
-            }
-
+            const downloadConfig = this.loadDownloadConfig();
             let domain = '';
             if (parentUrl) try { domain = new URL(parentUrl).hostname; } catch { /* noop */ }
             const manufacturer = downloadConfig.domain_manufacturer_map?.[domain] || 'Medtronic';
@@ -214,6 +242,7 @@ class WebPanelManager {
               });
             }
           }
+          if (!childWindow.isDestroyed()) childWindow.close();
         });
       }
     });
@@ -222,6 +251,47 @@ class WebPanelManager {
     setTimeout(() => {
       if (!childWindow.isDestroyed()) childWindow.close();
     }, 30000);
+  }
+
+  private resolveChildDomain(childUrl: string, parentUrl: string): string {
+    if (childUrl.startsWith('blob:')) {
+      try { return new URL(childUrl.slice(5)).hostname; } catch { /* noop */ }
+    }
+    try {
+      const hostname = new URL(childUrl).hostname;
+      if (hostname) return hostname;
+    } catch { /* noop */ }
+    try { return new URL(parentUrl).hostname; } catch { /* noop */ }
+    return '';
+  }
+
+  private savePdfAndNotify(pdfBytes: Buffer, sourceDomain: string, downloadConfig: any) {
+    const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    const filename = `CareLink_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+    const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
+    fs.writeFileSync(tempPath, pdfBytes);
+
+    const manufacturer = downloadConfig.domain_manufacturer_map?.[sourceDomain] || 'Medtronic';
+    const win = getMainWindow();
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('web-panel-download-intercepted', {
+        filePath: tempPath,
+        filename,
+        sourceDomain,
+        sourceManufacturer: manufacturer,
+      });
+    }
+    console.log('[WebPanel] PDF intercepted:', filename, 'from', sourceDomain);
+  }
+
+  private loadDownloadConfig(): any {
+    try {
+      const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
+      return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    } catch {
+      return getDefaultDownloadConfig();
+    }
   }
 
   private resolveSourceDomain(item: Electron.DownloadItem): string {
@@ -277,14 +347,7 @@ class WebPanelManager {
 
       console.log(`[WebPanel] Download intercepted: filename=${filename}, domain=${sourceDomain}, url=${item.getURL().substring(0, 100)}`);
 
-      // Load whitelist config
-      let downloadConfig: any;
-      try {
-        const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
-        downloadConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      } catch {
-        downloadConfig = getDefaultDownloadConfig();
-      }
+      const downloadConfig = this.loadDownloadConfig();
 
       // Check domain: exact match or subdomain match against whitelist
       const domains: string[] = downloadConfig.remote_monitoring_domains;
