@@ -98,16 +98,16 @@ Stored in `config/web_bookmarks.json`. User-editable via settings UI or direct f
     {
       "category": "MRI Compatibility",
       "items": [
-        { "label": "SureScan", "url": "https://www.medtronic.com/us-en/healthcare-professionals/therapies-procedures/cardiac-rhythm/mri-surescan.html", "icon": "mri" },
-        { "label": "ProMRI Check", "url": "https://www.biotronik.com/en-de/promri", "icon": "mri" },
-        { "label": "Merlin MRI", "url": "https://www.cardiovascular.abbott/us/en/hcp/products/cardiac-rhythm-management/cardiac-rhythm-management-resources/mri-resources.html", "icon": "mri" },
-        { "label": "ImageReady", "url": "https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-conditions.html", "icon": "mri" }
+        { "label": "SureScan", "url": "https://www.medtronic.com/us-en/healthcare-professionals/mri-resources/implantable-cardiac-devices/product-listing.html", "icon": "mri" },
+        { "label": "ProMRI Check", "url": "https://www.promricheck.com", "icon": "mri" },
+        { "label": "MRI Safety", "url": "https://www.cardiovascular.abbott/us/en/hcp/mri-safety.html", "icon": "mri" },
+        { "label": "ImageReady", "url": "https://www.bostonscientific.com/imageready/en-EU/home.html", "icon": "mri" }
       ]
     },
     {
       "category": "Advisories & Recalls",
       "items": [
-        { "label": "BfArM", "url": "https://www.bfarm.de/DE/Medizinprodukte/Kundeninfos/_node.html", "icon": "alert" },
+        { "label": "BfArM", "url": "https://www.bfarm.de/DE/Medizinprodukte/Aufgaben/Risikobewertung-und-Forschung/Massnahmen-von-Herstellern/_artikel.html", "icon": "alert" },
         { "label": "FDA MAUDE", "url": "https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/search.cfm", "icon": "alert" }
       ]
     }

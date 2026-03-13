@@ -215,6 +215,7 @@ function getDefaultDownloadConfig() {
   return {
     remote_monitoring_domains: [
       'carelink.medtronic.com',
+      'carelink.medtronic.eu',
       'biotronik-homemonitoring.com',
       'www.merlin.net',
       'merlin.net',
@@ -225,6 +226,7 @@ function getDefaultDownloadConfig() {
     auto_prompt: true,
     domain_manufacturer_map: {
       'carelink.medtronic.com': 'Medtronic',
+      'carelink.medtronic.eu': 'Medtronic',
       'biotronik-homemonitoring.com': 'Biotronik',
       'merlin.net': 'Abbott',
       'www.merlin.net': 'Abbott',

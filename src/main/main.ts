@@ -1318,7 +1318,8 @@ ipcMain.handle('web-panel-get-url', async () => {
 
 ipcMain.handle('get-web-bookmarks', async () => {
   const { getBookmarks } = await import('./webPanelConfig');
-  return getBookmarks();
+  const settings = await getAllSettings();
+  return getBookmarks(settings.mriCountry);
 });
 
 ipcMain.handle('set-web-bookmarks', async (_event, config) => {

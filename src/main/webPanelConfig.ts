@@ -25,35 +25,53 @@ export interface DownloadConfig {
   domain_manufacturer_map: Record<string, string>;
 }
 
-const DEFAULT_BOOKMARKS: BookmarkConfig = {
-  bookmarks: [
-    {
-      category: 'Remote Monitoring',
-      items: [
-        { label: 'CareLink', url: 'https://carelink.medtronic.com', icon: 'monitor' },
-        { label: 'Home Monitoring', url: 'https://biotronik-homemonitoring.com', icon: 'monitor' },
-        { label: 'Merlin.net', url: 'https://www.merlin.net', icon: 'monitor' },
-        { label: 'LATITUDE', url: 'https://www.latitude.bostonscientific.com', icon: 'monitor' },
-      ],
-    },
-    {
-      category: 'MRI Compatibility',
-      items: [
-        { label: 'SureScan', url: 'https://www.medtronic.com/us-en/healthcare-professionals/therapies-procedures/cardiac-rhythm/mri-surescan.html', icon: 'mri' },
-        { label: 'ProMRI Check', url: 'https://www.biotronik.com/en-de/promri', icon: 'mri' },
-        { label: 'Merlin MRI', url: 'https://www.cardiovascular.abbott/us/en/hcp/products/cardiac-rhythm-management/cardiac-rhythm-management-resources/mri-resources.html', icon: 'mri' },
-        { label: 'ImageReady', url: 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-conditions.html', icon: 'mri' },
-      ],
-    },
-    {
-      category: 'Advisories & Recalls',
-      items: [
-        { label: 'BfArM', url: 'https://www.bfarm.de/DE/Medizinprodukte/Kundeninfos/_node.html', icon: 'alert' },
-        { label: 'FDA MAUDE', url: 'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/search.cfm', icon: 'alert' },
-      ],
-    },
-  ],
-};
+// Countries that use the EU CareLink instance
+const EU_COUNTRIES = [
+  'Germany', 'France', 'Italy', 'Spain', 'Netherlands', 'Belgium', 'Austria',
+  'Switzerland', 'Sweden', 'Norway', 'Denmark', 'Finland', 'Poland', 'Czech Republic',
+  'Portugal', 'Ireland', 'Greece', 'Hungary', 'Romania', 'Bulgaria', 'Croatia',
+  'Slovakia', 'Slovenia', 'Lithuania', 'Latvia', 'Estonia', 'Luxembourg', 'Malta',
+  'Cyprus', 'United Kingdom', 'UK',
+];
+
+export function getCareLinkUrl(country: string): string {
+  const isEu = EU_COUNTRIES.some(
+    (c) => c.toLowerCase() === country.toLowerCase()
+  );
+  return isEu ? 'https://carelink.medtronic.eu' : 'https://carelink.medtronic.com';
+}
+
+function getDefaultBookmarks(country: string): BookmarkConfig {
+  return {
+    bookmarks: [
+      {
+        category: 'Remote Monitoring',
+        items: [
+          { label: 'CareLink', url: getCareLinkUrl(country), icon: 'monitor' },
+          { label: 'Home Monitoring', url: 'https://biotronik-homemonitoring.com', icon: 'monitor' },
+          { label: 'Merlin.net', url: 'https://www.merlin.net', icon: 'monitor' },
+          { label: 'LATITUDE', url: 'https://www.latitude.bostonscientific.com', icon: 'monitor' },
+        ],
+      },
+      {
+        category: 'MRI Compatibility',
+        items: [
+          { label: 'SureScan', url: 'https://www.medtronic.com/us-en/healthcare-professionals/mri-resources/implantable-cardiac-devices/product-listing.html', icon: 'mri' },
+          { label: 'ProMRI Check', url: 'https://www.promricheck.com', icon: 'mri' },
+          { label: 'MRI Safety', url: 'https://www.cardiovascular.abbott/us/en/hcp/mri-safety.html', icon: 'mri' },
+          { label: 'ImageReady', url: 'https://www.bostonscientific.com/imageready/en-EU/home.html', icon: 'mri' },
+        ],
+      },
+      {
+        category: 'Advisories & Recalls',
+        items: [
+          { label: 'BfArM', url: 'https://www.bfarm.de/DE/Medizinprodukte/Aufgaben/Risikobewertung-und-Forschung/Massnahmen-von-Herstellern/_artikel.html', icon: 'alert' },
+          { label: 'FDA MAUDE', url: 'https://www.accessdata.fda.gov/scripts/cdrh/cfdocs/cfmaude/search.cfm', icon: 'alert' },
+        ],
+      },
+    ],
+  };
+}
 
 function getBookmarksPath(): string {
   return path.join(app.getPath('userData'), 'web_bookmarks.json');
@@ -63,12 +81,13 @@ function getDownloadConfigPath(): string {
   return path.join(app.getPath('userData'), 'web_downloads.json');
 }
 
-export function getBookmarks(): BookmarkConfig {
+export function getBookmarks(country?: string): BookmarkConfig {
   try {
     const data = fs.readFileSync(getBookmarksPath(), 'utf-8');
     return JSON.parse(data);
   } catch {
-    return DEFAULT_BOOKMARKS;
+    // No saved bookmarks — generate defaults based on region
+    return getDefaultBookmarks(country || 'Germany');
   }
 }
 

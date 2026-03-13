@@ -3,9 +3,37 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { FolderOpen, ArrowRight, ArrowLeft, ArrowDown, Check, HelpCircle } from 'lucide-react';
+import { FolderOpen, ArrowRight, ArrowLeft, ArrowDown, Check, HelpCircle, Globe } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useAppDialog } from './AppDialogProvider';
+
+const REGION_OPTIONS = [
+  { value: 'Germany', label: 'Germany' },
+  { value: 'Austria', label: 'Austria' },
+  { value: 'Switzerland', label: 'Switzerland' },
+  { value: 'France', label: 'France' },
+  { value: 'Italy', label: 'Italy' },
+  { value: 'Spain', label: 'Spain' },
+  { value: 'Netherlands', label: 'Netherlands' },
+  { value: 'Belgium', label: 'Belgium' },
+  { value: 'United Kingdom', label: 'United Kingdom' },
+  { value: 'Sweden', label: 'Sweden' },
+  { value: 'Norway', label: 'Norway' },
+  { value: 'Denmark', label: 'Denmark' },
+  { value: 'Finland', label: 'Finland' },
+  { value: 'Poland', label: 'Poland' },
+  { value: 'Czech Republic', label: 'Czech Republic' },
+  { value: 'Portugal', label: 'Portugal' },
+  { value: 'Ireland', label: 'Ireland' },
+  { value: 'Greece', label: 'Greece' },
+  { value: 'Hungary', label: 'Hungary' },
+  { value: 'Romania', label: 'Romania' },
+  { value: 'Croatia', label: 'Croatia' },
+  { value: 'United States', label: 'United States' },
+  { value: 'Canada', label: 'Canada' },
+  { value: 'Australia', label: 'Australia' },
+  { value: 'Japan', label: 'Japan' },
+];
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -16,6 +44,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
   const [step, setStep] = useState(0);
   const [dataPath, setDataPath] = useState('');
   const [importDir, setImportDir] = useState('');
+  const [mriCountry, setMriCountry] = useState('Germany');
   const [enableAutomation, setEnableAutomation] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -34,6 +63,7 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
       const settings: any = { onboardingCompleted: true };
       if (dataPath) settings.dataPath = dataPath;
       if (importDir) settings.importDir = importDir;
+      settings.mriCountry = mriCountry;
       if (enableAutomation) {
         settings.mriManufacturers = {
           'Biotronik': true,
@@ -141,7 +171,33 @@ const OnboardingWizard: React.FC<OnboardingWizardProps> = ({ onComplete }) => {
         </div>
       ),
     },
-    // Step 3: Automation
+    // Step 3: Region
+    {
+      title: 'Region',
+      description: 'Select your country. This determines which manufacturer portal URLs are used (e.g. CareLink EU vs US) and MRI compatibility lookup region.',
+      content: (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="region-select">Country / Region</Label>
+            <select
+              id="region-select"
+              value={mriCountry}
+              onChange={(e) => setMriCountry(e.target.value)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              {REGION_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex items-start gap-2 p-3 rounded-lg border border-border bg-muted/30 text-xs text-muted-foreground">
+            <Globe className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <p>European countries use <strong>carelink.medtronic.eu</strong>. Other regions use <strong>carelink.medtronic.com</strong>. You can change this later in Settings.</p>
+          </div>
+        </div>
+      ),
+    },
+    // Step 4: Automation
     {
       title: 'Automation',
       description: 'Enable automatic MRI compatibility and manufacturer safety checks.',
