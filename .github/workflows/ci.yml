@@ -43,10 +43,12 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y xvfb xauth libgtk-3-0 libnss3 libasound2t64 libxtst6
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run Build (Type Check) & Tests
-        # We run build for type checking, but not 'package'
+        # We run build for type checking, but not 'package'.
+        # @electron/rebuild is skipped (--ignore-scripts) since tests
+        # run under Node, not Electron — native modules use Node ABI.
         run: |
           npm run build
           npm test
