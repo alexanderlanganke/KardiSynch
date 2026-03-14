@@ -48,6 +48,9 @@ jobs:
       - name: Run Electron postinstall
         run: node node_modules/electron/install.js
 
+      - name: Rebuild sqlite3 native module
+        run: npm rebuild sqlite3
+
       - name: Run Build (Type Check) & Tests
         run: |
           npm run build
