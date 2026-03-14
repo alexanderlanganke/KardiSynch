@@ -7,6 +7,9 @@ import { CredentialStore } from './credentialStore';
 const SIDEBAR_WIDTH = 64;
 const NAV_BAR_HEIGHT = 88; // nav bar + bookmark bar
 
+const DEBUG = process.env.NODE_ENV === 'development';
+function dbg(...args: any[]) { if (DEBUG) console.log('[WebPanel DEBUG]', ...args); }
+
 // JS snippet: extract username + password from the current page
 const EXTRACT_CREDENTIALS_JS = `
 (function() {
@@ -133,15 +136,19 @@ class WebPanelManager {
 
     // Handle new-window requests
     wc.setWindowOpenHandler(({ url }) => {
+      dbg('setWindowOpenHandler() url:', url.substring(0, 150), 'current page:', wc.getURL().substring(0, 80));
       if (url.startsWith('blob:')) {
+        dbg('setWindowOpenHandler() allowing blob URL');
         return { action: 'allow' };
       }
       // Allow popups from whitelisted domains (CareLink PDF popups)
       if (this.isWhitelistedContext(wc.getURL(), url)) {
         console.log('[WebPanel] Allowing popup:', url.substring(0, 120));
+        dbg('setWindowOpenHandler() whitelisted context, allowing popup');
         return { action: 'allow' };
       }
       // Non-whitelisted — navigate in the same view
+      dbg('setWindowOpenHandler() not whitelisted, denying popup and navigating in-view');
       if (url.startsWith('http:') || url.startsWith('https:')) {
         wc.loadURL(url);
       }
@@ -174,15 +181,18 @@ class WebPanelManager {
   // ─── Credential Detection (main-process only, no preload) ──────
 
   private setupCredentialDetection(wc: Electron.WebContents) {
+    dbg('setupCredentialDetection() registering will-navigate + did-navigate listeners');
     // Before each navigation, try to grab credentials from the current page.
     // This catches form POSTs (ASP.NET postback, standard forms, SPA navigations).
-    wc.on('will-navigate', (_event, _url) => {
+    wc.on('will-navigate', (_event, url) => {
+      dbg('will-navigate fired, url:', url.substring(0, 120));
       this.tryExtractCredentials(wc);
     });
 
     // Also try on did-navigate: if the page had a username but no password
     // (multi-step login step 1), remember the username for step 2.
-    wc.on('did-navigate', () => {
+    wc.on('did-navigate', (_event, url) => {
+      dbg('did-navigate fired, url:', url.substring(0, 120), '— scheduling credential extraction in 1500ms');
       // After navigation, check if the new page has a password field
       // with no username — use the remembered username from step 1.
       setTimeout(() => this.tryExtractCredentials(wc), 1500);
@@ -190,86 +200,144 @@ class WebPanelManager {
   }
 
   private async tryExtractCredentials(wc: Electron.WebContents) {
+    const pageUrl = wc.getURL();
+    dbg('tryExtractCredentials() page:', pageUrl.substring(0, 120));
     try {
       const result = await wc.executeJavaScript(EXTRACT_CREDENTIALS_JS);
+      dbg('tryExtractCredentials() EXTRACT_CREDENTIALS_JS returned:', result
+        ? { username: result.username, domain: result.domain, hasPassword: !!result.password, passwordLength: result.password?.length }
+        : null);
       if (!result) {
         // No password field found. Check if there's a username field to remember.
+        dbg('tryExtractCredentials() no password field found, checking for username-only field');
         const usernameOnly = await wc.executeJavaScript(`
           (function() {
             var inputs = document.querySelectorAll('input[type="text"], input[type="email"]');
+            var debugInfo = [];
             for (var i = 0; i < inputs.length; i++) {
-              if (inputs[i].offsetParent !== null && inputs[i].value && inputs[i].value.trim()) {
-                return inputs[i].value.trim();
+              var inp = inputs[i];
+              debugInfo.push({
+                type: inp.type,
+                name: inp.name || '',
+                id: inp.id || '',
+                visible: inp.offsetParent !== null,
+                hasValue: !!(inp.value && inp.value.trim()),
+                valueLength: (inp.value || '').length
+              });
+              if (inp.offsetParent !== null && inp.value && inp.value.trim()) {
+                return { username: inp.value.trim(), fields: debugInfo };
               }
             }
-            return null;
+            return { username: null, fields: debugInfo };
           })()
         `);
-        if (usernameOnly) {
-          this.lastSeenUsername = usernameOnly;
+        dbg('tryExtractCredentials() username-only scan:', JSON.stringify(usernameOnly));
+        if (usernameOnly?.username) {
+          this.lastSeenUsername = usernameOnly.username;
           try { this.lastSeenDomain = new URL(wc.getURL()).hostname; } catch { /* noop */ }
-          console.log('[WebPanel] Remembered username for multi-step login:', usernameOnly);
+          console.log('[WebPanel] Remembered username for multi-step login:', usernameOnly.username);
+          dbg('tryExtractCredentials() stored lastSeenUsername:', this.lastSeenUsername, 'lastSeenDomain:', this.lastSeenDomain);
+        } else {
+          dbg('tryExtractCredentials() no username field with value found on page');
         }
         return;
       }
 
       let { username, password, domain } = result;
+      dbg('tryExtractCredentials() extracted — username:', username || '(empty)',
+        'password length:', password?.length || 0, 'domain:', domain);
 
       // For multi-step logins: if no username on current page, use remembered one
       if (!username && this.lastSeenUsername && domain === this.lastSeenDomain) {
         username = this.lastSeenUsername;
         console.log('[WebPanel] Using remembered username from step 1:', username);
+        dbg('tryExtractCredentials() using remembered username:', username);
       }
 
-      if (!username || !password || !domain) return;
+      if (!username || !password || !domain) {
+        dbg('tryExtractCredentials() ABORTED: missing field(s) — username:', !!username, 'password:', !!password, 'domain:', !!domain);
+        return;
+      }
 
       console.log('[WebPanel] Credentials detected for:', domain, username);
 
       const store = CredentialStore.getInstance();
-      if (!store.isAvailable()) return;
+      if (!store.isAvailable()) {
+        dbg('tryExtractCredentials() ABORTED: CredentialStore not available');
+        return;
+      }
 
       // Check if already saved
       const existing = store.get(domain);
-      if (existing.some((c) => c.username === username && c.password === password)) return;
+      dbg('tryExtractCredentials() existing credentials for domain:', existing.length,
+        'matching username+password:', existing.some((c) => c.username === username && c.password === password));
+      if (existing.some((c) => c.username === username && c.password === password)) {
+        dbg('tryExtractCredentials() credential already saved, skipping prompt');
+        return;
+      }
 
       // Show "Save password?" prompt in renderer
+      dbg('tryExtractCredentials() setting pendingCredential and sending web-panel-credentials-detected to renderer');
       this.pendingCredential = { domain, username, password };
       if (this.pendingCredentialTimer) clearTimeout(this.pendingCredentialTimer);
       this.pendingCredentialTimer = setTimeout(() => {
+        dbg('tryExtractCredentials() pendingCredential timed out after 60s');
         this.pendingCredential = null;
         this.pendingCredentialTimer = null;
       }, 60000);
 
       const win = getMainWindow();
+      dbg('tryExtractCredentials() mainWindow exists:', !!win, 'destroyed:', win?.isDestroyed());
       if (win && !win.isDestroyed()) {
         win.webContents.send('web-panel-credentials-detected', { domain, username });
+        dbg('tryExtractCredentials() sent web-panel-credentials-detected IPC');
       }
-    } catch {
+    } catch (err) {
       // Page might have navigated away already — ignore
+      dbg('tryExtractCredentials() ERROR (page may have navigated away):', err);
     }
   }
 
   // ─── Auto-Fill ─────────────────────────────────────────────────
 
   private setupAutoFill(wc: Electron.WebContents) {
+    dbg('setupAutoFill() registering did-finish-load listener');
     wc.on('did-finish-load', () => {
+      const url = wc.getURL();
+      dbg('setupAutoFill() did-finish-load fired, url:', url.substring(0, 120));
+
       const store = CredentialStore.getInstance();
-      if (!store.isAvailable()) return;
+      if (!store.isAvailable()) {
+        dbg('setupAutoFill() ABORTED: CredentialStore not available');
+        return;
+      }
 
       let domain = '';
-      try { domain = new URL(wc.getURL()).hostname; } catch { return; }
+      try { domain = new URL(url).hostname; } catch { dbg('setupAutoFill() ABORTED: could not parse URL'); return; }
 
+      dbg('setupAutoFill() looking up credentials for domain:', domain);
       const creds = store.get(domain);
+      dbg('setupAutoFill() found', creds.length, 'credentials for', domain);
       if (creds.length === 0) return;
 
       const { username, password } = creds[0];
+      dbg('setupAutoFill() auto-filling with username:', username, 'password length:', password.length);
       const js = makeAutoFillJS(username, password);
 
       // Try immediately, then again after 1.5s for SPA-rendered forms
-      wc.executeJavaScript(js).catch(() => {});
+      wc.executeJavaScript(js).then(() => {
+        dbg('setupAutoFill() immediate injection executed');
+      }).catch((err) => {
+        dbg('setupAutoFill() immediate injection failed:', err);
+      });
       setTimeout(() => {
         if (this.view && !this.view.webContents.isDestroyed()) {
-          wc.executeJavaScript(js).catch(() => {});
+          dbg('setupAutoFill() retrying auto-fill after 1.5s delay');
+          wc.executeJavaScript(js).then(() => {
+            dbg('setupAutoFill() delayed injection executed');
+          }).catch((err) => {
+            dbg('setupAutoFill() delayed injection failed:', err);
+          });
         }
       }, 1500);
     });
@@ -283,18 +351,29 @@ class WebPanelManager {
     this.ipcRegistered = true;
 
     ipcMain.handle('web-panel-save-pending-credential', async () => {
+      dbg('IPC web-panel-save-pending-credential received, pendingCredential:',
+        this.pendingCredential ? { domain: this.pendingCredential.domain, username: this.pendingCredential.username, passwordLength: this.pendingCredential.password?.length } : null);
       if (this.pendingCredential) {
         const { domain, username, password } = this.pendingCredential;
-        CredentialStore.getInstance().save(domain, username, password);
+        try {
+          CredentialStore.getInstance().save(domain, username, password);
+          dbg('IPC web-panel-save-pending-credential: save() completed');
+        } catch (err) {
+          dbg('IPC web-panel-save-pending-credential: save() FAILED:', err);
+          console.error('[WebPanel] Failed to save credential:', err);
+        }
         this.pendingCredential = null;
         if (this.pendingCredentialTimer) {
           clearTimeout(this.pendingCredentialTimer);
           this.pendingCredentialTimer = null;
         }
+      } else {
+        dbg('IPC web-panel-save-pending-credential: no pending credential to save!');
       }
     });
 
     ipcMain.handle('web-panel-dismiss-pending-credential', async () => {
+      dbg('IPC web-panel-dismiss-pending-credential received, had pending:', !!this.pendingCredential);
       this.pendingCredential = null;
       if (this.pendingCredentialTimer) {
         clearTimeout(this.pendingCredentialTimer);
@@ -312,12 +391,19 @@ class WebPanelManager {
    * We detect this via webRequest and extract the PDF.
    */
   private setupPdfResponseInterception(ses: Electron.Session, wc: Electron.WebContents) {
+    dbg('setupPdfResponseInterception() registering onHeadersReceived listener');
     ses.webRequest.onHeadersReceived((details, callback) => {
       const contentType = (
         details.responseHeaders?.['content-type'] ||
         details.responseHeaders?.['Content-Type'] ||
         []
       )[0] || '';
+
+      // Log all mainFrame responses in debug mode for visibility
+      if (details.resourceType === 'mainFrame') {
+        dbg('onHeadersReceived mainFrame — url:', details.url.substring(0, 120),
+          'content-type:', contentType, 'status:', details.statusCode);
+      }
 
       if (contentType.includes('application/pdf') && details.resourceType === 'mainFrame') {
         console.log('[WebPanel] PDF response detected in main frame:', details.url.substring(0, 120));
@@ -328,11 +414,17 @@ class WebPanelManager {
         if (!sourceDomain) {
           try { sourceDomain = new URL(wc.getURL()).hostname; } catch { /* noop */ }
         }
+        dbg('PDF interception — sourceDomain:', sourceDomain);
 
         const config = this.loadDownloadConfig();
-        if (this.isDomainWhitelisted(sourceDomain, config)) {
+        const whitelisted = this.isDomainWhitelisted(sourceDomain, config);
+        dbg('PDF interception — whitelisted:', whitelisted,
+          'configured domains:', config.remote_monitoring_domains);
+        if (whitelisted) {
           // Fetch the PDF bytes and intercept
           this.interceptPdfFromUrl(details.url, sourceDomain, wc, config);
+        } else {
+          dbg('PDF interception SKIPPED: domain', sourceDomain, 'not in whitelist');
         }
       }
 
@@ -341,30 +433,45 @@ class WebPanelManager {
   }
 
   private async interceptPdfFromUrl(pdfUrl: string, sourceDomain: string, wc: Electron.WebContents, config: any) {
+    dbg('interceptPdfFromUrl() url:', pdfUrl.substring(0, 150), 'domain:', sourceDomain);
     try {
       // Wait for the page to finish loading the PDF
+      dbg('interceptPdfFromUrl() waiting 1000ms for page load');
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Fetch the PDF bytes using the webContents' session cookies
+      dbg('interceptPdfFromUrl() executing fetch() in renderer context with credentials: include');
       const pdfBytes = await wc.executeJavaScript(`
         (async function() {
           try {
             var resp = await fetch('${pdfUrl.replace(/'/g, "\\'")}', { credentials: 'include' });
+            console.log('[WebPanel DEBUG fetch] status:', resp.status, 'content-type:', resp.headers.get('content-type'), 'url:', resp.url.substring(0, 100));
             var buf = await resp.arrayBuffer();
+            console.log('[WebPanel DEBUG fetch] received', buf.byteLength, 'bytes, first 5 chars:', new TextDecoder().decode(buf.slice(0, 5)));
             return Array.from(new Uint8Array(buf));
-          } catch(e) { return null; }
+          } catch(e) {
+            console.error('[WebPanel DEBUG fetch] error:', e.message);
+            return null;
+          }
         })()
       `).then((arr: number[] | null) => arr ? Buffer.from(arr) : null);
 
+      dbg('interceptPdfFromUrl() fetch result:',
+        pdfBytes ? `${pdfBytes.length} bytes, magic: "${pdfBytes.slice(0, 5).toString('ascii')}"` : 'null');
+
       if (pdfBytes && pdfBytes.length > 4 && pdfBytes.slice(0, 5).toString('ascii').startsWith('%PDF')) {
+        dbg('interceptPdfFromUrl() valid PDF, saving and notifying');
         this.savePdfAndNotify(pdfBytes, sourceDomain, config);
         // Navigate back so the user isn't stuck on the PDF viewer
         if (wc.canGoBack()) wc.goBack();
       } else {
         console.log('[WebPanel] Failed to extract PDF from inline response');
+        dbg('interceptPdfFromUrl() FAILED: not a valid PDF —',
+          pdfBytes ? `got ${pdfBytes.length} bytes, first 20 chars: "${pdfBytes.slice(0, 20).toString('ascii')}"` : 'null response');
       }
     } catch (err) {
       console.error('[WebPanel] PDF inline interception error:', err);
+      dbg('interceptPdfFromUrl() ERROR:', err);
     }
   }
 
@@ -376,62 +483,91 @@ class WebPanelManager {
     let handled = false;
 
     console.log('[WebPanel] Child window created, parent URL:', parentUrl);
+    dbg('handleChildWindow() parent URL:', parentUrl);
 
     childWc.on('did-finish-load', async () => {
-      if (handled) return;
+      if (handled) { dbg('handleChildWindow() did-finish-load: already handled, skipping'); return; }
       const url = childWc.getURL();
       console.log('[WebPanel] Child window loaded:', url.substring(0, 120));
 
       const sourceDomain = this.resolveChildDomain(url, parentUrl);
       const config = this.loadDownloadConfig();
+      dbg('handleChildWindow() child url:', url.substring(0, 150),
+        'sourceDomain:', sourceDomain, 'parentUrl domain:', (() => { try { return new URL(parentUrl).hostname; } catch { return '(parse error)'; } })());
 
       if (!this.isDomainWhitelisted(sourceDomain, config)) {
         console.log('[WebPanel] Child window domain not whitelisted:', sourceDomain);
+        dbg('handleChildWindow() domain NOT whitelisted:', sourceDomain,
+          'whitelist:', config.remote_monitoring_domains);
         childWindow.close();
         return;
       }
+      dbg('handleChildWindow() domain whitelisted, attempting PDF extraction');
 
       try {
         let pdfBytes: Buffer | null = null;
 
         if (url.startsWith('blob:')) {
+          dbg('handleChildWindow() blob URL detected, fetching blob content');
           // Blob URL: fetch directly
           pdfBytes = await childWc.executeJavaScript(`
             (async function() {
+              console.log('[WebPanel DEBUG child-blob] fetching:', window.location.href);
               var resp = await fetch(window.location.href);
+              console.log('[WebPanel DEBUG child-blob] status:', resp.status, 'type:', resp.headers.get('content-type'));
               var buf = await resp.arrayBuffer();
+              console.log('[WebPanel DEBUG child-blob] bytes:', buf.byteLength);
               return Array.from(new Uint8Array(buf));
             })()
           `).then((arr: number[]) => Buffer.from(arr));
+          dbg('handleChildWindow() blob fetch result:', pdfBytes?.length, 'bytes');
         } else {
+          dbg('handleChildWindow() HTTPS URL, trying fetch with credentials');
           // HTTPS URL: try fetching raw PDF, then fall back to printToPDF
           const raw = await childWc.executeJavaScript(`
             (async function() {
               try {
                 var resp = await fetch(window.location.href, { credentials: 'include' });
                 var ct = resp.headers.get('content-type') || '';
+                console.log('[WebPanel DEBUG child-fetch] status:', resp.status, 'content-type:', ct, 'url:', resp.url.substring(0, 100));
                 if (ct.indexOf('pdf') >= 0 || ct.indexOf('octet') >= 0) {
                   var buf = await resp.arrayBuffer();
+                  console.log('[WebPanel DEBUG child-fetch] got', buf.byteLength, 'bytes');
                   return Array.from(new Uint8Array(buf));
                 }
-              } catch(e) {}
+                console.log('[WebPanel DEBUG child-fetch] content-type not pdf/octet, skipping');
+              } catch(e) {
+                console.error('[WebPanel DEBUG child-fetch] error:', e.message);
+              }
               return null;
             })()
           `).then((arr: number[] | null) => arr ? Buffer.from(arr) : null);
 
+          dbg('handleChildWindow() raw fetch result:', raw ? `${raw.length} bytes` : 'null');
+          if (!raw) {
+            dbg('handleChildWindow() falling back to printToPDF()');
+          }
           pdfBytes = raw || await childWc.printToPDF({});
+          dbg('handleChildWindow() final pdfBytes:', pdfBytes?.length, 'bytes',
+            pdfBytes ? `magic: "${pdfBytes.slice(0, 5).toString('ascii')}"` : '');
         }
 
         if (pdfBytes && pdfBytes.length > 4 && pdfBytes.slice(0, 5).toString('ascii').startsWith('%PDF')) {
           handled = true;
+          dbg('handleChildWindow() valid PDF detected, saving');
           this.savePdfAndNotify(pdfBytes, sourceDomain, config);
         } else if (pdfBytes && pdfBytes.length > 100) {
           // printToPDF always produces valid PDF
           handled = true;
+          dbg('handleChildWindow() printToPDF result (>100 bytes), saving');
           this.savePdfAndNotify(pdfBytes, sourceDomain, config);
+        } else {
+          dbg('handleChildWindow() PDF extraction FAILED: bytes:', pdfBytes?.length,
+            pdfBytes ? `first 20: "${pdfBytes.slice(0, 20).toString('ascii')}"` : 'null');
         }
       } catch (err) {
         console.error('[WebPanel] Failed to extract PDF from child window:', err);
+        dbg('handleChildWindow() ERROR:', err);
       }
 
       childWindow.close();
@@ -440,6 +576,8 @@ class WebPanelManager {
     // Handle child window triggering a download
     childWc.session.on('will-download', (_event, item) => {
       const filename = item.getFilename();
+      dbg('handleChildWindow() will-download:', filename, 'handled:', handled,
+        'isPdf:', filename.toLowerCase().endsWith('.pdf'), 'url:', item.getURL().substring(0, 100));
       if (filename.toLowerCase().endsWith('.pdf') && !handled) {
         handled = true;
         console.log('[WebPanel] Child window PDF download:', filename);
@@ -447,13 +585,16 @@ class WebPanelManager {
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
         const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
         item.setSavePath(tempPath);
+        dbg('handleChildWindow() saving download to:', tempPath);
 
         item.on('done', (_e, state) => {
+          dbg('handleChildWindow() download done, state:', state);
           if (state === 'completed') {
             const config = this.loadDownloadConfig();
             let domain = '';
             if (parentUrl) try { domain = new URL(parentUrl).hostname; } catch { /* noop */ }
             const manufacturer = config.domain_manufacturer_map?.[domain] || 'Medtronic';
+            dbg('handleChildWindow() notifying renderer — file:', tempPath, 'domain:', domain, 'manufacturer:', manufacturer);
             const win = getMainWindow();
             if (win && !win.isDestroyed()) {
               win.webContents.send('web-panel-download-intercepted', {
@@ -470,31 +611,47 @@ class WebPanelManager {
     });
 
     setTimeout(() => {
-      if (!childWindow.isDestroyed()) childWindow.close();
+      if (!childWindow.isDestroyed()) {
+        dbg('handleChildWindow() 30s timeout — closing child window, handled:', handled);
+        childWindow.close();
+      }
     }, 30000);
   }
 
   // ─── Download Interception (will-download) ─────────────────────
 
   private setupDownloadInterception(ses: Electron.Session) {
+    dbg('setupDownloadInterception() registering will-download listener');
     ses.on('will-download', (_event, item, _webContents) => {
       const filename = item.getFilename();
       const sourceDomain = this.resolveSourceDomain(item);
 
       console.log(`[WebPanel] will-download: file=${filename}, domain=${sourceDomain}, url=${item.getURL().substring(0, 100)}`);
+      dbg('setupDownloadInterception() will-download details:',
+        'filename:', filename, 'domain:', sourceDomain,
+        'url:', item.getURL().substring(0, 150),
+        'urlChain:', item.getURLChain().map(u => u.substring(0, 80)),
+        'mimeType:', item.getMimeType(),
+        'totalBytes:', item.getTotalBytes());
 
       const config = this.loadDownloadConfig();
       const isPdf = filename.toLowerCase().endsWith('.pdf');
+      const whitelisted = this.isDomainWhitelisted(sourceDomain, config);
+      dbg('setupDownloadInterception() isPdf:', isPdf, 'whitelisted:', whitelisted,
+        'auto_prompt:', config.auto_prompt);
 
-      if (this.isDomainWhitelisted(sourceDomain, config) && isPdf && config.auto_prompt !== false) {
+      if (whitelisted && isPdf && config.auto_prompt !== false) {
         const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
         const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
         item.setSavePath(tempPath);
+        dbg('setupDownloadInterception() intercepting PDF, saving to:', tempPath);
 
         item.on('done', (_e, state) => {
+          dbg('setupDownloadInterception() download done, state:', state, 'file:', tempPath);
           if (state === 'completed') {
             const manufacturer = config.domain_manufacturer_map?.[sourceDomain] || 'Unknown';
+            dbg('setupDownloadInterception() notifying renderer — manufacturer:', manufacturer);
             const win = getMainWindow();
             if (win && !win.isDestroyed()) {
               win.webContents.send('web-panel-download-intercepted', {
@@ -508,6 +665,8 @@ class WebPanelManager {
         });
       } else if (isPdf) {
         console.log(`[WebPanel] PDF not intercepted: domain=${sourceDomain} not whitelisted`);
+        dbg('setupDownloadInterception() PDF NOT intercepted — domain:', sourceDomain,
+          'whitelist:', config.remote_monitoring_domains);
       }
     });
   }
@@ -515,18 +674,25 @@ class WebPanelManager {
   // ─── Helpers ───────────────────────────────────────────────────
 
   private loadDownloadConfig(): any {
+    const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
     try {
-      const configPath = path.join(app.getPath('userData'), 'web_downloads.json');
-      return JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    } catch {
+      const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+      dbg('loadDownloadConfig() loaded from', configPath,
+        'domains:', config.remote_monitoring_domains?.length,
+        'manufacturer_map keys:', Object.keys(config.domain_manufacturer_map || {}));
+      return config;
+    } catch (err) {
+      dbg('loadDownloadConfig() failed to load', configPath, '— using defaults. Error:', err);
       return getDefaultDownloadConfig();
     }
   }
 
   private isDomainWhitelisted(domain: string, config: any): boolean {
-    if (!domain) return false;
+    if (!domain) { dbg('isDomainWhitelisted() empty domain'); return false; }
     const domains: string[] = config.remote_monitoring_domains || [];
-    return domains.some((d: string) => domain === d || domain.endsWith('.' + d));
+    const match = domains.some((d: string) => domain === d || domain.endsWith('.' + d));
+    dbg('isDomainWhitelisted()', domain, '→', match, '(checked against', domains.length, 'domains)');
+    return match;
   }
 
   private isWhitelistedContext(currentUrl: string, targetUrl: string): boolean {
@@ -582,10 +748,14 @@ class WebPanelManager {
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     const filename = `CareLink_Report_${new Date().toISOString().split('T')[0]}.pdf`;
     const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
+    dbg('savePdfAndNotify() writing', pdfBytes.length, 'bytes to', tempPath);
     fs.writeFileSync(tempPath, pdfBytes);
 
     const manufacturer = config.domain_manufacturer_map?.[sourceDomain] || 'Medtronic';
+    dbg('savePdfAndNotify() domain:', sourceDomain, 'manufacturer:', manufacturer,
+      'domain_manufacturer_map has key:', sourceDomain in (config.domain_manufacturer_map || {}));
     const win = getMainWindow();
+    dbg('savePdfAndNotify() mainWindow exists:', !!win, 'destroyed:', win?.isDestroyed());
     if (win && !win.isDestroyed()) {
       win.webContents.send('web-panel-download-intercepted', {
         filePath: tempPath,
@@ -593,6 +763,9 @@ class WebPanelManager {
         sourceDomain,
         sourceManufacturer: manufacturer,
       });
+      dbg('savePdfAndNotify() sent web-panel-download-intercepted IPC');
+    } else {
+      dbg('savePdfAndNotify() WARNING: no mainWindow to send IPC to!');
     }
     console.log('[WebPanel] PDF saved:', filename, 'from', sourceDomain);
   }
