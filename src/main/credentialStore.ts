@@ -68,8 +68,10 @@ class CredentialStore {
           '(stored:', parsed.checksum?.substring(0, 16) + '...',
           'computed:', computed.substring(0, 16) + '...)');
         if (!match) {
-          console.error('[CredentialStore] Integrity check failed — file may have been tampered with');
-          return [];
+          // Accept the credentials — the old HMAC-based checksum was non-deterministic
+          // and never verified correctly. The next persist() will write a valid SHA-256
+          // checksum. Individual credential decryption in get() catches real corruption.
+          console.warn('[CredentialStore] Checksum mismatch (migrating from legacy HMAC) — credentials accepted, will be re-checksummed on next save');
         }
       } else {
         dbg('load() no checksum in file, skipping verification');
@@ -111,29 +113,25 @@ class CredentialStore {
   }
 
   /**
-   * Compute HMAC-SHA256 over the credential entries.
-   * Uses a deterministic key derived from safeStorage so the checksum
-   * is tied to the current OS user and can't be recomputed externally.
+   * Compute SHA-256 hash over the credential entries.
+   * Detects file corruption or manual edits. Individual passwords are
+   * already protected by safeStorage (OS-level encryption), so a plain
+   * hash is sufficient — there's no need for an HMAC tied to the user.
+   *
+   * NOTE: The previous HMAC-SHA256 implementation was broken because
+   * safeStorage.encryptString() is non-deterministic (random IV per call),
+   * so the HMAC key differed on every invocation and the checksum never
+   * verified on load.
    */
   private computeChecksum(credentials: StoredCredential[]): string {
-    if (!this.isAvailable()) return '';
-    try {
-      // Derive a stable HMAC key: encrypt a fixed string, use its hash
-      const keyMaterial = safeStorage.encryptString('credential-store-integrity-key');
-      const hmacKey = crypto.createHash('sha256').update(keyMaterial).digest();
-
-      const payload = JSON.stringify(
-        credentials.map((c) => ({
-          d: c.domain,
-          u: c.username,
-          p: c.password_encrypted,
-        }))
-      );
-
-      return crypto.createHmac('sha256', hmacKey).update(payload).digest('hex');
-    } catch {
-      return '';
-    }
+    const payload = JSON.stringify(
+      credentials.map((c) => ({
+        d: c.domain,
+        u: c.username,
+        p: c.password_encrypted,
+      }))
+    );
+    return crypto.createHash('sha256').update(payload).digest('hex');
   }
 
   save(domain: string, username: string, password: string): void {

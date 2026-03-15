@@ -420,7 +420,10 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           id: r.id,
           interrogation_date: r.interrogation_date,
           manufacturer: r.manufacturer,
-          fileCount: r.files?.length
+          fileCount: r.files?.length,
+          visit_type: r.visit_type,
+          source_domain: r.source_domain,
+          source_manufacturer: r.source_manufacturer,
         }))}
         onVisitSelect={handleVisitSelect}
         onRescan={handleRescan}
