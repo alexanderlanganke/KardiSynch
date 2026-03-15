@@ -103,6 +103,8 @@ const App: React.FC = () => {
     window.electronAPI.onWebPanelDownloadIntercepted((info) => {
       setInterceptedDownload(info);
       setDownloadDialogOpen(true);
+      // Hide the BrowserView so the dialog is visible above the web panel
+      window.electronAPI.webPanelHide();
     });
 
     // Listen for credential detection prompts
@@ -131,9 +133,15 @@ const App: React.FC = () => {
   };
 
   const handleManualSortingCancel = () => {
+    const wasRemote = manualSortingFile?.source === 'remote';
     window.electronAPI.manualSortingResponse({ action: 'unmatched' });
     setManualSortingOpen(false);
     setManualSortingFile(null);
+    // Re-show BrowserView if cancelling a remote download assignment
+    if (wasRemote && currentView === 'webPanel') {
+      setInterceptedDownload(null);
+      window.electronAPI.webPanelShow();
+    }
   };
 
   const handleDeviceSelectionResolve = (result: any) => {
@@ -167,6 +175,10 @@ const App: React.FC = () => {
     }
     setDownloadDialogOpen(false);
     setInterceptedDownload(null);
+    // Re-show BrowserView if still on web panel
+    if (currentView === 'webPanel') {
+      window.electronAPI.webPanelShow();
+    }
   };
 
   // Override the manual sorting resolve to handle remote downloads differently
@@ -185,6 +197,10 @@ const App: React.FC = () => {
       setManualSortingOpen(false);
       setManualSortingFile(null);
       setInterceptedDownload(null);
+      // Re-show BrowserView after remote download assignment
+      if (currentView === 'webPanel') {
+        window.electronAPI.webPanelShow();
+      }
     } else {
       handleManualSortingResolve(decision);
     }
