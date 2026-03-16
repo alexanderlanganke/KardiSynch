@@ -68,10 +68,10 @@ class CredentialStore {
           '(stored:', parsed.checksum?.substring(0, 16) + '...',
           'computed:', computed.substring(0, 16) + '...)');
         if (!match) {
-          // Accept the credentials — the old HMAC-based checksum was non-deterministic
-          // and never verified correctly. The next persist() will write a valid SHA-256
-          // checksum. Individual credential decryption in get() catches real corruption.
-          console.warn('[CredentialStore] Checksum mismatch (migrating from legacy HMAC) — credentials accepted, will be re-checksummed on next save');
+          // The old HMAC-based checksum was non-deterministic and never verified.
+          // Re-persist now with a valid SHA-256 checksum so the warning doesn't repeat.
+          console.warn('[CredentialStore] Checksum mismatch (migrating from legacy HMAC) — re-checksumming now');
+          this.persist(credentials);
         }
       } else {
         dbg('load() no checksum in file, skipping verification');
