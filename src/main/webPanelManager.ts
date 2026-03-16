@@ -10,6 +10,54 @@ const NAV_BAR_HEIGHT = 88; // nav bar + bookmark bar
 const DEBUG = process.env.NODE_ENV === 'development';
 function dbg(...args: any[]) { if (DEBUG) console.log('[WebPanel DEBUG]', ...args); }
 
+// Marker logged by injected page script to signal a credential submission attempt
+const CREDENTIAL_SIGNAL = '__KS_CRED_SUBMIT__';
+
+// JS injected into pages to detect login form submissions (AJAX/SPA logins
+// that don't trigger will-navigate).
+const CREDENTIAL_LISTENER_JS = `
+(function() {
+  if (window.__ks_cred_listener) return;
+  window.__ks_cred_listener = true;
+
+  function hasFilledPassword() {
+    var pws = document.querySelectorAll('input[type="password"]');
+    for (var i = 0; i < pws.length; i++) {
+      if (pws[i].offsetParent !== null && pws[i].value) return true;
+    }
+    return false;
+  }
+
+  function signal() {
+    if (hasFilledPassword()) console.log('${CREDENTIAL_SIGNAL}');
+  }
+
+  // Form submit (covers both AJAX and traditional)
+  document.addEventListener('submit', function() { signal(); }, true);
+
+  // Click on buttons / submit inputs / anchors when a password is filled
+  document.addEventListener('click', function(e) {
+    var t = e.target;
+    while (t && t !== document) {
+      var tag = (t.tagName || '').toLowerCase();
+      var role = (t.getAttribute && t.getAttribute('role') || '').toLowerCase();
+      if (tag === 'button' || tag === 'a' || (tag === 'input' && (t.type === 'submit' || t.type === 'button')) || role === 'button') {
+        signal();
+        return;
+      }
+      t = t.parentElement;
+    }
+  }, true);
+
+  // Enter key in password field
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' && e.target && e.target.type === 'password') {
+      signal();
+    }
+  }, true);
+})()
+`;
+
 // JS snippet: extract username + password from the current page
 const EXTRACT_CREDENTIALS_JS = `
 (function() {
@@ -181,21 +229,38 @@ class WebPanelManager {
   // ─── Credential Detection (main-process only, no preload) ──────
 
   private setupCredentialDetection(wc: Electron.WebContents) {
-    dbg('setupCredentialDetection() registering will-navigate + did-navigate listeners');
-    // Before each navigation, try to grab credentials from the current page.
-    // This catches form POSTs (ASP.NET postback, standard forms, SPA navigations).
+    dbg('setupCredentialDetection() registering listeners');
+
+    // 1. Navigation-based detection (covers traditional form POSTs)
     wc.on('will-navigate', (_event, url) => {
       dbg('will-navigate fired, url:', url.substring(0, 120));
       this.tryExtractCredentials(wc);
     });
 
-    // Also try on did-navigate: if the page had a username but no password
-    // (multi-step login step 1), remember the username for step 2.
     wc.on('did-navigate', (_event, url) => {
       dbg('did-navigate fired, url:', url.substring(0, 120), '— scheduling credential extraction in 1500ms');
-      // After navigation, check if the new page has a password field
-      // with no username — use the remembered username from step 1.
       setTimeout(() => this.tryExtractCredentials(wc), 1500);
+    });
+
+    // 2. Inject in-page listeners on every page load to catch AJAX/SPA logins
+    wc.on('did-finish-load', () => {
+      dbg('did-finish-load — injecting credential listeners');
+      wc.executeJavaScript(CREDENTIAL_LISTENER_JS).catch(() => { /* page may have navigated */ });
+    });
+
+    // Also inject after in-page navigations (SPA route changes)
+    wc.on('did-navigate-in-page', () => {
+      dbg('did-navigate-in-page — re-injecting credential listeners');
+      wc.executeJavaScript(CREDENTIAL_LISTENER_JS).catch(() => { /* noop */ });
+    });
+
+    // 3. Listen for the console signal from the injected script
+    wc.on('console-message', (_event, _level, message) => {
+      if (message === CREDENTIAL_SIGNAL) {
+        dbg('console-message: credential signal received, extracting in 300ms');
+        // Small delay so the form value is committed before we read it
+        setTimeout(() => this.tryExtractCredentials(wc), 300);
+      }
     });
   }
 
@@ -576,11 +641,13 @@ class WebPanelManager {
     // Handle child window triggering a download
     childWc.session.on('will-download', (_event, item) => {
       const filename = item.getFilename();
+      const lowerFilename = filename.toLowerCase();
+      const isInterceptable = lowerFilename.endsWith('.pdf') || lowerFilename.endsWith('.zip');
       dbg('handleChildWindow() will-download:', filename, 'handled:', handled,
-        'isPdf:', filename.toLowerCase().endsWith('.pdf'), 'url:', item.getURL().substring(0, 100));
-      if (filename.toLowerCase().endsWith('.pdf') && !handled) {
+        'isInterceptable:', isInterceptable, 'url:', item.getURL().substring(0, 100));
+      if (isInterceptable && !handled) {
         handled = true;
-        console.log('[WebPanel] Child window PDF download:', filename);
+        console.log('[WebPanel] Child window file download:', filename);
         const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
         const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
@@ -635,17 +702,18 @@ class WebPanelManager {
         'totalBytes:', item.getTotalBytes());
 
       const config = this.loadDownloadConfig();
-      const isPdf = filename.toLowerCase().endsWith('.pdf');
+      const lowerFilename = filename.toLowerCase();
+      const isInterceptable = lowerFilename.endsWith('.pdf') || lowerFilename.endsWith('.zip');
       const whitelisted = this.isDomainWhitelisted(sourceDomain, config);
-      dbg('setupDownloadInterception() isPdf:', isPdf, 'whitelisted:', whitelisted,
+      dbg('setupDownloadInterception() isInterceptable:', isInterceptable, 'whitelisted:', whitelisted,
         'auto_prompt:', config.auto_prompt);
 
-      if (whitelisted && isPdf && config.auto_prompt !== false) {
+      if (whitelisted && isInterceptable && config.auto_prompt !== false) {
         const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
         if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
         const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
         item.setSavePath(tempPath);
-        dbg('setupDownloadInterception() intercepting PDF, saving to:', tempPath);
+        dbg('setupDownloadInterception() intercepting file, saving to:', tempPath);
 
         item.on('done', (_e, state) => {
           dbg('setupDownloadInterception() download done, state:', state, 'file:', tempPath);
@@ -663,9 +731,9 @@ class WebPanelManager {
             }
           }
         });
-      } else if (isPdf) {
-        console.log(`[WebPanel] PDF not intercepted: domain=${sourceDomain} not whitelisted`);
-        dbg('setupDownloadInterception() PDF NOT intercepted — domain:', sourceDomain,
+      } else if (isInterceptable) {
+        console.log(`[WebPanel] File not intercepted: domain=${sourceDomain} not whitelisted`);
+        dbg('setupDownloadInterception() file NOT intercepted — domain:', sourceDomain,
           'whitelist:', config.remote_monitoring_domains);
       }
     });
@@ -863,7 +931,7 @@ function getDefaultDownloadConfig() {
       'latitude.bostonscientific.com',
       'www.latitude.bostonscientific.com',
     ],
-    intercept_file_types: ['.pdf'],
+    intercept_file_types: ['.pdf', '.zip'],
     auto_prompt: true,
     domain_manufacturer_map: {
       'carelink.medtronic.com': 'Medtronic',
