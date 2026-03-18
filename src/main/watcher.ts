@@ -2,7 +2,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendManualSortingRequest, sendImportSessionUpdate } from './windowManager';
+import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendManualSortingRequest, sendImportSessionUpdate, sendPatientListUpdate } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
 import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
@@ -981,6 +981,7 @@ const processTempDirectory = async (tempDir: string) => {
     await updateImportSessionStatus(sessionId, 'completed', sessionSummary);
     sendImportSessionUpdate({ id: sessionId, ...sessionSummary });
     sendProcessStatus({ type: 'complete', message: 'Processing complete.' });
+    sendPatientListUpdate();
   } catch (e) {
     console.error('Error sending session updates:', e);
   }

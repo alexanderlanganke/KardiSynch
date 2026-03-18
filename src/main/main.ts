@@ -307,6 +307,13 @@ ipcMain.handle('create-patient', async (event, patient) => {
     }
 
     await createPatient(patient);
+
+    // Notify renderer so the dashboard updates immediately
+    const mainWindow = getMainWindow();
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('patient-list-update');
+    }
+
     return { success: true, id: patient.id };
   } catch (error) {
     console.error('Failed to create patient:', error);

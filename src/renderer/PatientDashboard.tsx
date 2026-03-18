@@ -475,7 +475,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-1 pb-4 pr-1 scrollbar-thin scrollbar-thumb-muted-foreground/10 hover:scrollbar-thumb-muted-foreground/20">
-          {loading ? (
+          {loading && patients.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 space-y-3 text-muted-foreground/50">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary/30"></div>
               <p className="text-sm">Loading patients...</p>
