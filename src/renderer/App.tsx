@@ -110,6 +110,8 @@ const App: React.FC = () => {
     // Listen for credential detection prompts
     window.electronAPI.onWebPanelCredentialsDetected((info) => {
       setCredentialPrompt(info);
+      // Hide BrowserView so the save prompt is visible above the web panel
+      window.electronAPI.webPanelHide();
     });
 
     // Check for first-run onboarding
@@ -339,10 +341,12 @@ const App: React.FC = () => {
               onSave={() => {
                 window.electronAPI.webPanelSavePendingCredential();
                 setCredentialPrompt(null);
+                if (currentView === 'webPanel') window.electronAPI.webPanelShow();
               }}
               onDismiss={() => {
                 window.electronAPI.webPanelDismissPendingCredential();
                 setCredentialPrompt(null);
+                if (currentView === 'webPanel') window.electronAPI.webPanelShow();
               }}
             />
           )}
