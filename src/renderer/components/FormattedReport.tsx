@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Activity, Battery, Zap, Heart, AlertTriangle } from 'lucide-react';
 import { formatDelta, formatBatteryStatus } from '@/renderer/utils/trendDelta';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 
 interface FormattedReportProps {
   report: any;
@@ -34,13 +34,13 @@ const FormattedReport: React.FC<FormattedReportProps> = ({ report, previousRepor
         <div>
           <h2 className="text-lg font-bold">Clinical Report</h2>
           <p className="text-xs text-muted-foreground">
-            {report.interrogation_date && new Date(report.interrogation_date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+            {formatDate(report.interrogation_date, { year: 'numeric', month: 'long', day: 'numeric' })}
             {report.manufacturer && ` - ${report.manufacturer}`}
           </p>
         </div>
         {previousReport && (
           <Badge variant="outline" className="text-[10px]">
-            Comparing to {new Date(previousReport.interrogation_date).toLocaleDateString()}
+            Comparing to {formatDate(previousReport.interrogation_date)}
           </Badge>
         )}
       </div>

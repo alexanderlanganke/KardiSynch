@@ -3,6 +3,7 @@ import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 
 interface Visit {
     id: string;
@@ -90,7 +91,7 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                     <div className="flex items-center justify-between">
                                         <div className="text-xs font-semibold flex items-center gap-1">
                                             {isRemote && <Wifi className="h-3 w-3 text-blue-400 flex-shrink-0" />}
-                                            {new Date(visit.interrogation_date).toLocaleDateString()}
+                                            {formatDate(visit.interrogation_date)}
                                         </div>
                                     </div>
                                     {isRemote && (

@@ -713,7 +713,15 @@ export const aggregateVisitFiles = async (visitPath: string): Promise<UnifiedRep
     || reports.find(r => r.device?.serial_number && r.device.serial_number !== 'Unknown')?.device
     || reports[0].device;
   const manufacturer = reports.find(r => r.manufacturer && r.manufacturer !== 'Unknown')?.manufacturer || reports[0].manufacturer;
-  const interrogation_date = reports.find(r => r.interrogation_date)?.interrogation_date || reports[0].interrogation_date;
+  let interrogation_date = reports.find(r => r.interrogation_date)?.interrogation_date || reports[0].interrogation_date;
+  // Fallback: extract date from directory name (format: YYYY_MM_DD_reportId)
+  if (!interrogation_date) {
+    const dirName = path.basename(visitPath);
+    const match = dirName.match(/^(\d{4})_(\d{2})_(\d{2})_/);
+    if (match) {
+      interrogation_date = `${match[1]}-${match[2]}-${match[3]}`;
+    }
+  }
   const battery = reports.find(r => r.battery?.voltage?.value || r.battery?.status)?.battery || reports[0].battery;
 
   // Collect all leads and deduplicate by serial (fallback: model name)
@@ -753,18 +761,38 @@ export const refreshVisitMetadata = async (
   // --- Rewrite visit.xml ---
   const visitXmlPath = path.join(visitPath, 'visit.xml');
 
-  // Preserve _remoteSource metadata from existing visit.xml
+  // Preserve fields from existing visit.xml when aggregation produces weaker data
   try {
     const existingXml = await fs.readFile(visitXmlPath, 'utf-8');
     const parser = new XMLParser({ ignoreAttributes: false });
     const parsed = parser.parse(existingXml);
     if (parsed.visit) {
+      // Preserve remote source metadata
       const remote: any = {};
       if (parsed.visit.visit_type) remote.visit_type = parsed.visit.visit_type;
       if (parsed.visit.source_domain) remote.source_domain = parsed.visit.source_domain;
       if (parsed.visit.source_manufacturer) remote.source_manufacturer = parsed.visit.source_manufacturer;
       if (Object.keys(remote).length > 0) {
         (aggregated as any)._remoteSource = remote;
+      }
+
+      // Preserve existing date/manufacturer/device if aggregation produced empty values
+      if (!aggregated.interrogation_date && parsed.visit.interrogation_date) {
+        aggregated.interrogation_date = String(parsed.visit.interrogation_date);
+      }
+      if ((!aggregated.manufacturer || aggregated.manufacturer === 'Unknown') && parsed.visit.manufacturer) {
+        aggregated.manufacturer = String(parsed.visit.manufacturer);
+      }
+      if (aggregated.device) {
+        if ((!aggregated.device.model || aggregated.device.model === 'Unknown') && parsed.visit.device_model) {
+          aggregated.device.model = String(parsed.visit.device_model);
+        }
+        if ((!aggregated.device.serial_number || aggregated.device.serial_number === 'Unknown') && parsed.visit.device_serial) {
+          aggregated.device.serial_number = String(parsed.visit.device_serial);
+        }
+        if ((!aggregated.device.type || aggregated.device.type === 'Unknown') && parsed.visit.device_type) {
+          aggregated.device.type = String(parsed.visit.device_type);
+        }
       }
     }
   } catch (e: any) {

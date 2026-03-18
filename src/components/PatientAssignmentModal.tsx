@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Search, UserPlus, FileText, AlertCircle, ArrowRight, FolderInput } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { formatDate } from '@/lib/utils';
 import ReportViewer from './ReportViewer';
 import { useAppDialog } from '@/renderer/components/AppDialogProvider';
 
@@ -244,7 +245,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                     <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted -mx-4 -mb-4 p-4 border-t">
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Date</span>
-                                                            <p className="font-medium">{new Date(sourceItem.interrogation_date).toLocaleDateString()}</p>
+                                                            <p className="font-medium">{formatDate(sourceItem.interrogation_date)}</p>
                                                         </div>
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Files</span>

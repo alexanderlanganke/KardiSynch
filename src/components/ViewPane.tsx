@@ -5,7 +5,7 @@ import ReportViewer from './ReportViewer';
 import FormattedReport from '@/renderer/components/FormattedReport';
 import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from './ui/button';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 
 interface ViewPaneProps {
     paneId: number;
@@ -183,7 +183,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-1 min-w-0">
                             <FileText className="h-3 w-3 flex-shrink-0" />
                             <span className="font-medium text-foreground whitespace-nowrap">
-                                {new Date(selectedReport.interrogation_date).toLocaleDateString()}
+                                {formatDate(selectedReport.interrogation_date)}
                             </span>
                             <span>-</span>
                             <span className="whitespace-nowrap">{selectedReport.manufacturer}</span>
@@ -263,7 +263,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                     <SelectItem value="none">None</SelectItem>
                                     {availableReports.map((report) => (
                                         <SelectItem key={report.id} value={report.id}>
-                                            {new Date(report.interrogation_date).toLocaleDateString()} - {report.manufacturer}
+                                            {formatDate(report.interrogation_date)} - {report.manufacturer}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
