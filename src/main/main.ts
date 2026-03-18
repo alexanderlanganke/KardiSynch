@@ -7,7 +7,7 @@ import { ensureDatabaseLocation } from './databaseMigration';
 import { initializeWatcher, stopWatcher } from './watcher';
 import { startUsbWatcher, stopUsbWatcher } from './usbWatcher';
 import { initializeStorage } from './storage';
-import { setMainWindow, getMainWindow } from './windowManager';
+import { setMainWindow, getMainWindow, sendNotification } from './windowManager';
 import { getAllSettings, saveSettings } from './settingsService';
 import { getConfig } from './config';
 import { XMLParser } from 'fast-xml-parser';
@@ -1343,7 +1343,8 @@ ipcMain.handle('set-download-whitelist', async (_event, config) => {
 
 ipcMain.handle('web-panel-assign-download', async (_event, info: {
   filePath: string;
-  patientId: string;
+  patientId?: string;
+  patientData?: { first_name: string; last_name: string; dob: string; hospitalPatientId?: string };
   visitMode: 'new' | 'existing';
   visitId?: string;
   visitDate?: string;
@@ -1351,20 +1352,42 @@ ipcMain.handle('web-panel-assign-download', async (_event, info: {
   sourceManufacturer: string;
 }) => {
   try {
-    const { getPatientById, createReport } = await import('./database');
+    const { getPatientById, createPatient, createReport } = await import('./database');
     const { storeFile } = await import('./storage');
     const { v4: uuidv4 } = await import('uuid');
 
-    const patient = await getPatientById(info.patientId);
+    let patient: any;
+
+    if (info.patientData && !info.patientId) {
+      // Create-patient flow: create the patient first
+      const newId = uuidv4();
+      await createPatient({
+        id: newId,
+        first_name: info.patientData.first_name || '',
+        last_name: info.patientData.last_name,
+        dob: info.patientData.dob,
+        hospitalPatientId: info.patientData.hospitalPatientId || null,
+      });
+      info.patientId = newId;
+      patient = await getPatientById(newId);
+      sendNotification(`New patient created: ${info.patientData.first_name} ${info.patientData.last_name}`);
+      const mainWindow = getMainWindow();
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('patient-list-update');
+      }
+    } else {
+      patient = await getPatientById(info.patientId!);
+    }
     if (!patient) throw new Error('Patient not found');
 
+    const patientId = info.patientId!;
     const visitDate = info.visitDate || new Date().toISOString().split('T')[0];
     const reportId = info.visitId || uuidv4();
 
     // Build a minimal UnifiedReport for DB + visit.xml
     const remoteReport: any = {
       id: reportId,
-      patient_id: info.patientId,
+      patient_id: patientId,
       manufacturer: info.sourceManufacturer,
       interrogation_date: visitDate,
       device: { type: 'Unknown', model: 'Unknown', serial_number: 'Unknown' },
@@ -1388,15 +1411,28 @@ ipcMain.handle('web-panel-assign-download', async (_event, info: {
       await createReport(remoteReport);
     }
 
-    await storeFile(
-      info.filePath,
-      reportId,
-      info.patientId,
-      `${patient.last_name}_${patient.first_name}`,
-      visitDate,
-      patient,
-      remoteReport
-    );
+    if (info.filePath.toLowerCase().endsWith('.zip')) {
+      const { storeZipContents } = await import('./storage');
+      await storeZipContents(
+        info.filePath,
+        reportId,
+        patientId,
+        `${patient.last_name}_${patient.first_name}`,
+        visitDate,
+        patient,
+        remoteReport
+      );
+    } else {
+      await storeFile(
+        info.filePath,
+        reportId,
+        patientId,
+        `${patient.last_name}_${patient.first_name}`,
+        visitDate,
+        patient,
+        remoteReport
+      );
+    }
 
     // Notify renderer to refresh
     const mainWindow = getMainWindow();

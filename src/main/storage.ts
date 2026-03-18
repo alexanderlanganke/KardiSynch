@@ -415,6 +415,56 @@ export const storeFile = async (
 };
 
 /**
+ * Extracts a ZIP file's contents into a visit directory, generates visit.xml
+ * and patient.xml metadata, then removes the source ZIP.
+ */
+export const storeZipContents = async (
+  zipPath: string,
+  reportId: string,
+  patientId: string,
+  patientName?: string,
+  interrogationDate?: string,
+  patient?: any,
+  report?: UnifiedReport
+): Promise<void> => {
+  const AdmZip = (await import('adm-zip')).default;
+
+  const safeName = patientName ? patientName.replace(/[^a-zA-Z0-9]/g, '_') : 'Unknown';
+  const patientDir = path.join(dataDir, 'Reports', `${patientId}_${safeName}`);
+
+  let dateString = 'Unknown';
+  if (interrogationDate) {
+    const date = new Date(interrogationDate);
+    if (!isNaN(date.getTime())) {
+      dateString = `${date.getFullYear()}_${String(date.getMonth() + 1).padStart(2, '0')}_${String(date.getDate()).padStart(2, '0')}`;
+    }
+  }
+
+  const visitDir = path.join(patientDir, `${dateString}_${reportId}`);
+  await fs.mkdir(visitDir, { recursive: true });
+
+  // Extract all files (flatten nested directories)
+  const zip = new AdmZip(zipPath);
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory) continue;
+    const entryName = path.basename(entry.entryName);
+    if (!entryName) continue;
+    await fs.writeFile(path.join(visitDir, entryName), entry.getData());
+  }
+
+  // Generate metadata XML
+  if (report) {
+    await fs.writeFile(path.join(visitDir, 'visit.xml'), generateVisitXML(report, reportId));
+  }
+  if (patient) {
+    await fs.writeFile(path.join(patientDir, 'patient.xml'), generatePatientXML(patient));
+  }
+
+  // Clean up source ZIP
+  await fs.unlink(zipPath).catch(() => {});
+};
+
+/**
  * Updates the patient.xml file with new patient details, preserving device/lead history.
  */
 export const updatePatientXML = async (

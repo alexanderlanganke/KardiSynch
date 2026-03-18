@@ -1,7 +1,7 @@
 import React from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from './ui/dialog';
 import { Button } from './ui/button';
-import { FileText, Wifi } from 'lucide-react';
+import { Archive, FileText, Wifi } from 'lucide-react';
 
 interface DownloadInfo {
   filePath: string;
@@ -37,6 +37,9 @@ const DownloadAssignmentDialog: React.FC<DownloadAssignmentDialogProps> = ({
   };
 
   const friendlySource = domainLabels[downloadInfo.sourceDomain] || downloadInfo.sourceDomain;
+  const isZip = downloadInfo.filename.toLowerCase().endsWith('.zip');
+  const FileIcon = isZip ? Archive : FileText;
+  const fileTypeLabel = isZip ? 'A report archive' : 'A PDF';
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onDismiss(); }}>
@@ -47,13 +50,13 @@ const DownloadAssignmentDialog: React.FC<DownloadAssignmentDialogProps> = ({
             Remote Monitoring Download
           </DialogTitle>
           <DialogDescription>
-            A PDF was downloaded from {friendlySource}.
+            {fileTypeLabel} was downloaded from {friendlySource}.
           </DialogDescription>
         </DialogHeader>
 
         <div className="py-4">
           <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
-            <FileText className="h-8 w-8 text-blue-400 flex-shrink-0" />
+            <FileIcon className="h-8 w-8 text-blue-400 flex-shrink-0" />
             <div className="min-w-0">
               <p className="text-sm font-medium truncate">{downloadInfo.filename}</p>
               <p className="text-xs text-muted-foreground">

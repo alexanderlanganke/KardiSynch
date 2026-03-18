@@ -188,6 +188,7 @@ const App: React.FC = () => {
       window.electronAPI.webPanelAssignDownload({
         filePath: manualSortingFile.filePath,
         patientId: decision.patientId,
+        patientData: decision.action === 'create-patient' ? decision.patientData : undefined,
         visitMode: decision.visitMode || 'new',
         visitId: decision.visitMode === 'existing' ? decision.visitId : undefined,
         visitDate: decision.visitDate || new Date().toISOString().split('T')[0],
