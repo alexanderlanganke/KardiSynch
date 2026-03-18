@@ -15,21 +15,42 @@ const CREDENTIAL_SIGNAL = '__KS_CRED_SUBMIT__';
 
 // JS injected into pages to detect login form submissions (AJAX/SPA logins
 // that don't trigger will-navigate).
+// Credentials are extracted inline and included in the signal so the main
+// process doesn't need to call executeJavaScript after navigation destroys
+// the page context.
 const CREDENTIAL_LISTENER_JS = `
 (function() {
   if (window.__ks_cred_listener) return;
   window.__ks_cred_listener = true;
 
-  function hasFilledPassword() {
-    var pws = document.querySelectorAll('input[type="password"]');
-    for (var i = 0; i < pws.length; i++) {
-      if (pws[i].offsetParent !== null && pws[i].value) return true;
+  function extractCreds() {
+    var pw = null;
+    var pwFields = document.querySelectorAll('input[type="password"]');
+    for (var i = 0; i < pwFields.length; i++) {
+      if (pwFields[i].offsetParent !== null && pwFields[i].value) {
+        pw = pwFields[i];
+        break;
+      }
     }
-    return false;
+    if (!pw) return null;
+
+    var username = '';
+    var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[autocomplete="username"]');
+    for (var j = 0; j < inputs.length; j++) {
+      var inp = inputs[j];
+      if (inp.type === 'password') continue;
+      if (inp.offsetParent === null) continue;
+      var n = (inp.name || inp.id || '').toLowerCase();
+      if (n.indexOf('search') >= 0 || n.indexOf('captcha') >= 0) continue;
+      if (inp.value && inp.value.trim()) { username = inp.value.trim(); break; }
+    }
+
+    return JSON.stringify({ username: username, password: pw.value, domain: window.location.hostname });
   }
 
   function signal() {
-    if (hasFilledPassword()) console.log('${CREDENTIAL_SIGNAL}');
+    var creds = extractCreds();
+    if (creds) console.log('${CREDENTIAL_SIGNAL}' + creds);
   }
 
   // Form submit (covers both AJAX and traditional)
@@ -72,9 +93,10 @@ const EXTRACT_CREDENTIALS_JS = `
   if (!pw) return null;
 
   var username = '';
-  var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"]');
+  var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[autocomplete="username"]');
   for (var j = 0; j < inputs.length; j++) {
     var inp = inputs[j];
+    if (inp.type === 'password') continue;
     if (inp.offsetParent === null) continue;
     var n = (inp.name || inp.id || '').toLowerCase();
     if (n.indexOf('search') >= 0 || n.indexOf('captcha') >= 0) continue;
@@ -107,9 +129,10 @@ function makeAutoFillJS(username: string, password: string): string {
 
     setVal(pw, '${p}');
 
-    var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"]');
+    var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[autocomplete="username"]');
     for (var j = 0; j < inputs.length; j++) {
       var inp = inputs[j];
+      if (inp.type === 'password') continue;
       if (inp.offsetParent === null) continue;
       var n = (inp.name || inp.id || '').toLowerCase();
       if (n.indexOf('search') >= 0 || n.indexOf('captcha') >= 0) continue;
@@ -254,16 +277,90 @@ class WebPanelManager {
       wc.executeJavaScript(CREDENTIAL_LISTENER_JS).catch(() => { /* noop */ });
     });
 
-    // 3. Listen for the console signal from the injected script
+    // 3. Listen for the console signal with inline credential data
     wc.on('console-message', (_event, _level, message) => {
-      if (message === CREDENTIAL_SIGNAL) {
-        dbg('console-message: credential signal received, extracting in 300ms');
-        // Small delay so the form value is committed before we read it
-        setTimeout(() => this.tryExtractCredentials(wc), 300);
+      if (message.startsWith(CREDENTIAL_SIGNAL)) {
+        const payload = message.substring(CREDENTIAL_SIGNAL.length);
+        dbg('console-message: credential signal received, payload length:', payload.length);
+        try {
+          const creds = JSON.parse(payload);
+          this.processExtractedCredentials(creds, wc);
+        } catch (e) {
+          dbg('console-message: failed to parse inline credential payload, falling back to extraction:', e);
+          setTimeout(() => this.tryExtractCredentials(wc), 300);
+        }
       }
     });
   }
 
+  /**
+   * Process already-extracted credentials (from inline console signal).
+   * Handles multi-step username fallback, dedup check, and prompting.
+   */
+  private processExtractedCredentials(
+    creds: { username: string; password: string; domain: string },
+    wc: Electron.WebContents
+  ) {
+    let { username, password, domain } = creds;
+    dbg('processExtractedCredentials() — username:', username || '(empty)',
+      'password length:', password?.length || 0, 'domain:', domain);
+
+    // For multi-step logins: if no username on current page, use remembered one
+    if (!username && this.lastSeenUsername && domain === this.lastSeenDomain) {
+      username = this.lastSeenUsername;
+      console.log('[WebPanel] Using remembered username from step 1:', username);
+      dbg('processExtractedCredentials() using remembered username:', username);
+    }
+
+    if (!username || !password || !domain) {
+      dbg('processExtractedCredentials() ABORTED: missing field(s) — username:', !!username, 'password:', !!password, 'domain:', !!domain);
+      return;
+    }
+
+    // Clear multi-step state on successful capture
+    this.lastSeenUsername = '';
+    this.lastSeenDomain = '';
+
+    console.log('[WebPanel] Credentials detected for:', domain, username);
+
+    const store = CredentialStore.getInstance();
+    if (!store.isAvailable()) {
+      dbg('processExtractedCredentials() ABORTED: CredentialStore not available');
+      return;
+    }
+
+    // Check if already saved
+    const existing = store.get(domain);
+    dbg('processExtractedCredentials() existing credentials for domain:', existing.length,
+      'matching username+password:', existing.some((c) => c.username === username && c.password === password));
+    if (existing.some((c) => c.username === username && c.password === password)) {
+      dbg('processExtractedCredentials() credential already saved, skipping prompt');
+      return;
+    }
+
+    // Show "Save password?" prompt in renderer
+    dbg('processExtractedCredentials() setting pendingCredential and sending IPC');
+    this.pendingCredential = { domain, username, password };
+    if (this.pendingCredentialTimer) clearTimeout(this.pendingCredentialTimer);
+    this.pendingCredentialTimer = setTimeout(() => {
+      dbg('processExtractedCredentials() pendingCredential timed out after 60s');
+      this.pendingCredential = null;
+      this.pendingCredentialTimer = null;
+    }, 60000);
+
+    const win = getMainWindow();
+    dbg('processExtractedCredentials() mainWindow exists:', !!win, 'destroyed:', win?.isDestroyed());
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('web-panel-credentials-detected', { domain, username });
+      dbg('processExtractedCredentials() sent web-panel-credentials-detected IPC');
+    }
+  }
+
+  /**
+   * Fallback extraction via executeJavaScript. Used by will-navigate and
+   * did-navigate where the inline signal may not have fired. Also handles
+   * multi-step login username capture on pages without a password field.
+   */
   private async tryExtractCredentials(wc: Electron.WebContents) {
     const pageUrl = wc.getURL();
     dbg('tryExtractCredentials() page:', pageUrl.substring(0, 120));
@@ -273,34 +370,27 @@ class WebPanelManager {
         ? { username: result.username, domain: result.domain, hasPassword: !!result.password, passwordLength: result.password?.length }
         : null);
       if (!result) {
-        // No password field found. Check if there's a username field to remember.
+        // No password field found. Check if there's a username field to remember
+        // for multi-step logins (username on page 1, password on page 2).
         dbg('tryExtractCredentials() no password field found, checking for username-only field');
         const usernameOnly = await wc.executeJavaScript(`
           (function() {
-            var inputs = document.querySelectorAll('input[type="text"], input[type="email"]');
-            var debugInfo = [];
+            var inputs = document.querySelectorAll('input[type="text"], input[type="email"], input[type="tel"], input[autocomplete="username"]');
             for (var i = 0; i < inputs.length; i++) {
               var inp = inputs[i];
-              debugInfo.push({
-                type: inp.type,
-                name: inp.name || '',
-                id: inp.id || '',
-                visible: inp.offsetParent !== null,
-                hasValue: !!(inp.value && inp.value.trim()),
-                valueLength: (inp.value || '').length
-              });
+              if (inp.type === 'password') continue;
               if (inp.offsetParent !== null && inp.value && inp.value.trim()) {
-                return { username: inp.value.trim(), fields: debugInfo };
+                return inp.value.trim();
               }
             }
-            return { username: null, fields: debugInfo };
+            return null;
           })()
         `);
-        dbg('tryExtractCredentials() username-only scan:', JSON.stringify(usernameOnly));
-        if (usernameOnly?.username) {
-          this.lastSeenUsername = usernameOnly.username;
+        dbg('tryExtractCredentials() username-only scan:', usernameOnly);
+        if (usernameOnly) {
+          this.lastSeenUsername = usernameOnly;
           try { this.lastSeenDomain = new URL(wc.getURL()).hostname; } catch { /* noop */ }
-          console.log('[WebPanel] Remembered username for multi-step login:', usernameOnly.username);
+          console.log('[WebPanel] Remembered username for multi-step login:', usernameOnly);
           dbg('tryExtractCredentials() stored lastSeenUsername:', this.lastSeenUsername, 'lastSeenDomain:', this.lastSeenDomain);
         } else {
           dbg('tryExtractCredentials() no username field with value found on page');
@@ -308,55 +398,7 @@ class WebPanelManager {
         return;
       }
 
-      let { username, password, domain } = result;
-      dbg('tryExtractCredentials() extracted — username:', username || '(empty)',
-        'password length:', password?.length || 0, 'domain:', domain);
-
-      // For multi-step logins: if no username on current page, use remembered one
-      if (!username && this.lastSeenUsername && domain === this.lastSeenDomain) {
-        username = this.lastSeenUsername;
-        console.log('[WebPanel] Using remembered username from step 1:', username);
-        dbg('tryExtractCredentials() using remembered username:', username);
-      }
-
-      if (!username || !password || !domain) {
-        dbg('tryExtractCredentials() ABORTED: missing field(s) — username:', !!username, 'password:', !!password, 'domain:', !!domain);
-        return;
-      }
-
-      console.log('[WebPanel] Credentials detected for:', domain, username);
-
-      const store = CredentialStore.getInstance();
-      if (!store.isAvailable()) {
-        dbg('tryExtractCredentials() ABORTED: CredentialStore not available');
-        return;
-      }
-
-      // Check if already saved
-      const existing = store.get(domain);
-      dbg('tryExtractCredentials() existing credentials for domain:', existing.length,
-        'matching username+password:', existing.some((c) => c.username === username && c.password === password));
-      if (existing.some((c) => c.username === username && c.password === password)) {
-        dbg('tryExtractCredentials() credential already saved, skipping prompt');
-        return;
-      }
-
-      // Show "Save password?" prompt in renderer
-      dbg('tryExtractCredentials() setting pendingCredential and sending web-panel-credentials-detected to renderer');
-      this.pendingCredential = { domain, username, password };
-      if (this.pendingCredentialTimer) clearTimeout(this.pendingCredentialTimer);
-      this.pendingCredentialTimer = setTimeout(() => {
-        dbg('tryExtractCredentials() pendingCredential timed out after 60s');
-        this.pendingCredential = null;
-        this.pendingCredentialTimer = null;
-      }, 60000);
-
-      const win = getMainWindow();
-      dbg('tryExtractCredentials() mainWindow exists:', !!win, 'destroyed:', win?.isDestroyed());
-      if (win && !win.isDestroyed()) {
-        win.webContents.send('web-panel-credentials-detected', { domain, username });
-        dbg('tryExtractCredentials() sent web-panel-credentials-detected IPC');
-      }
+      this.processExtractedCredentials(result, wc);
     } catch (err) {
       // Page might have navigated away already — ignore
       dbg('tryExtractCredentials() ERROR (page may have navigated away):', err);
