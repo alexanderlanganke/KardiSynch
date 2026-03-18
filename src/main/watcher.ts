@@ -206,6 +206,9 @@ const processTempDirectory = async (tempDir: string) => {
     // Key: "Last_First_DOB_Date" -> { reportId, patientId, patient, date, serial?, sessionId? }
     const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string, sessionId?: string }>();
 
+    // Track all visits affected during this import batch for post-import aggregation
+    const affectedVisits = new Map<string, { patient: any }>();
+
     // --- STEP 1: Process Structured Reports (.pkg, .xml) ---
     console.log('--- STEP 1: Processing Structured Reports ---');
     for (const file of structuredFiles) {
@@ -395,6 +398,7 @@ const processTempDirectory = async (tempDir: string) => {
             message: 'Merged into active visit'
           });
           sessionSummary.imported++;
+          affectedVisits.set(reportId, { patient });
 
         } else {
           // New Visit Case
@@ -416,6 +420,7 @@ const processTempDirectory = async (tempDir: string) => {
           });
           sessionSummary.imported++;
           importedPatientIds.add(patient.id);
+          affectedVisits.set(reportId, { patient });
 
           // Register as active visit
           if (key) {
@@ -496,6 +501,7 @@ const processTempDirectory = async (tempDir: string) => {
             });
             sessionSummary.imported++;
             sessionSummary.processed++;
+            affectedVisits.set(visit.reportId, { patient: visit.patient });
             matched = true;
             break;
           }
@@ -516,6 +522,7 @@ const processTempDirectory = async (tempDir: string) => {
             });
             sessionSummary.imported++;
             sessionSummary.processed++;
+            affectedVisits.set(visit.reportId, { patient: visit.patient });
 
             matched = true;
             break;
@@ -539,6 +546,7 @@ const processTempDirectory = async (tempDir: string) => {
             });
             sessionSummary.imported++;
             sessionSummary.processed++;
+            affectedVisits.set(visit.reportId, { patient: visit.patient });
 
             matched = true;
             break;
@@ -603,6 +611,7 @@ const processTempDirectory = async (tempDir: string) => {
               report_id: existingReport.id,
               message: 'Auto-matched to existing visit'
             });
+            affectedVisits.set(existingReport.id, { patient });
           } else {
             // Patient found but NO visit found for this date. Trigger Manual Sorting.
             console.log(`Patient found but no matching visit for ${path.basename(file)}. Requesting manual confirmation...`);
@@ -656,8 +665,10 @@ const processTempDirectory = async (tempDir: string) => {
                   }
                 }
 
+                let storedVisitId: string;
                 if (targetVisitId) {
                   await storeFile(file, targetVisitId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
+                  storedVisitId = targetVisitId;
                 } else {
                   // Ensure report has valid patient data from the target patient
                   report.patient = {
@@ -674,6 +685,7 @@ const processTempDirectory = async (tempDir: string) => {
                   const { storeReport } = await import('./storage');
                   const { reportId } = await storeReport(report);
                   await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
+                  storedVisitId = reportId;
                 }
                 logImportEvent({
                   id: uuidv4(),
@@ -684,6 +696,7 @@ const processTempDirectory = async (tempDir: string) => {
                   message: 'Manually assigned by user'
                 });
                 sessionSummary.manuallySorted++;
+                affectedVisits.set(storedVisitId, { patient: targetPatient });
                 // sessionSummary.imported++ is handled outside
               } catch (e) {
                 console.error('Error in manual assignment', e);
@@ -725,6 +738,7 @@ const processTempDirectory = async (tempDir: string) => {
                   message: 'Manually created patient'
                 });
                 sessionSummary.manuallySorted++;
+                affectedVisits.set(reportId, { patient: newPatient });
                 // sessionSummary.imported++ is handled outside
               } catch (e) {
                 console.error('Error in manual creation', e);
@@ -806,8 +820,10 @@ const processTempDirectory = async (tempDir: string) => {
                 }
               }
 
+              let storedVisitId: string;
               if (targetReportId) {
                 await storeFile(file, targetReportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetDate, targetPatient, undefined);
+                storedVisitId = targetReportId;
               } else {
                 // Ensure report has valid patient data from the target patient
                 report.patient = {
@@ -820,6 +836,7 @@ const processTempDirectory = async (tempDir: string) => {
                 const { storeReport } = await import('./storage');
                 const { reportId } = await storeReport(report);
                 await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
+                storedVisitId = reportId;
               }
               logImportEvent({
                 id: uuidv4(),
@@ -831,6 +848,7 @@ const processTempDirectory = async (tempDir: string) => {
               });
               sessionSummary.manuallySorted++;
               sessionSummary.imported++;
+              affectedVisits.set(storedVisitId, { patient: targetPatient });
             } catch (e) {
               console.error('Error in manual assignment', e);
               unmatchedFiles.push(file);
@@ -862,8 +880,8 @@ const processTempDirectory = async (tempDir: string) => {
             };
             report.patient_id = newPatient.id;
             const { storeReport } = await import('./storage');
-            const { reportId } = await storeReport(report);
-            await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
+            const { reportId: newReportId } = await storeReport(report);
+            await storeFile(file, newReportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
 
             logImportEvent({
               id: uuidv4(),
@@ -875,6 +893,7 @@ const processTempDirectory = async (tempDir: string) => {
             });
             sessionSummary.manuallySorted++;
             sessionSummary.imported++;
+            affectedVisits.set(newReportId, { patient: newPatient });
 
           } else {
             // Unmatched
@@ -901,6 +920,22 @@ const processTempDirectory = async (tempDir: string) => {
           message: (e as Error).message
         });
         sessionSummary.errors++;
+      }
+    }
+
+    // --- Post-import aggregation: refresh visit.xml + patient.xml for all affected visits ---
+    if (affectedVisits.size > 0) {
+      console.log(`[Watcher] Running post-import aggregation for ${affectedVisits.size} affected visit(s)...`);
+      const { refreshVisitMetadata } = await import('./storage');
+      for (const [visitReportId, { patient: visitPatient }] of affectedVisits) {
+        try {
+          const visitPath = await findVisitPath(visitReportId);
+          if (visitPath) {
+            await refreshVisitMetadata(visitPath, visitReportId, visitPatient);
+          }
+        } catch (e) {
+          console.warn(`[Watcher] Post-import aggregation failed for visit ${visitReportId}:`, e);
+        }
       }
     }
 
@@ -1203,11 +1238,13 @@ export const findVisitPath = async (visitId: string): Promise<string | null> => 
 };
 
 /**
- * Rescans a specific visit directory and extracts data without modifying the database.
+ * Rescans a specific visit directory, aggregates data from all files,
+ * persists the result to visit.xml + patient.xml, and returns aggregated data.
  * @param visitPath Full path to the visit directory
+ * @param visitId Report ID for this visit (used to look up patient and persist metadata)
  * @returns Object containing status and extracted data
  */
-export const rescanVisitDirectory = async (visitPath: string) => {
+export const rescanVisitDirectory = async (visitPath: string, visitId?: string) => {
   try {
     console.log(`[Rescan] Scanning directory: ${visitPath}`);
     try {
@@ -1216,47 +1253,36 @@ export const rescanVisitDirectory = async (visitPath: string) => {
       throw new Error(`Directory not found: ${visitPath}`);
     }
 
-    const files = (await fs.readdir(visitPath)).filter(f => !f.startsWith('.'));
-    const parsedReports: UnifiedReport[] = [];
+    const { aggregateVisitFiles, refreshVisitMetadata } = await import('./storage');
+    const aggregated = await aggregateVisitFiles(visitPath);
 
-    // Prioritize PDF and XML
-    for (const file of files) {
-      // Skip unwanted files
-      if (['.pdf', '.xml', '.txt', '.log', '.pkg'].every(ext => !file.toLowerCase().endsWith(ext))) continue;
-
-      const filePath = path.join(visitPath, file);
-      try {
-        const result = await parseFile(filePath);
-        if (result) {
-          parsedReports.push(result);
-        }
-      } catch (e) {
-        console.warn(`[Rescan] Failed to parse file ${file}:`, e);
-      }
-    }
-
-    if (parsedReports.length === 0) {
+    if (!aggregated) {
       return { status: 'empty', message: 'No parseable files found.' };
     }
 
-    // Merge strategy: Take the most complete data
-    // For now, we return the first valid report's patient/device data, or a merge if we want to be fancy
-    // Let's assume the first valid report is representative for demographics/device.
-    // We can collect all unique leads found.
-
-    // Sort reports by priority: XML > PDF > Text ? parseFile doesn't give type easily, but we can assume order
-    // Let's just aggregate data.
+    const files = (await fs.readdir(visitPath)).filter(f => !f.startsWith('.'));
 
     const aggregatedData = {
-      patient: parsedReports.find(r => r.patient?.last_name)?.patient || parsedReports[0].patient,
-      device: parsedReports.find(r => r.device?.model)?.device || parsedReports[0].device,
-      leads: parsedReports.flatMap(r => r.leads || []),
-      interrogation_date: parsedReports.find(r => r.interrogation_date)?.interrogation_date
+      patient: aggregated.patient,
+      device: aggregated.device,
+      leads: aggregated.leads || [],
+      interrogation_date: aggregated.interrogation_date
     };
 
-    // Deduplicate leads by serial
-    const uniqueLeads = Array.from(new Map(aggregatedData.leads.map(l => [l.serial || l.model, l])).values());
-    aggregatedData.leads = uniqueLeads;
+    // Persist aggregated data to visit.xml + patient.xml
+    if (visitId) {
+      try {
+        const report = await getReportById(visitId);
+        if (report) {
+          const patient = await getPatientById(report.patient_id);
+          if (patient) {
+            await refreshVisitMetadata(visitPath, visitId, patient);
+          }
+        }
+      } catch (e) {
+        console.warn(`[Rescan] Failed to persist aggregated metadata for ${visitId}:`, e);
+      }
+    }
 
     return {
       status: 'success',

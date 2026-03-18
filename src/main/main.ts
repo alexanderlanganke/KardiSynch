@@ -1168,8 +1168,8 @@ ipcMain.handle('rescan-visit', async (event, visitId: string) => {
       throw new Error('Visit directory not found on disk');
     }
 
-    // Call Watcher
-    return await import('./watcher').then(m => m.rescanVisitDirectory(visitPath));
+    // Call Watcher with visitId for persistence
+    return await import('./watcher').then(m => m.rescanVisitDirectory(visitPath, visitId));
   } catch (error) {
     console.error('Rescan failed:', error);
     throw error;

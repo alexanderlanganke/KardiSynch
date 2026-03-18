@@ -679,3 +679,184 @@ export const exportVisitFiles = async (
 
   return { count: copiedCount, success: true };
 };
+
+const PARSEABLE_EXTENSIONS = new Set(['.pdf', '.xml', '.txt', '.log', '.pkg', '.bnk', '.pdd']);
+const METADATA_FILES = new Set(['visit.xml', 'patient.xml']);
+
+/**
+ * Reads all parseable files in a visit directory, parses them, and returns
+ * a single aggregated UnifiedReport with best-of-each-field strategy.
+ */
+export const aggregateVisitFiles = async (visitPath: string): Promise<UnifiedReport | null> => {
+  const { parseFile } = await import('./parser');
+
+  const files = (await fs.readdir(visitPath)).filter(f => {
+    if (METADATA_FILES.has(f.toLowerCase())) return false;
+    const ext = path.extname(f).toLowerCase();
+    return PARSEABLE_EXTENSIONS.has(ext);
+  });
+
+  const reports: UnifiedReport[] = [];
+  for (const file of files) {
+    try {
+      const result = await parseFile(path.join(visitPath, file));
+      if (result) reports.push(result);
+    } catch (e) {
+      console.warn(`[aggregateVisitFiles] Failed to parse ${file}:`, e);
+    }
+  }
+
+  if (reports.length === 0) return null;
+
+  const patient = reports.find(r => r.patient?.last_name)?.patient || reports[0].patient;
+  const device = reports.find(r => r.device?.model && r.device.model !== 'Unknown')?.device
+    || reports.find(r => r.device?.serial_number && r.device.serial_number !== 'Unknown')?.device
+    || reports[0].device;
+  const manufacturer = reports.find(r => r.manufacturer && r.manufacturer !== 'Unknown')?.manufacturer || reports[0].manufacturer;
+  const interrogation_date = reports.find(r => r.interrogation_date)?.interrogation_date || reports[0].interrogation_date;
+  const battery = reports.find(r => r.battery?.voltage?.value || r.battery?.status)?.battery || reports[0].battery;
+
+  // Collect all leads and deduplicate by serial (fallback: model name)
+  const allLeads = reports.flatMap(r => r.leads || []);
+  const leadMap = new Map<string, any>();
+  for (const lead of allLeads) {
+    const key = lead.serial && lead.serial !== 'Unknown' && lead.serial !== '.'
+      ? lead.serial
+      : (lead.model || lead.name || '');
+    if (key && !leadMap.has(key)) {
+      leadMap.set(key, lead);
+    }
+  }
+
+  return {
+    patient,
+    device,
+    manufacturer,
+    interrogation_date,
+    battery,
+    leads: Array.from(leadMap.values()),
+  };
+};
+
+/**
+ * Re-reads all files in a visit directory and rewrites visit.xml and patient.xml
+ * with fully aggregated data. Preserves remote source metadata.
+ */
+export const refreshVisitMetadata = async (
+  visitPath: string,
+  reportId: string,
+  patient: { id: string; first_name: string; last_name: string; dob: string; hospitalPatientId?: string | null }
+): Promise<void> => {
+  const aggregated = await aggregateVisitFiles(visitPath);
+  if (!aggregated) return;
+
+  // --- Rewrite visit.xml ---
+  const visitXmlPath = path.join(visitPath, 'visit.xml');
+
+  // Preserve _remoteSource metadata from existing visit.xml
+  try {
+    const existingXml = await fs.readFile(visitXmlPath, 'utf-8');
+    const parser = new XMLParser({ ignoreAttributes: false });
+    const parsed = parser.parse(existingXml);
+    if (parsed.visit) {
+      const remote: any = {};
+      if (parsed.visit.visit_type) remote.visit_type = parsed.visit.visit_type;
+      if (parsed.visit.source_domain) remote.source_domain = parsed.visit.source_domain;
+      if (parsed.visit.source_manufacturer) remote.source_manufacturer = parsed.visit.source_manufacturer;
+      if (Object.keys(remote).length > 0) {
+        (aggregated as any)._remoteSource = remote;
+      }
+    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') console.warn('[refreshVisitMetadata] Error reading existing visit.xml:', e);
+  }
+
+  await fs.writeFile(visitXmlPath, generateVisitXML(aggregated, reportId));
+
+  // --- Update patient.xml ---
+  const patientDir = path.dirname(visitPath);
+  const patientXmlPath = path.join(patientDir, 'patient.xml');
+
+  let existingDevices: any[] = [];
+  let existingLeads: any[] = [];
+  let mriStatus: any = null;
+  let mriDataHash: string | null = null;
+  let manufacturerWarningStatus: any = null;
+  let manufacturerWarningHash: string | null = null;
+
+  try {
+    const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
+    const parser = new XMLParser({ ignoreAttributes: false });
+    const parsed = parser.parse(xmlContent);
+    if (parsed.patient) {
+      if (parsed.patient.devices?.device) {
+        existingDevices = Array.isArray(parsed.patient.devices.device)
+          ? parsed.patient.devices.device : [parsed.patient.devices.device];
+      }
+      if (parsed.patient.leads?.lead) {
+        existingLeads = Array.isArray(parsed.patient.leads.lead)
+          ? parsed.patient.leads.lead : [parsed.patient.leads.lead];
+      }
+      if (parsed.patient.mri_status) {
+        try { mriStatus = JSON.parse(parsed.patient.mri_status); } catch { }
+      }
+      mriDataHash = parsed.patient.mri_data_hash || null;
+      if (parsed.patient.manufacturer_warning_status) {
+        try { manufacturerWarningStatus = JSON.parse(parsed.patient.manufacturer_warning_status); } catch { }
+      }
+      manufacturerWarningHash = parsed.patient.manufacturer_warning_hash || null;
+    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') console.warn('[refreshVisitMetadata] Error reading existing patient.xml:', e);
+  }
+
+  // Merge device from aggregated report
+  if (aggregated.device?.serial_number && aggregated.device.serial_number !== 'Unknown' && aggregated.manufacturer !== 'Unknown') {
+    const newDevice = {
+      model: aggregated.device.model,
+      serial: aggregated.device.serial_number,
+      manufacturer: aggregated.manufacturer,
+      implant_date: aggregated.device.implant_date || 'Unknown'
+    };
+    existingDevices = existingDevices.filter(d => d.serial && String(d.serial) !== 'Unknown');
+    const idx = existingDevices.findIndex(d => String(d.serial) === String(newDevice.serial));
+    if (idx !== -1) {
+      existingDevices[idx] = { ...existingDevices[idx], ...newDevice };
+    } else {
+      existingDevices.push(newDevice);
+    }
+  }
+
+  // Merge leads from aggregated report
+  if (aggregated.leads) {
+    for (const l of aggregated.leads) {
+      if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
+        const newLead = {
+          model: l.model,
+          serial: l.serial,
+          manufacturer: l.manufacturer || aggregated.manufacturer,
+          implant_date: l.implant_date || 'Unknown'
+        };
+        existingLeads = existingLeads.filter(lead => lead.serial && String(lead.serial) !== 'Unknown');
+        const idx = existingLeads.findIndex(ex => String(ex.serial) === String(newLead.serial));
+        if (idx !== -1) {
+          existingLeads[idx] = { ...existingLeads[idx], ...newLead };
+        } else {
+          existingLeads.push(newLead);
+        }
+      }
+    }
+  }
+
+  await fs.writeFile(patientXmlPath, generatePatientXML(
+    { id: patient.id, first_name: patient.first_name, last_name: patient.last_name, dob: patient.dob, hospitalPatientId: patient.hospitalPatientId || null },
+    existingDevices,
+    existingLeads,
+    mriStatus,
+    mriDataHash,
+    manufacturerWarningStatus,
+    manufacturerWarningHash
+  ));
+
+  console.log(`[refreshVisitMetadata] Updated metadata for visit ${reportId}`);
+};
