@@ -277,6 +277,11 @@ export const storeFile = async (
   } catch (error: any) {
     if (error.code === 'EXDEV') {
       await fs.copyFile(sourcePath, destPath);
+      // Verify copy before deleting source
+      const [srcStat, destStat] = await Promise.all([fs.stat(sourcePath), fs.stat(destPath)]);
+      if (destStat.size !== srcStat.size) {
+        throw new Error(`Cross-device copy verification failed: ${srcStat.size} vs ${destStat.size} bytes`);
+      }
       await fs.unlink(sourcePath);
     } else {
       throw error;

@@ -597,8 +597,8 @@ const processTempDirectory = async (tempDir: string) => {
           console.log(`Found existing patient for PDF ${path.basename(file)}.`);
 
           // AUTO MATCHED
-          const datePrefix = report.interrogation_date.split('T')[0];
-          const existingReport = await findReportByDate(patient.id, datePrefix);
+          const datePrefix = (report.interrogation_date || '').split('T')[0];
+          const existingReport = datePrefix ? await findReportByDate(patient.id, datePrefix) : null;
 
           if (existingReport) {
             await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, undefined);
@@ -657,9 +657,9 @@ const processTempDirectory = async (tempDir: string) => {
                   report.interrogation_date = userDecision.visitDate || report.interrogation_date;
                 } else {
                   // Auto-resolve by date (fallback)
-                  const datePrefix = report.interrogation_date.split('T')[0];
+                  const datePrefix = (report.interrogation_date || '').split('T')[0];
                   const { findReportByDate } = await import('./database');
-                  const existingReportByUser = await findReportByDate(targetPatient.id, datePrefix);
+                  const existingReportByUser = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
                   if (existingReportByUser) {
                     targetVisitId = existingReportByUser.id;
                   }
@@ -697,10 +697,11 @@ const processTempDirectory = async (tempDir: string) => {
                 });
                 sessionSummary.manuallySorted++;
                 affectedVisits.set(storedVisitId, { patient: targetPatient });
-                // sessionSummary.imported++ is handled outside
               } catch (e) {
                 console.error('Error in manual assignment', e);
                 unmatchedFiles.push(file);
+                sessionSummary.errors++;
+                continue; // Don't count as imported
               }
 
             } else if (userDecision.action === 'create-patient') {
@@ -739,10 +740,11 @@ const processTempDirectory = async (tempDir: string) => {
                 });
                 sessionSummary.manuallySorted++;
                 affectedVisits.set(reportId, { patient: newPatient });
-                // sessionSummary.imported++ is handled outside
               } catch (e) {
                 console.error('Error in manual creation', e);
                 unmatchedFiles.push(file);
+                sessionSummary.errors++;
+                continue; // Don't count as imported
               }
             } else {
               unmatchedFiles.push(file);
@@ -754,10 +756,7 @@ const processTempDirectory = async (tempDir: string) => {
                 message: 'User skipped or sent to unmatched'
               });
               sessionSummary.unmatched++;
-              // Decrement imported because it will be incremented outside by default logic structure in previous code?
-              // Wait, previous code had `sessionSummary.imported++` valid for both branches of logic (auto-matched or new visit).
-              // Now "Unmatched" case should NOT count as imported.
-              sessionSummary.imported--;
+              continue; // Don't count as imported
             }
           }
           sessionSummary.imported++;
@@ -812,8 +811,8 @@ const processTempDirectory = async (tempDir: string) => {
                 // targetReportId is null -> Create New
               } else {
                 // Fallback: match by date
-                const datePrefix = report.interrogation_date.split('T')[0];
-                const existingReport = await findReportByDate(targetPatient.id, datePrefix);
+                const datePrefix = (report.interrogation_date || '').split('T')[0];
+                const existingReport = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
                 if (existingReport) {
                   targetReportId = existingReport.id;
                   targetDate = existingReport.interrogation_date;
