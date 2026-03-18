@@ -41,12 +41,32 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
     useEffect(() => {
         if (open && fileInfo?.previewData) {
             // Pre-fill if we have partial data
-            const { manufacturer: m, device } = fileInfo.previewData;
+            const { manufacturer: m, device, leads: parsedLeads } = fileInfo.previewData;
             if (m && m !== 'Unknown') setManufacturer(m);
             if (device) {
                 if (device.type && device.type !== 'Unknown') setType(device.type);
                 if (device.model && device.model !== 'Unknown') setModel(device.model);
                 if (device.serial_number && device.serial_number !== 'Unknown') setSerial(device.serial_number);
+            }
+            // Pre-fill leads from parsed data
+            if (parsedLeads && Array.isArray(parsedLeads) && parsedLeads.length > 0) {
+                const defaultNames = ['RA', 'RV', 'LV', 'HIS', 'CS'];
+                const prefilled = parsedLeads.map((l: any, i: number) => ({
+                    name: l.name || l.anatomic_location || defaultNames[i] || `Lead ${i + 1}`,
+                    model: l.model && l.model !== 'Unknown' ? l.model : '',
+                    serial: l.serial && l.serial !== 'Unknown' && l.serial !== '.' ? l.serial : '',
+                }));
+                // Pad to at least 3 rows so the user can add more
+                while (prefilled.length < 3) {
+                    prefilled.push({ name: defaultNames[prefilled.length] || `Lead ${prefilled.length + 1}`, model: '', serial: '' });
+                }
+                setLeads(prefilled);
+            } else {
+                setLeads([
+                    { name: 'RA', model: '', serial: '' },
+                    { name: 'RV', model: '', serial: '' },
+                    { name: 'LV', model: '', serial: '' }
+                ]);
             }
         } else {
             // Reset
