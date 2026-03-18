@@ -37,7 +37,11 @@ interface ImportSession {
     summary: string;
 }
 
-const NotificationCenter: React.FC = () => {
+interface NotificationCenterProps {
+    onOpenChange?: (open: boolean) => void;
+}
+
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange }) => {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [importSessions, setImportSessions] = useState<ImportSession[]>([]);
@@ -167,7 +171,10 @@ const NotificationCenter: React.FC = () => {
     };
 
     return (
-        <Popover open={isOpen} onOpenChange={setIsOpen}>
+        <Popover open={isOpen} onOpenChange={(open) => {
+            setIsOpen(open);
+            onOpenChange?.(open);
+        }}>
             <PopoverTrigger asChild>
                 <Button
                     variant="ghost"

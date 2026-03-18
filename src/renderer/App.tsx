@@ -302,7 +302,12 @@ const App: React.FC = () => {
           </main>
 
           <div style={{ position: 'fixed', top: '0px', right: '0px', zIndex: 100, margin: '4px' }}>
-            <NotificationCenter />
+            <NotificationCenter onOpenChange={(open) => {
+              if (currentView === 'webPanel') {
+                if (open) window.electronAPI.webPanelHide();
+                else window.electronAPI.webPanelShow();
+              }
+            }} />
           </div>
 
           {/* Global Modals */}

@@ -58,7 +58,10 @@ const BookmarkBar: React.FC<BookmarkBarProps> = ({ config, onNavigate, onBookmar
           variant="ghost"
           size="sm"
           className="h-7 w-7 p-0 flex-shrink-0 ml-auto"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => {
+            window.electronAPI.webPanelHide();
+            setSettingsOpen(true);
+          }}
           title="Manage bookmarks"
         >
           <Settings2 className="h-3.5 w-3.5" />
@@ -68,11 +71,15 @@ const BookmarkBar: React.FC<BookmarkBarProps> = ({ config, onNavigate, onBookmar
       <BookmarkSettingsModal
         open={settingsOpen}
         config={config}
-        onClose={() => setSettingsOpen(false)}
+        onClose={() => {
+          setSettingsOpen(false);
+          window.electronAPI.webPanelShow();
+        }}
         onSave={(newConfig) => {
           window.electronAPI.setWebBookmarks(newConfig).then(() => {
             onBookmarksUpdated();
             setSettingsOpen(false);
+            window.electronAPI.webPanelShow();
           });
         }}
       />
