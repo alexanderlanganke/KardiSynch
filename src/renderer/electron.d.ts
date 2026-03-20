@@ -101,6 +101,13 @@ export interface IElectronAPI {
   credentialDelete: (domain: string, username: string) => Promise<void>;
   credentialList: () => Promise<{ domain: string; username: string; updated_at: string }[]>;
   credentialIsAvailable: () => Promise<boolean>;
+
+  // Error Logging
+  logRendererError: (data: { message: string; stack?: string; source?: string }) => Promise<void>;
+  getLogPath: () => Promise<string>;
+  getRecentLogs: (lines?: number) => Promise<string>;
+  openLogDirectory: () => Promise<void>;
+  buildCrashReportUrl: (data: { message: string; stack?: string; source?: string }) => Promise<string>;
 }
 
 declare global {

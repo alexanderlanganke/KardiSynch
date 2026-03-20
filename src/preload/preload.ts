@@ -144,5 +144,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   selectFile: (filters?: { name: string; extensions: string[] }[]) => ipcRenderer.invoke('select-file', filters),
   analyzeBiotronikXml: (filePath: string) => ipcRenderer.invoke('analyze-biotronik-xml', filePath),
   analyzeAbbottLog: (filePath: string) => ipcRenderer.invoke('analyze-abbott-log', filePath),
+
+  // Error Logging
+  logRendererError: (data: { message: string; stack?: string; source?: string }) => ipcRenderer.invoke('log-renderer-error', data),
+  getLogPath: () => ipcRenderer.invoke('get-log-path'),
+  getRecentLogs: (lines?: number) => ipcRenderer.invoke('get-recent-logs', lines),
+  openLogDirectory: () => ipcRenderer.invoke('open-log-directory'),
+  buildCrashReportUrl: (data: { message: string; stack?: string; source?: string }) => ipcRenderer.invoke('build-crash-report-url', data),
 });
 

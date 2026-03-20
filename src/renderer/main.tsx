@@ -24,8 +24,24 @@ function mountApp() {
   );
 }
 
+function setupGlobalErrorHandlers() {
+  window.onerror = (_message, source, lineno, colno, error) => {
+    const msg = error?.message ?? String(_message);
+    const stack = error?.stack ?? `at ${source}:${lineno}:${colno}`;
+    window.electronAPI?.logRendererError?.({ message: msg, stack, source: 'renderer/onerror' });
+  };
+
+  window.onunhandledrejection = (event) => {
+    const reason = event.reason;
+    const msg = reason instanceof Error ? reason.message : String(reason);
+    const stack = reason instanceof Error ? reason.stack : undefined;
+    window.electronAPI?.logRendererError?.({ message: msg, stack, source: 'renderer/unhandledRejection' });
+  };
+}
+
 function waitForElectronAPI() {
   if (window.electronAPI && typeof window.electronAPI.getAllPatients === 'function') {
+    setupGlobalErrorHandlers();
     mountApp();
   } else {
     // Try again after a short delay

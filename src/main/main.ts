@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import path from 'path';
 import fs from 'fs/promises';
@@ -12,6 +12,42 @@ import { getAllSettings, saveSettings } from './settingsService';
 import { getConfig } from './config';
 import { XMLParser } from 'fast-xml-parser';
 import { AutomationManager } from './services/AutomationManager';
+import { logError, logInfo, getLogPath, getRecentLogs } from './logger';
+import { buildGitHubIssueUrl } from './crashReport';
+
+// ─── Global Error Handlers ───────────────────────────────────────
+process.on('uncaughtException', (error) => {
+  logError('main/uncaughtException', error.message, error.stack);
+  const detail = `${error.message}\n\n${error.stack ?? ''}`;
+  dialog.showMessageBox({
+    type: 'error',
+    title: 'KardiSynch — Unexpected Error',
+    message: error.message,
+    detail,
+    buttons: ['Report on GitHub', 'Copy & Close', 'Close'],
+    defaultId: 0
+  }).then(({ response }) => {
+    if (response === 0) {
+      const url = buildGitHubIssueUrl({
+        errorMessage: error.message,
+        stack: error.stack,
+        source: 'main/uncaughtException',
+        appVersion: app.getVersion(),
+        electronVersion: process.versions.electron,
+        platform: `${process.platform} ${process.arch}`
+      });
+      shell.openExternal(url);
+    } else if (response === 1) {
+      clipboard.writeText(detail);
+    }
+  }).catch(() => {});
+});
+
+process.on('unhandledRejection', (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
+  logError('main/unhandledRejection', message, stack);
+});
 
 // Cache of allowed base directories, updated when settings change
 let allowedBaseDirs: string[] = [];
@@ -88,6 +124,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  logInfo('main', `KardiSynch v${app.getVersion()} starting (Electron ${process.versions.electron}, Node ${process.versions.node})`);
   let settings;
 
   // 1. Try to initialize critical components
@@ -1495,4 +1532,28 @@ ipcMain.handle('credential-list', async () => {
 ipcMain.handle('credential-is-available', async () => {
   const { CredentialStore } = await import('./credentialStore');
   return CredentialStore.getInstance().isAvailable();
+});
+
+// ─── Error Logging ───────────────────────────────────────────────
+ipcMain.handle('log-renderer-error', (_event, data: { message: string; stack?: string; source?: string }) => {
+  logError(data.source ?? 'renderer', data.message, data.stack);
+});
+
+ipcMain.handle('get-log-path', () => getLogPath());
+
+ipcMain.handle('get-recent-logs', (_event, lines?: number) => getRecentLogs(lines));
+
+ipcMain.handle('open-log-directory', async () => {
+  shell.showItemInFolder(getLogPath());
+});
+
+ipcMain.handle('build-crash-report-url', (_event, data: { message: string; stack?: string; source?: string }) => {
+  return buildGitHubIssueUrl({
+    errorMessage: data.message,
+    stack: data.stack,
+    source: data.source ?? 'renderer',
+    appVersion: app.getVersion(),
+    electronVersion: process.versions.electron,
+    platform: `${process.platform} ${process.arch}`
+  });
 });
