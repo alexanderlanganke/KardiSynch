@@ -17,6 +17,67 @@ let currentWatcher: import('fs').FSWatcher | null = null;
 let pollingFallbackInterval: NodeJS.Timeout | null = null;
 let isProcessing = false;
 
+// Cross-batch visit memory — persists across import batches so files arriving
+// in separate batches can still be matched to visits created by earlier batches.
+// Cleared after 2 minutes of no import directory activity (no new files, no file changes).
+const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string, sessionId?: string }>();
+let lastImportActivity = 0;
+let lastFileSnapshot = new Map<string, { size: number, mtimeMs: number }>();
+const ACTIVE_VISITS_QUIET_PERIOD = 2 * 60 * 1000; // 2 minutes
+
+/**
+ * Snapshots the import directory's file sizes and mtimes.
+ * Updates lastImportActivity if any file is new or changed.
+ */
+const updateImportActivityFromSnapshot = async () => {
+  if (!importDir) return;
+  try {
+    await fs.access(importDir);
+  } catch { return; }
+
+  try {
+    const files = await getFilesRecursively(importDir);
+    let changed = false;
+
+    const newSnapshot = new Map<string, { size: number, mtimeMs: number }>();
+    for (const file of files) {
+      try {
+        const stat = await fs.stat(file);
+        newSnapshot.set(file, { size: stat.size, mtimeMs: stat.mtimeMs });
+
+        const prev = lastFileSnapshot.get(file);
+        if (!prev || prev.size !== stat.size || prev.mtimeMs !== stat.mtimeMs) {
+          changed = true;
+        }
+      } catch {
+        // File may have been moved/deleted between readdir and stat
+      }
+    }
+
+    // Also detect removed files as activity
+    if (newSnapshot.size !== lastFileSnapshot.size) {
+      changed = true;
+    }
+
+    lastFileSnapshot = newSnapshot;
+    if (changed) {
+      lastImportActivity = Date.now();
+    }
+  } catch {
+    // Import dir not accessible, ignore
+  }
+};
+
+/**
+ * Clears activeVisits if the import directory has been quiet for the configured period.
+ */
+const sweepActiveVisitsIfQuiet = () => {
+  if (activeVisits.size > 0 && Date.now() - lastImportActivity > ACTIVE_VISITS_QUIET_PERIOD) {
+    console.log(`[Watcher] No import activity for ${ACTIVE_VISITS_QUIET_PERIOD / 1000}s, clearing ${activeVisits.size} cached visit(s).`);
+    activeVisits.clear();
+  }
+};
+
 // interactive mode globals
 let pendingManualSortRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
 let pendingDeviceSelectionRequest: { resolve: (value: any) => void, reject: (reason?: any) => void } | null = null;
@@ -202,9 +263,10 @@ const processTempDirectory = async (tempDir: string) => {
       return ext === '.pdf';
     });
 
-    // Track active visits created in this batch
-    // Key: "Last_First_DOB_Date" -> { reportId, patientId, patient, date, serial?, sessionId? }
-    const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string, sessionId?: string }>();
+    // Sweep stale visit memory if import directory has been quiet
+    sweepActiveVisitsIfQuiet();
+    // Mark this batch as activity
+    lastImportActivity = Date.now();
 
     // Track all visits affected during this import batch for post-import aggregation
     const affectedVisits = new Map<string, { patient: any }>();
@@ -612,6 +674,19 @@ const processTempDirectory = async (tempDir: string) => {
               message: 'Auto-matched to existing visit'
             });
             affectedVisits.set(existingReport.id, { patient });
+
+            // Register in cross-batch visit memory for subsequent batches
+            const pdfKey = getReportKey(report);
+            if (pdfKey) {
+              activeVisits.set(pdfKey, {
+                reportId: existingReport.id,
+                patientId: patient.id,
+                patient,
+                date: report.interrogation_date,
+                serial: report.device?.serial_number,
+                sessionId: report.session_id
+              });
+            }
           } else {
             // Patient found but NO visit found for this date. Trigger Manual Sorting.
             console.log(`Patient found but no matching visit for ${path.basename(file)}. Requesting manual confirmation...`);
@@ -697,6 +772,12 @@ const processTempDirectory = async (tempDir: string) => {
                 });
                 sessionSummary.manuallySorted++;
                 affectedVisits.set(storedVisitId, { patient: targetPatient });
+
+                // Register in cross-batch visit memory
+                const visitKey = getReportKey(report);
+                if (visitKey) {
+                  activeVisits.set(visitKey, { reportId: storedVisitId, patientId: targetPatient.id, patient: targetPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
+                }
               } catch (e) {
                 console.error('Error in manual assignment', e);
                 unmatchedFiles.push(file);
@@ -740,6 +821,12 @@ const processTempDirectory = async (tempDir: string) => {
                 });
                 sessionSummary.manuallySorted++;
                 affectedVisits.set(reportId, { patient: newPatient });
+
+                // Register in cross-batch visit memory
+                const visitKey = getReportKey(report);
+                if (visitKey) {
+                  activeVisits.set(visitKey, { reportId, patientId: newPatient.id, patient: newPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
+                }
               } catch (e) {
                 console.error('Error in manual creation', e);
                 unmatchedFiles.push(file);
@@ -848,6 +935,12 @@ const processTempDirectory = async (tempDir: string) => {
               sessionSummary.manuallySorted++;
               sessionSummary.imported++;
               affectedVisits.set(storedVisitId, { patient: targetPatient });
+
+              // Register in cross-batch visit memory
+              const visitKey = getReportKey(report);
+              if (visitKey) {
+                activeVisits.set(visitKey, { reportId: storedVisitId, patientId: targetPatient.id, patient: targetPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
+              }
             } catch (e) {
               console.error('Error in manual assignment', e);
               unmatchedFiles.push(file);
@@ -893,6 +986,12 @@ const processTempDirectory = async (tempDir: string) => {
             sessionSummary.manuallySorted++;
             sessionSummary.imported++;
             affectedVisits.set(newReportId, { patient: newPatient });
+
+            // Register in cross-batch visit memory
+            const visitKey = getReportKey(report);
+            if (visitKey) {
+              activeVisits.set(visitKey, { reportId: newReportId, patientId: newPatient.id, patient: newPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
+            }
 
           } else {
             // Unmatched
@@ -1086,8 +1185,12 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
   console.log(`Watching for file changes on ${importDir}`);
 
   // Polling fallback — catches files missed by fs.watch (e.g. network drives with no inotify)
+  // Also tracks file size/mtime changes for cross-batch visit memory expiry.
   if (pollingFallbackInterval) clearInterval(pollingFallbackInterval);
   pollingFallbackInterval = setInterval(async () => {
+    // Always update file snapshot for activity tracking (even while processing)
+    await updateImportActivityFromSnapshot();
+
     if (isProcessing) return;
     try {
       try {
@@ -1137,6 +1240,8 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
       // Ignore events from temp processing directories
       if (filename && filename.includes('_TEMP_')) return;
       console.log(`Watcher event: ${eventType} for file: ${filename}`);
+      // Track activity for cross-batch visit memory expiry
+      lastImportActivity = Date.now();
       if (filename) {
         if (watcherTimeout) {
           clearTimeout(watcherTimeout);
@@ -1196,6 +1301,9 @@ export const stopWatcher = () => {
     currentWatcher.close();
     currentWatcher = null;
   }
+  activeVisits.clear();
+  lastFileSnapshot.clear();
+  lastImportActivity = 0;
   console.log('File watcher stopped.');
 };
 
