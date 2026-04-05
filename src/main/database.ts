@@ -1204,9 +1204,8 @@ export const syncDatabase = async (): Promise<{ newPatients: number; newReports:
     for (const pDir of patientDirs) {
       if (!pDir.isDirectory()) continue;
 
-      // Extract Patient ID from Folder Name (heuristic: it's usually the ID, or starts with it)
-      // Actually, folder name IS the patient ID in this system.
-      const patientIdCandidate = pDir.name;
+      // Extract Patient ID from folder name (format: "UUID_LastName_FirstName")
+      const patientIdCandidate = pDir.name.split('_')[0];
 
       // Check if Patient Exists
       let patientExists = existingPatientIds.has(patientIdCandidate);
@@ -1292,7 +1291,7 @@ export const syncDatabase = async (): Promise<{ newPatients: number; newReports:
               if (report) {
                 // Ensure IDs match what we expect
                 if (!report.id) report.id = visitId;
-                if (!report.patient_id) report.patient_id = patientIdCandidate;
+                if (!report.patient_id) report.patient_id = pDir.name.split('_')[0];
 
                 await createReport(report as any);
                 newReports++;

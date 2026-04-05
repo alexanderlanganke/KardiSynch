@@ -97,7 +97,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     // Fetch visits when patient selected (Only relevant for Import mode)
     useEffect(() => {
         if (selectedPatientId && mode === 'import') {
-            window.electronAPI.getPatientReports(selectedPatientId).then(setVisits);
+            window.electronAPI.getVisitDirectories(selectedPatientId).then(setVisits);
             setVisitMode('existing');
             setSelectedVisitId(null);
         } else {
