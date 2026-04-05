@@ -45,8 +45,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getVisitDirectories: (patientId: string) => ipcRenderer.invoke('get-visit-directories', patientId),
   getVisitFiles: (patientId: string, visitDirName: string) => ipcRenderer.invoke('get-visit-files', patientId, visitDirName),
   getParsedXml: (filePath: string) => ipcRenderer.invoke('get-parsed-xml', filePath),
-  getMRIStatus: (patientId: string) => ipcRenderer.invoke('get-mri-status', patientId),
-
   // Import History & Manual Sorting
   manualSortingResponse: (response: any) => ipcRenderer.invoke('manual-sorting-response', response),
   getImportHistory: () => ipcRenderer.invoke('get-import-history'),
@@ -58,16 +56,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onImportSessionUpdate: (callback: (session: any) => void) => {
     ipcRenderer.on('import-session-update', (event, session) => callback(session));
   },
-
-  // Automation Service
-  onAutomationStatus: (callback: (status: any) => void) => {
-    ipcRenderer.on('automation-status', (event, status) => callback(status));
-  },
-  onMRIStatusUpdate: (callback: (data: { patientId: string; status: any }) => void) => {
-    ipcRenderer.on('mri-status-update', (event, data) => callback(data));
-  },
-  triggerMriCheck: (patientId: string) => ipcRenderer.invoke('trigger-mri-check', patientId),
-  retriggerAllMriChecks: () => ipcRenderer.invoke('retrigger-all-mri-checks'),
 
   // Visit Management
   rescanVisit: (visitId: string) => ipcRenderer.invoke('rescan-visit', visitId),

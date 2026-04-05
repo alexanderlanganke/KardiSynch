@@ -11,7 +11,6 @@ import { setMainWindow, getMainWindow, sendNotification } from './windowManager'
 import { getAllSettings, saveSettings } from './settingsService';
 import { getConfig } from './config';
 import { XMLParser } from 'fast-xml-parser';
-import { AutomationManager } from './services/AutomationManager';
 import { logError, logInfo, getLogPath, getRecentLogs } from './logger';
 import { buildGitHubIssueUrl } from './crashReport';
 
@@ -90,7 +89,6 @@ function createWindow() {
   }
 
   setMainWindow(mainWindow);
-  AutomationManager.getInstance().setWindow(mainWindow);
 
   // Helper to open external links in a dedicated window (since system browser might be missing)
   const openExternalLink = (targetUrl: string) => {
@@ -248,12 +246,6 @@ app.whenReady().then(async () => {
       console.error('[Startup] Boston update failed:', err);
     });
   });
-
-
-  // Start automated background tasks (delay lets UI finish loading)
-  setTimeout(() => {
-    AutomationManager.getInstance().startMonitoring();
-  }, 15000);
 
 
   app.on('activate', () => {
@@ -650,65 +642,6 @@ ipcMain.handle('reprocess-unmatched', async () => {
     console.error('Failed to reprocess unmatched:', error);
     throw error;
   }
-});
-
-ipcMain.handle('get-mri-status', async (event, patientId) => {
-  try {
-    // In a real app, we'd fetch the patient from DB to get Manufacturer/Model.
-    // For this prototype, we'll accept them as args or mock them if just ID provided.
-    // Let's assume the frontend passes the details for now to keep it simple, 
-    // or we fetch the patient here.
-
-    // Fetch patient logic (simplified):
-    const patientData = await import('./database').then(m => m.getPatientById(patientId)); // dynamic import or use existing
-    if (!patientData) throw new Error('Patient not found');
-
-    // Assuming patientData has deviceManufacturer and deviceModel
-    // We need to map DB fields to what service expects.
-    // Note: implementation details of database.ts might differ.
-
-    // Let's just pass the data from frontend for flexible testing for now:
-    // IPC signature: (event, { manufacturer, model, serial })
-
-    const reports = await import('./database').then(m => m.getPatientReports(patientId));
-    const latestReport = reports && reports.length > 0 ? reports[0] : null;
-    const leads = latestReport?.leads || [];
-
-    console.log(`[get-mri-status] Found ${leads.length} leads for patient.`);
-    if (leads.length > 0) console.log(`[get-mri-status] Lead 1: ${leads[0].model}`);
-
-    const settings = await getAllSettings();
-    const country = settings.mriCountry || 'Germany';
-
-    return await import('./services/mriLookupService').then(m =>
-      m.checkMRIStatus(
-        patientData.deviceManufacturer || 'Unknown',
-        patientData.deviceModel || 'Unknown',
-        patientData.deviceSerial,
-        leads,
-        country
-      )
-    );
-
-  } catch (error: any) {
-    console.error('MRI Check Failed:', error);
-    return { status: 'unknown', details: error.message };
-  }
-});
-
-ipcMain.handle('trigger-mri-check', async (event, patientId: string) => {
-  try {
-    console.log('[IPC] Triggering MRI check for:', patientId);
-    AutomationManager.getInstance().forceCheck(patientId);
-    return { success: true };
-  } catch (error: any) {
-    console.error('Trigger Check Failed:', error);
-    throw error;
-  }
-});
-
-ipcMain.handle('retrigger-all-mri-checks', async () => {
-  AutomationManager.getInstance().forceCheckAll();
 });
 
 // Filesystem-based IPC handlers

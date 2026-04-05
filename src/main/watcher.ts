@@ -1084,19 +1084,6 @@ const processTempDirectory = async (tempDir: string) => {
     console.error('Error sending session updates:', e);
   }
 
-  // Queue imported patients for immediate MRI/warning checks
-  if (importedPatientIds.size > 0) {
-    try {
-      const { AutomationManager } = await import('./services/AutomationManager');
-      const automation = AutomationManager.getInstance();
-      for (const pid of importedPatientIds) {
-        automation.queuePatient(pid);
-      }
-      console.log(`[Watcher] Queued ${importedPatientIds.size} patients for automation checks.`);
-    } catch (e) {
-      console.error('[Watcher] Failed to queue patients for automation:', e);
-    }
-  }
 };
 
 /**

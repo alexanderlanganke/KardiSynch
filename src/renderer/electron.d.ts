@@ -32,7 +32,6 @@ export interface IElectronAPI {
   getVisitDirectories: (patientId: string) => Promise<any[]>;
   getVisitFiles: (patientId: string, visitDirName: string) => Promise<string[]>;
   getParsedXml: (filePath: string) => Promise<any>;
-  getMRIStatus: (patientId: string) => Promise<any>;
   removeListener: (channel: string, func: (...args: any[]) => void) => void;
   openPatientDirectory: (patientId: string) => Promise<void>;
   reprocessUnmatched: () => Promise<{ count: number; success: boolean; message?: string }>;
@@ -48,12 +47,6 @@ export interface IElectronAPI {
   // Device Selection (Autodetection Fallback)
   sendDeviceSelectionResult: (result: any) => Promise<void>;
   onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => void;
-
-  // Automation
-  onAutomationStatus: (callback: (status: any) => void) => void;
-  onMRIStatusUpdate: (callback: (data: { patientId: string; status: any }) => void) => void;
-  triggerMriCheck: (patientId: string) => Promise<void>;
-  retriggerAllMriChecks: () => Promise<void>;
 
   // External links
   openExternal: (url: string) => Promise<void>;

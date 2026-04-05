@@ -43,8 +43,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   const { patients, loading, dispatch, fetchPatients } = usePatientStore();
   const [searchTerm, setSearchTerm] = useState('');
   const [showFilters, setShowFilters] = useState(false);
-  const [processingId, setProcessingId] = useState<string | null>(null);
-
   // Sorting
   const [sortField, setSortField] = useState<SortField>('name');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
@@ -66,26 +64,15 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     return () => clearTimeout(timer);
   }, [fetchPatients]);
 
-  // Listen for patient list updates and automation status
+  // Listen for patient list updates
   useEffect(() => {
     const handleUpdate = () => fetchPatients();
     window.electronAPI.onPatientListUpdate(handleUpdate);
 
-    const cleanupAutomation = window.electronAPI.onAutomationStatus((status: any) => {
-      setProcessingId(status.isProcessing ? status.currentPatientId : null);
-    });
-
-    window.electronAPI.onMRIStatusUpdate((data: any) => {
-      const { patientId, type, status } = data;
-      const field = type === 'warning' ? 'manufacturerWarningStatus' : 'mriStatus';
-      dispatch({ type: 'UPDATE_PATIENT_STATUS', payload: { patientId, field, value: status } });
-      setProcessingId(prev => (prev === patientId ? null : prev));
-    });
-
     return () => {
       window.electronAPI.removeListener('patient-list-update', handleUpdate);
     };
-  }, [fetchPatients, dispatch]);
+  }, [fetchPatients]);
 
   // Filter patients
   const filteredPatients = useMemo(() => {
@@ -314,7 +301,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
                 {patient.deviceModel || 'Unknown Model'}
               </div>
               <div className="mt-1">
-                <MriBadge patient={patient} processingId={processingId} />
+                <MriBadge patient={patient} />
               </div>
             </div>
 
@@ -559,7 +546,7 @@ function getMriCheckUrl(manufacturer: string): string | null {
   return null;
 }
 
-const MriBadge: React.FC<{ patient: Patient; processingId: string | null }> = ({ patient }) => {
+const MriBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
   const manu = patient.deviceManufacturer || '';
   const url = getMriCheckUrl(manu);
 
