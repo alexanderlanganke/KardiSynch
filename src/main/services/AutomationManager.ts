@@ -449,7 +449,7 @@ export class AutomationManager {
     }
 
     private broadcastStatus() {
-        if (this.mainWindow) {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
             this.mainWindow.webContents.send('mri-queue-update', {
                 processing: this.isProcessing,
                 queueLength: this.checkQueue.length
@@ -458,7 +458,7 @@ export class AutomationManager {
     }
 
     private broadcastUpdate(patientId: string, result: any) {
-        if (this.mainWindow) {
+        if (this.mainWindow && !this.mainWindow.isDestroyed()) {
             const type = result.type || (result.manufacturer ? 'mri' : 'unknown');
             const statusPayload = result.status || result;
 
