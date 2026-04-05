@@ -82,6 +82,13 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         }
     }, [effectiveSelectedFile]);
 
+    // Auto-switch to formatted view when selected file is binary (non-renderable)
+    React.useEffect(() => {
+        if (effectiveSelectedFile && getFileType(effectiveSelectedFile) === 'binary' && viewMode === 'raw') {
+            setViewMode('formatted');
+        }
+    }, [effectiveSelectedFile]);
+
     // Keyboard Navigation
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -142,13 +149,19 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         setViewMode('raw');
     };
 
-    const getFileType = (filePath: string): 'xml' | 'pdf' | 'image' => {
+    const getFileType = (filePath: string): 'xml' | 'pdf' | 'image' | 'binary' => {
         const lower = filePath.toLowerCase();
         if (lower.endsWith('.xml')) return 'xml';
         if (lower.endsWith('.pdf')) return 'pdf';
         if (lower.match(/\.(jpg|jpeg|png|gif|webp)$/)) return 'image';
+        if (lower.match(/\.(pdd|pkg|bnk)$/)) return 'binary';
         return 'xml';
     };
+
+    // Check if all available files are non-renderable binary formats
+    const hasOnlyBinaryFiles = displayFiles.length > 0 && displayFiles.every(
+        (f: string) => f.toLowerCase().match(/\.(pdd|pkg|bnk)$/)
+    );
 
     // Find previous report for trend comparison
     const previousReport = React.useMemo(() => {
@@ -343,7 +356,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             {/* Content area */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 {selectedReport ? (
-                    viewMode === 'formatted' ? (
+                    viewMode === 'formatted' || (effectiveSelectedFile && getFileType(effectiveSelectedFile) === 'binary') ? (
                         <FormattedReport report={selectedReport} previousReport={previousReport} />
                     ) : (
                         <ErrorBoundary>

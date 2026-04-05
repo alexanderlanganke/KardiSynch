@@ -1,12 +1,12 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Activity, Battery, Zap, Heart } from 'lucide-react';
+import { Activity, Battery, Zap, Heart, FileText } from 'lucide-react';
 import { Button } from './ui/button';
 
 interface ReportViewerProps {
     report: any;
-    type: 'xml' | 'pdf' | 'image' | 'text';
+    type: 'xml' | 'pdf' | 'image' | 'text' | 'binary';
     filePath?: string;
 }
 
@@ -77,6 +77,19 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
 
     if (type === 'image' && filePath) {
         return <ImageViewer filePath={filePath} />;
+    }
+
+    if (type === 'binary') {
+        const filename = filePath ? filePath.split(/[/\\]/).pop() : 'Unknown file';
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3 p-8">
+                <FileText className="h-12 w-12 opacity-20" />
+                <p className="text-sm font-medium">Binary file format</p>
+                <p className="text-xs text-center max-w-sm">
+                    <span className="font-mono">{filename}</span> cannot be displayed as raw content. Use the <strong>Formatted</strong> view to see extracted data.
+                </p>
+            </div>
+        );
     }
 
     return (

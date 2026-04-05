@@ -855,15 +855,49 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
         try {
           const xmlContent = await fs.readFile(visitXmlPath, 'utf-8');
           const visitData = parser.parse(xmlContent).visit;
+          // Parse battery data
+          const battery = visitData.battery;
+          let batteryVoltage: string | undefined;
+          let batteryStatus: string | undefined;
+          let batteryLongevity: string | undefined;
+          if (battery) {
+            if (battery.voltage?.['@_value']) batteryVoltage = battery.voltage['@_value'];
+            if (battery.status) batteryStatus = battery.status;
+            if (battery.last_charge_time?.['@_value']) batteryLongevity = `${battery.last_charge_time['@_value']} ${battery.last_charge_time['@_unit'] || ''}`.trim();
+          }
+
+          // Parse leads data
+          let leads: any[] | undefined;
+          if (visitData.leads?.lead) {
+            const rawLeads = Array.isArray(visitData.leads.lead) ? visitData.leads.lead : [visitData.leads.lead];
+            leads = rawLeads.map((l: any) => ({
+              location: l.anatomic_location || l.name || undefined,
+              type: l.name || undefined,
+              model: l.model || undefined,
+              serial: l.serial || undefined,
+              impedance: l.impedance?.['@_value'] || undefined,
+              sensing: l.sensing?.['@_value'] || undefined,
+              threshold: l.pacing_threshold?.['@_value'] || undefined,
+              pulseWidth: l.pacing_amplitude?.['@_value'] || undefined,
+              shockImpedance: l.shock_impedance?.['@_value'] || undefined,
+            }));
+          }
+
           return {
             id: visitData.report_id,
             interrogation_date: visitData.interrogation_date,
             manufacturer: visitData.manufacturer,
             device_type: visitData.device_type,
+            deviceModel: visitData.device_model || undefined,
+            deviceSerial: visitData.device_serial || undefined,
             directoryName: dir.name,
             visit_type: visitData.visit_type || undefined,
             source_domain: visitData.source_domain || undefined,
             source_manufacturer: visitData.source_manufacturer || undefined,
+            batteryVoltage,
+            batteryStatus,
+            batteryLongevity,
+            leads,
           };
         } catch (err) {
           console.warn(`Failed to read visit data from ${dir.name}:`, err);
