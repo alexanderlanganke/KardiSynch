@@ -2,7 +2,7 @@ import React from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi } from 'lucide-react';
+import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi, Scissors } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 
 interface Visit {
@@ -47,14 +47,25 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                     ) : (
                         visits.map((visit) => {
                             const isRemote = visit.visit_type === 'remote';
+                            const isIntraop = visit.visit_type === 'intraoperative';
+                            const accentClass = isRemote
+                                ? 'border-blue-500/40 bg-blue-500/5'
+                                : isIntraop
+                                    ? 'border-amber-500/40 bg-amber-500/5'
+                                    : '';
+                            const tooltip = isRemote
+                                ? `Remote Monitoring — ${visit.source_manufacturer || visit.manufacturer}`
+                                : isIntraop
+                                    ? `Intraoperative — ${visit.source_manufacturer || visit.manufacturer}`
+                                    : undefined;
                             return (
                             <Card
                                 key={visit.id}
                                 draggable
                                 onDragStart={(e) => handleDragStart(e, visit)}
                                 onClick={() => onVisitSelect(visit)}
-                                className={`min-w-[150px] cursor-pointer hover:border-primary transition-all hover:shadow-sm p-3 group relative ${isRemote ? 'border-blue-500/40 bg-blue-500/5' : ''}`}
-                                title={isRemote ? `Remote Monitoring — ${visit.source_manufacturer || visit.manufacturer}` : undefined}
+                                className={`min-w-[150px] cursor-pointer hover:border-primary transition-all hover:shadow-sm p-3 group relative ${accentClass}`}
+                                title={tooltip}
                             >
                                 {/* Hover Actions Overlay */}
                                 <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-md border p-0.5 shadow-sm">
@@ -91,12 +102,18 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                     <div className="flex items-center justify-between">
                                         <div className="text-xs font-semibold flex items-center gap-1">
                                             {isRemote && <Wifi className="h-3 w-3 text-blue-400 flex-shrink-0" />}
+                                            {isIntraop && <Scissors className="h-3 w-3 text-amber-400 flex-shrink-0" />}
                                             {formatDate(visit.interrogation_date)}
                                         </div>
                                     </div>
                                     {isRemote && (
                                         <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500/40 text-blue-400">
                                             Remote
+                                        </Badge>
+                                    )}
+                                    {isIntraop && (
+                                        <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-amber-500/40 text-amber-400">
+                                            Intraoperative
                                         </Badge>
                                     )}
                                     <div className="flex items-center justify-between">

@@ -32,6 +32,7 @@ const Settings: React.FC = () => {
   const { showAlert, showConfirm } = useAppDialog();
   const [settings, setSettings] = useState<{
     importDir: string;
+    intraopImportDir: string;
     unmatchedDir: string;
     dataPath: string;
     usbSourceDirectories: string[];
@@ -41,6 +42,7 @@ const Settings: React.FC = () => {
     mriManufacturers: Record<string, boolean>;
   }>({
     importDir: '',
+    intraopImportDir: '',
     unmatchedDir: '',
     dataPath: '',
     usbSourceDirectories: [],
@@ -165,6 +167,12 @@ const Settings: React.FC = () => {
                   description="New report files go here. The app watches this folder and automatically parses incoming files."
                   value={settings.importDir} onChange={handleInputChange}
                   onBrowse={() => handleDirectorySelection('importDir')}
+                />
+                <DirectoryInput
+                  id="intraop-import-dir" name="intraopImportDir" label="Intraoperative Import Directory"
+                  description="Medtronic SmartSync and other intraoperative reports go here. Files are imported as visits and marked 'Intraoperative'. Leave empty to disable."
+                  value={settings.intraopImportDir || ''} onChange={handleInputChange}
+                  onBrowse={() => handleDirectorySelection('intraopImportDir')}
                 />
                 <DirectoryInput
                   id="unmatched-dir" name="unmatchedDir" label="Unmatched Directory"

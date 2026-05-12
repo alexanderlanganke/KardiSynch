@@ -17,6 +17,16 @@ let currentWatcher: import('fs').FSWatcher | null = null;
 let pollingFallbackInterval: NodeJS.Timeout | null = null;
 let isProcessing = false;
 
+// Parallel state for the intraoperative-import watcher (separate source dir,
+// shares unmatchedDir + dataDir + activeVisits + isProcessing with the primary watcher).
+let intraopImportDir: string = '';
+let intraopWatcherTimeout: NodeJS.Timeout | null = null;
+let intraopStartupTimeout: NodeJS.Timeout | null = null;
+let intraopCurrentWatcher: import('fs').FSWatcher | null = null;
+let intraopPollingFallbackInterval: NodeJS.Timeout | null = null;
+
+const INTRAOP_PREFIX = 'INTRAOP__';
+
 // Cross-batch visit memory — persists across import batches so files arriving
 // in separate batches can still be matched to visits created by earlier batches.
 // Cleared after 2 minutes of no import directory activity (no new files, no file changes).
@@ -37,6 +47,13 @@ const updateImportActivityFromSnapshot = async () => {
 
   try {
     const files = await getFilesRecursively(importDir);
+    if (intraopImportDir) {
+      try {
+        await fs.access(intraopImportDir);
+        const intraopFiles = await getFilesRecursively(intraopImportDir);
+        for (const f of intraopFiles) files.push(f);
+      } catch { /* intraop dir missing — fine */ }
+    }
     let changed = false;
 
     const newSnapshot = new Map<string, { size: number, mtimeMs: number }>();
@@ -113,10 +130,11 @@ export const getUnmatchedFilePath = (filename: string) => {
 
 /**
  * Creates a temporary directory for processing a batch of files.
+ * @param parentDir Directory under which the temp dir is created.
  * @returns The path to the newly created temporary directory.
  */
-const createTempDirectory = async (): Promise<string> => {
-  const tempDir = path.join(importDir, `_TEMP_${uuidv4()}`);
+const createTempDirectory = async (parentDir: string): Promise<string> => {
+  const tempDir = path.join(parentDir, `_TEMP_${uuidv4()}`);
   await fs.mkdir(tempDir, { recursive: true });
   return tempDir;
 };
@@ -170,14 +188,17 @@ const getFilesRecursively = async (dir: string): Promise<string[]> => {
 };
 
 /**
- * Moves all files from the import directory (and subdirectories) to a temporary directory.
- * @param tempDir The destination temporary directory.
+ * Moves all files from a source directory (and subdirectories) to a temporary directory.
+ * When `isIntraop` is true, staged filenames carry the INTRAOP_PREFIX so the
+ * intraoperative origin survives later parsing and (if matching fails) the
+ * unmatched-dir round trip into the manual assignment flow.
  */
-const stageFilesToTempDir = async (tempDir: string) => {
-  const allFiles = await getFilesRecursively(importDir);
+const stageFilesToTempDir = async (tempDir: string, sourceDir: string, isIntraop = false) => {
+  const allFiles = await getFilesRecursively(sourceDir);
   for (const filePath of allFiles) {
     const originalName = path.basename(filePath);
-    const uniqueName = `${uuidv4()}_${originalName}`;
+    const prefix = isIntraop ? INTRAOP_PREFIX : '';
+    const uniqueName = `${prefix}${uuidv4()}_${originalName}`;
     const newPath = path.join(tempDir, uniqueName);
     try {
       await moveFile(filePath, newPath);
@@ -186,6 +207,20 @@ const stageFilesToTempDir = async (tempDir: string) => {
       sendNotification(`Error staging file ${originalName}: ${(error as Error).message}`, 'error');
     }
   }
+};
+
+/**
+ * Attaches intraoperative visit metadata to a parsed report when the staged
+ * filename starts with INTRAOP_PREFIX. The prefix is set in stageFilesToTempDir
+ * and is preserved on files that get bounced to the unmatched dir, so this also
+ * tags files that are later resolved through manual assignment.
+ */
+const applyIntraopTagIfNeeded = (report: UnifiedReport, file: string) => {
+  if (!path.basename(file).startsWith(INTRAOP_PREFIX)) return;
+  (report as any)._remoteSource = {
+    visit_type: 'intraoperative',
+    source_manufacturer: report.manufacturer || undefined,
+  };
 };
 
 /**
@@ -204,8 +239,9 @@ const getReportKey = (report: UnifiedReport): string | null => {
 /**
  * The core processing logic for files within a temporary directory.
  * @param tempDir The temporary directory containing the files to process.
+ * @param sourceDir The watched source directory the temp dir was created under (used for cleanup).
  */
-const processTempDirectory = async (tempDir: string) => {
+const processTempDirectory = async (tempDir: string, sourceDir: string) => {
   console.log(`Processing files in temporary directory: ${tempDir}`);
   const sessionId = uuidv4();
   await createImportSession(sessionId);
@@ -293,6 +329,8 @@ const processTempDirectory = async (tempDir: string) => {
           sessionSummary.errors++;
           continue;
         }
+
+        applyIntraopTagIfNeeded(report, file);
 
         // 1. CHECK FOR DEVICE AMBIGUITY (Autodetection Failure)
         // If manufacturer is unknown or the device model is unknown, prompt the user.
@@ -541,6 +579,8 @@ const processTempDirectory = async (tempDir: string) => {
           continue;
         }
 
+        applyIntraopTagIfNeeded(report, file);
+
         let matched = false;
 
         // Try to match with active visits
@@ -641,6 +681,8 @@ const processTempDirectory = async (tempDir: string) => {
           sessionSummary.errors++;
           continue;
         }
+
+        applyIntraopTagIfNeeded(report, file);
 
         // Check for existing patient in DB
         let patient = null;
@@ -1066,9 +1108,9 @@ const processTempDirectory = async (tempDir: string) => {
       sendNotification(`Error cleaning up temp directory: ${(error as Error).message}`, 'error');
     }
 
-    // Clean up any empty directories left in the Import folder
+    // Clean up any empty directories left in the source folder
     try {
-      await cleanEmptyDirectories(importDir);
+      await cleanEmptyDirectories(sourceDir, sourceDir);
     } catch (e) {
       console.error('Error cleaning up empty directories in import folder:', e);
     }
@@ -1089,7 +1131,7 @@ const processTempDirectory = async (tempDir: string) => {
 /**
  * Recursively removes empty directories.
  */
-async function cleanEmptyDirectories(dir: string) {
+async function cleanEmptyDirectories(dir: string, rootDir: string) {
   if (path.basename(dir).startsWith('_TEMP_')) return;
 
   let items: string[];
@@ -1103,7 +1145,7 @@ async function cleanEmptyDirectories(dir: string) {
       try {
         const stat = await fs.stat(fullPath);
         if (stat.isDirectory()) {
-          await cleanEmptyDirectories(fullPath);
+          await cleanEmptyDirectories(fullPath, rootDir);
         }
       } catch { /* ignore */ }
     }
@@ -1112,7 +1154,7 @@ async function cleanEmptyDirectories(dir: string) {
     } catch { return; }
   }
 
-  if (items.length === 0 && dir !== importDir) {
+  if (items.length === 0 && dir !== rootDir) {
     try {
       await fs.rmdir(dir);
       console.log(`Removed empty directory: ${dir}`);
@@ -1139,9 +1181,9 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
     isProcessing = true;
     let tempDir: string | null = null;
     try {
-      tempDir = await createTempDirectory();
-      await stageFilesToTempDir(tempDir);
-      await processTempDirectory(tempDir);
+      tempDir = await createTempDirectory(importDir);
+      await stageFilesToTempDir(tempDir, importDir, false);
+      await processTempDirectory(tempDir, importDir);
     } catch (e) {
       console.error('Error during batch processing:', e);
       // Fallback cleanup if processTempDirectory didn't run or failed catastrophically
@@ -1292,6 +1334,161 @@ export const stopWatcher = () => {
   lastFileSnapshot.clear();
   lastImportActivity = 0;
   console.log('File watcher stopped.');
+};
+
+/**
+ * Initializes a parallel watcher on the intraoperative import directory.
+ * Files dropped here go through the same parse/match/store pipeline as the
+ * primary watcher, but are tagged with visit_type='intraoperative' in visit.xml.
+ * The INTRAOP__ staging-filename prefix carries the tag through unmatched-dir
+ * round trips so the manual assignment flow also tags the resulting visit.
+ */
+export const initializeIntraopWatcher = (appIntraopDir: string, appUnmatchedDir: string, appDataDir: string) => {
+  intraopImportDir = appIntraopDir;
+  // unmatchedDir + dataDir are shared with the primary watcher; only update if not already set.
+  if (!unmatchedDir) unmatchedDir = appUnmatchedDir;
+  if (!dataDir) dataDir = appDataDir;
+
+  const executeIntraopBatchProcessing = async () => {
+    if (isProcessing) {
+      console.log('[IntraopWatcher] Batch processing already in progress, skipping.');
+      return;
+    }
+    isProcessing = true;
+    let tempDir: string | null = null;
+    try {
+      tempDir = await createTempDirectory(intraopImportDir);
+      await stageFilesToTempDir(tempDir, intraopImportDir, true);
+      await processTempDirectory(tempDir, intraopImportDir);
+    } catch (e) {
+      console.error('Error during intraop batch processing:', e);
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        } catch (cleanupErr) {
+          console.error('Failed to cleanup intraop temp dir after error:', cleanupErr);
+        }
+      }
+    } finally {
+      isProcessing = false;
+    }
+  };
+
+  (async () => {
+    try {
+      await fs.mkdir(intraopImportDir, { recursive: true });
+    } catch (error) {
+      console.error(`Error creating intraop directory ${intraopImportDir}:`, error);
+      sendNotification(`Error creating intraop directory: ${(error as Error).message}`, 'error');
+    }
+  })();
+
+  console.log(`Watching for intraoperative file changes on ${intraopImportDir}`);
+
+  if (intraopPollingFallbackInterval) clearInterval(intraopPollingFallbackInterval);
+  intraopPollingFallbackInterval = setInterval(async () => {
+    if (isProcessing) return;
+    try {
+      try {
+        await fs.access(intraopImportDir);
+      } catch { return; }
+
+      const files = await fs.readdir(intraopImportDir);
+      if (files.length > 0) {
+        const allFiles = await getFilesRecursively(intraopImportDir);
+        if (allFiles.length > 0) {
+          console.log(`POLLING (intraop): Found ${allFiles.length} files in ${intraopImportDir}`);
+          if (!intraopWatcherTimeout) {
+            if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
+              console.log('POLLING (intraop): Triggering processing fallback...');
+              intraopWatcherTimeout = setTimeout(async () => {
+                intraopWatcherTimeout = null;
+                await executeIntraopBatchProcessing();
+              }, 1000);
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('POLLING ERROR (intraop):', e);
+    }
+  }, 5000);
+
+  (async () => {
+    try {
+      const existingFiles = await getFilesRecursively(intraopImportDir);
+      if (existingFiles.length > 0) {
+        console.log(`Found ${existingFiles.length} existing files in intraop directory. Processing...`);
+        intraopStartupTimeout = setTimeout(async () => {
+          intraopStartupTimeout = null;
+          await executeIntraopBatchProcessing();
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error checking for existing intraop files:', error);
+    }
+  })();
+
+  try {
+    intraopCurrentWatcher = fsSync.watch(intraopImportDir, { recursive: true }, (eventType, filename) => {
+      if (filename && filename.includes('_TEMP_')) return;
+      console.log(`Intraop watcher event: ${eventType} for file: ${filename}`);
+      lastImportActivity = Date.now();
+      if (filename) {
+        if (intraopWatcherTimeout) {
+          clearTimeout(intraopWatcherTimeout);
+        }
+        if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
+          (async () => {
+            const currentFiles = await getFilesRecursively(intraopImportDir);
+            const hasPdf = currentFiles.some(f => f.toLowerCase().endsWith('.pdf'));
+            const stabilizationTime = hasPdf ? 15000 : 2000;
+
+            console.log(`Intraop watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
+
+            intraopWatcherTimeout = setTimeout(async () => {
+              intraopWatcherTimeout = null;
+              const finalFiles = await getFilesRecursively(intraopImportDir);
+              if (finalFiles.length === 0) {
+                console.log('Intraop: No files found, skipping processing.');
+                return;
+              }
+              console.log('Intraop file changes stabilized. Starting processing...');
+              await executeIntraopBatchProcessing();
+            }, stabilizationTime);
+          })();
+        }
+      }
+    });
+    intraopCurrentWatcher.on('error', (err) => {
+      console.error(`Intraop watcher error on ${intraopImportDir}:`, err);
+      sendNotification('Intraop file watcher lost connection. Polling fallback still active.', 'warning');
+    });
+  } catch (error) {
+    console.error(`Error starting intraop watcher on ${intraopImportDir}:`, error);
+    sendNotification(`Error starting intraop watcher: ${(error as Error).message}`, 'error');
+  }
+};
+
+export const stopIntraopWatcher = () => {
+  if (intraopStartupTimeout) {
+    clearTimeout(intraopStartupTimeout);
+    intraopStartupTimeout = null;
+  }
+  if (intraopWatcherTimeout) {
+    clearTimeout(intraopWatcherTimeout);
+    intraopWatcherTimeout = null;
+  }
+  if (intraopPollingFallbackInterval) {
+    clearInterval(intraopPollingFallbackInterval);
+    intraopPollingFallbackInterval = null;
+  }
+  if (intraopCurrentWatcher) {
+    intraopCurrentWatcher.close();
+    intraopCurrentWatcher = null;
+  }
+  intraopImportDir = '';
+  console.log('Intraop file watcher stopped.');
 };
 
 /**

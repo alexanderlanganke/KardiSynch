@@ -114,9 +114,9 @@ const generatePatientXML = (
  * Generates visit.xml content
  */
 const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
-  // Check for remote visit metadata (attached by web panel download flow)
+  // Check for visit source metadata (attached by web panel download or intraoperative import)
   const remoteSource = (report as any)?._remoteSource as
-    | { visit_type: string; source_domain: string; source_manufacturer: string }
+    | { visit_type: string; source_domain?: string; source_manufacturer?: string }
     | undefined;
 
   let xml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -127,9 +127,15 @@ const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
 
   if (remoteSource) {
     xml += `
-  <visit_type>${escapeXml(remoteSource.visit_type)}</visit_type>
-  <source_domain>${escapeXml(remoteSource.source_domain)}</source_domain>
+  <visit_type>${escapeXml(remoteSource.visit_type)}</visit_type>`;
+    if (remoteSource.source_domain) {
+      xml += `
+  <source_domain>${escapeXml(remoteSource.source_domain)}</source_domain>`;
+    }
+    if (remoteSource.source_manufacturer) {
+      xml += `
   <source_manufacturer>${escapeXml(remoteSource.source_manufacturer)}</source_manufacturer>`;
+    }
   }
 
   xml += `
@@ -270,8 +276,11 @@ export const storeFile = async (
 
   /*
    * Handle cross-device moves (EXDEV) by falling back to copy+unlink.
+   * Strip the INTRAOP__ staging prefix (used by the intraop watcher to mark
+   * origin through the parse/match pipeline) so it doesn't appear in stored filenames.
    */
-  const destPath = path.join(visitDir, path.basename(sourcePath));
+  const destBaseName = path.basename(sourcePath).replace(/^INTRAOP__/, '');
+  const destPath = path.join(visitDir, destBaseName);
   try {
     await fs.rename(sourcePath, destPath);
   } catch (error: any) {

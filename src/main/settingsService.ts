@@ -5,6 +5,7 @@ import { getConfig, saveConfig } from './config';
 
 export interface AppSettings {
     importDir: string;
+    intraopImportDir: string;
     unmatchedDir: string;
     dataPath: string;
     // dbPath removed - fixed location
@@ -21,6 +22,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 const DEFAULT_SETTINGS: AppSettings = {
     importDir: isDev ? path.join(process.cwd(), '_IMPORT') : path.join(app.getPath('userData'), '_IMPORT'),
+    intraopImportDir: '',
     unmatchedDir: isDev ? path.join(process.cwd(), '_UNMATCHED') : path.join(app.getPath('userData'), '_UNMATCHED'),
     dataPath: isDev ? path.join(process.cwd(), '_DATA') : path.join(app.getPath('userData'), '_DATA'),
     // dbPath removed

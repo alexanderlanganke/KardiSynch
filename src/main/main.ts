@@ -4,7 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports, closeDatabase, syncDatabase } from './database';
 import { ensureDatabaseLocation } from './databaseMigration';
-import { initializeWatcher, stopWatcher } from './watcher';
+import { initializeWatcher, stopWatcher, initializeIntraopWatcher, stopIntraopWatcher } from './watcher';
 import { startUsbWatcher, stopUsbWatcher } from './usbWatcher';
 import { initializeStorage } from './storage';
 import { setMainWindow, getMainWindow, sendNotification } from './windowManager';
@@ -224,6 +224,9 @@ app.whenReady().then(async () => {
     if (settings) { // Check if we got real settings
       await initializeStorage();
       initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
+      if (settings.intraopImportDir) {
+        initializeIntraopWatcher(settings.intraopImportDir, settings.unmatchedDir, settings.dataPath);
+      }
       startUsbWatcher(settings);
     }
   } catch (error) {
@@ -498,6 +501,19 @@ ipcMain.handle('set-settings', async (event, settings) => {
       initializeWatcher(newSettings.importDir, newSettings.unmatchedDir, newSettings.dataPath);
     }
 
+    // Restart intraop watcher if its dir changed (or shared paths changed)
+    if (
+      oldSettings.intraopImportDir !== newSettings.intraopImportDir ||
+      oldSettings.unmatchedDir !== newSettings.unmatchedDir ||
+      oldSettings.dataPath !== newSettings.dataPath
+    ) {
+      console.log('Intraop path changed, restarting intraop watcher...');
+      stopIntraopWatcher();
+      if (newSettings.intraopImportDir) {
+        initializeIntraopWatcher(newSettings.intraopImportDir, newSettings.unmatchedDir, newSettings.dataPath);
+      }
+    }
+
     // Always restart USB watcher on settings change to pick up new source/target dirs
     startUsbWatcher(newSettings);
 
@@ -515,6 +531,10 @@ ipcMain.handle('reset-settings', async () => {
     console.log('Settings reset, restarting watcher...');
     stopWatcher();
     initializeWatcher(newSettings.importDir, newSettings.unmatchedDir, newSettings.dataPath);
+    stopIntraopWatcher();
+    if (newSettings.intraopImportDir) {
+      initializeIntraopWatcher(newSettings.intraopImportDir, newSettings.unmatchedDir, newSettings.dataPath);
+    }
 
     // Restart USB watcher
     startUsbWatcher(newSettings);
@@ -536,6 +556,7 @@ ipcMain.handle('clear-all-data', async () => {
 
     // 1. Stop Watchers
     stopWatcher();
+    stopIntraopWatcher();
     stopUsbWatcher();
 
     // 2. Close Database
@@ -559,6 +580,9 @@ ipcMain.handle('clear-all-data', async () => {
     initializeDatabase(dbPath);
     await initializeStorage();
     initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
+    if (settings.intraopImportDir) {
+      initializeIntraopWatcher(settings.intraopImportDir, settings.unmatchedDir, settings.dataPath);
+    }
     startUsbWatcher(settings);
 
     return true;
@@ -1068,7 +1092,17 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
         console.warn('Failed to parse file during move:', e);
       }
 
-      // Determine Target Report 
+      // Preserve intraop origin: files staged by the intraop watcher carry the
+      // INTRAOP__ prefix in their filename. When they end up in the unmatched
+      // dir and the user reassigns them manually, tag the resulting visit.
+      if (parsedReport && path.basename(filePath).startsWith('INTRAOP__')) {
+        (parsedReport as any)._remoteSource = {
+          visit_type: 'intraoperative',
+          source_manufacturer: parsedReport.manufacturer || undefined,
+        };
+      }
+
+      // Determine Target Report
       const targetReport = await determineTargetReport(date, parsedReport);
 
       // Store file
