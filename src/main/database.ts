@@ -6,6 +6,34 @@ import { UnifiedReport } from './reports';
 import { normalizeDate } from '../lib/dates';
 
 /**
+ * Recursively strip fast-xml-parser leftovers from a parsed-report payload
+ * so the renderer never sees an XML-attribute object dropped into JSX
+ * (React error #31). Specifically:
+ *  - drops keys starting with `@_` (fast-xml-parser attribute prefix)
+ *  - unwraps `{'#text': 'value', ...}` to its text content
+ *  - collapses attribute-only objects (e.g. `{'@_charset': 'UCS-2'}`) to ''
+ *
+ * Applied at read time so already-corrupted Reports.data rows render
+ * without crashing instead of requiring a re-import.
+ */
+function sanitizeXmlLeftovers(value: any): any {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(sanitizeXmlLeftovers);
+  if (typeof value !== 'object') return value;
+
+  if ('#text' in value) return sanitizeXmlLeftovers((value as any)['#text']);
+
+  const cleaned: Record<string, any> = {};
+  let kept = 0;
+  for (const [k, v] of Object.entries(value)) {
+    if (k.startsWith('@_')) continue;
+    cleaned[k] = sanitizeXmlLeftovers(v);
+    kept++;
+  }
+  return kept === 0 ? '' : cleaned;
+}
+
+/**
  * If `xmlPath` contains `<field>raw</field>` and `normalizeDate(raw)` produces a
  * different non-empty canonical form, rewrite the tag in place and return the
  * canonical value. Returns the original (or normalized) value the caller should
@@ -579,7 +607,7 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
               try {
                 // Parse the full data JSON
                 if (row.data) {
-                  const fullData = JSON.parse(row.data);
+                  const fullData = sanitizeXmlLeftovers(JSON.parse(row.data));
                   device = fullData.device;
                   battery = fullData.battery;
                   leads = fullData.leads;

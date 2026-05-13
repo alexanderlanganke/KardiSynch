@@ -389,12 +389,17 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
 
     const savedDate = findFieldValue(fields, 'SavedDateTime');
 
-    // Helper to get text from value which might be object with #text
+    // Helper to get text from value which might be object with #text.
+    // When the XML element has only attributes (e.g. <String charset="UCS-2"/>)
+    // fast-xml-parser yields an object like {'@_charset': 'UCS-2'} with no
+    // '#text'. Returning that raw object causes React error #31 downstream
+    // once it round-trips through Reports.data JSON storage, so collapse
+    // attribute-only objects to null here.
     const getText = (val: any): any => {
         if (val === null || val === undefined) return null;
         if (typeof val !== 'object') return val;
         if (val['#text'] !== undefined) return val['#text'];
-        return val;
+        return null;
     };
 
     // Helper to find value in nested structure
