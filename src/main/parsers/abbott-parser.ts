@@ -3,6 +3,7 @@ import * as path from 'path';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { UnifiedReport, LeadData, hasLeadData } from '../reports';
+import { normalizeDate } from '../../lib/dates';
 
 /**
  * Extracts raw text from a DOCX (ZIP) file by reading word/document.xml
@@ -266,12 +267,12 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
 
     return {
         manufacturer: 'Abbott',
-        interrogation_date: interrogationDate,
+        interrogation_date: normalizeDate(interrogationDate, 'us'),
         session_id: sessionId,
         patient: {
             first_name: firstName,
             last_name: lastName,
-            dob: dob,
+            dob: normalizeDate(dob, 'us'),
             hospitalPatientId: fields.get('PatientID') || undefined,
         },
         device: {
@@ -374,12 +375,12 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
 
     return {
         manufacturer: 'Abbott',
-        interrogation_date: interrogationDate,
+        interrogation_date: normalizeDate(interrogationDate, 'us'),
         session_id: sessionId,
         patient: {
             first_name: firstName,
             last_name: lastName,
-            dob: dob
+            dob: normalizeDate(dob, 'us')
         },
         device: {
             type: deviceType,

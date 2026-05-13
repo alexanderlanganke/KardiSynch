@@ -292,7 +292,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                     <div className="min-w-0 pr-2">
                                                                         <p className={`font-medium text-sm truncate ${selectedPatientId === p.id ? 'text-primary' : ''}`}>{p.name}</p>
                                                                         <p className="text-xs opacity-70 truncate flex items-center gap-1.5 mt-0.5">
-                                                                            <span>{p.dob}</span>
+                                                                            <span>{formatDate(p.dob)}</span>
                                                                             <span className="font-mono opacity-80">{p.patientId}</span>
                                                                         </p>
                                                                     </div>
@@ -324,7 +324,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                                 className={`p-2 rounded text-xs cursor-pointer ${selectedVisitId === v.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
                                                                                 onClick={() => setSelectedVisitId(v.id)}
                                                                             >
-                                                                                <span className="font-semibold">{v.interrogation_date}</span>
+                                                                                <span className="font-semibold">{formatDate(v.interrogation_date)}</span>
                                                                             </div>
                                                                         ))}
                                                                     </div>

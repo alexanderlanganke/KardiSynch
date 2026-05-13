@@ -2,6 +2,7 @@
 
 import { XMLParser } from 'fast-xml-parser';
 import { UnifiedReport, LeadData, hasLeadData } from '../reports';
+import { normalizeDate } from '../../lib/dates';
 
 /**
 * --- Biotronik XML Parser ---
@@ -372,11 +373,11 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
 
         const standardizedData: UnifiedReport = {
             manufacturer: findEntry(summaryTable, 'MANUFACTURERDESCR') || 'Biotronik',
-            interrogation_date: xml['InterfaceData']['Examination']['ExaminationDate'],
+            interrogation_date: normalizeDate(xml['InterfaceData']['Examination']['ExaminationDate'], 'eu'),
             patient: {
                 first_name: personalData?.['FirstName'] || personalData?.['Vorname'] || '',
                 last_name: personalData?.['Name'] || personalData?.['LastName'] || personalData?.['Nachname'] || '',
-                dob: personalData?.['DOB'] || personalData?.['DateOfBirth'] || personalData?.['Geburtsdatum'] || personalData?.['BirthDate'] || '',
+                dob: normalizeDate(personalData?.['DOB'] || personalData?.['DateOfBirth'] || personalData?.['Geburtsdatum'] || personalData?.['BirthDate'] || '', 'eu'),
             },
             device: {
                 type: deviceType,

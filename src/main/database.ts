@@ -3,6 +3,39 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { UnifiedReport } from './reports';
+import { normalizeDate } from '../lib/dates';
+
+/**
+ * If `xmlPath` contains `<field>raw</field>` and `normalizeDate(raw)` produces a
+ * different non-empty canonical form, rewrite the tag in place and return the
+ * canonical value. Returns the original (or normalized) value the caller should
+ * trust going forward; returns null if the field is absent.
+ *
+ * Used by rebuildDatabase to heal pre-existing visit.xml / patient.xml whose
+ * date fields were written by older parser code paths that didn't normalize.
+ */
+async function healDateField(xmlPath: string, fieldName: string): Promise<string | null> {
+  let content: string;
+  try {
+    content = await fs.promises.readFile(xmlPath, 'utf-8');
+  } catch {
+    return null;
+  }
+  const re = new RegExp(`<${fieldName}>([^<]*)</${fieldName}>`);
+  const m = re.exec(content);
+  if (!m) return null;
+  const raw = m[1];
+  const normalized = normalizeDate(raw);
+  if (!normalized || normalized === raw) return raw;
+  try {
+    await fs.promises.writeFile(xmlPath, content.replace(re, `<${fieldName}>${normalized}</${fieldName}>`), 'utf-8');
+    console.log(`[rebuildDatabase] Normalized ${fieldName} in ${xmlPath}: "${raw}" -> "${normalized}"`);
+  } catch (e) {
+    console.warn(`[rebuildDatabase] Failed to rewrite ${fieldName} in ${xmlPath}:`, e);
+    return raw;
+  }
+  return normalized;
+}
 
 let dbInstance: sqlite3.Database;
 
@@ -826,6 +859,7 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
 
     // 1. Process Patient
     try {
+      await healDateField(patientXmlPath, 'dob');
       const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
       const parsed = parser.parse(xmlContent);
       const p = parsed.patient;
@@ -932,6 +966,7 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
       // 2. Fallback / Baseline: Visit.xml
       const visitXmlPath = path.join(visitDir, 'visit.xml');
       try {
+        await healDateField(visitXmlPath, 'interrogation_date');
         const xmlContent = await fs.promises.readFile(visitXmlPath, 'utf-8');
         const parsed = parser.parse(xmlContent);
         const v = parsed.visit;

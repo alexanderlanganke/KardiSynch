@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
+import { normalizeDate } from '../../lib/dates';
 import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 import { extractTextFromPdf, extractStructuredData } from '../utils/pdf-utils';
 
@@ -113,7 +114,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                     const hour = parseInt(ts.substring(8, 10));
                     const min = parseInt(ts.substring(10, 12));
                     const sec = parseInt(ts.substring(12, 14));
-                    report.interrogation_date = new Date(year, month, day, hour, min, sec).toISOString();
+                    report.interrogation_date = normalizeDate(new Date(year, month, day, hour, min, sec).toISOString());
                 } else {
                     // Fallback: look for 14-digit timestamp in strings
                     const dateRegex = /^(20\d{12})$/;
@@ -126,7 +127,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                         const hour = parseInt(ts.substring(8, 10));
                         const min = parseInt(ts.substring(10, 12));
                         const sec = parseInt(ts.substring(12, 14));
-                        report.interrogation_date = new Date(year, month, day, hour, min, sec).toISOString();
+                        report.interrogation_date = normalizeDate(new Date(year, month, day, hour, min, sec).toISOString());
                     }
                 }
             }
@@ -732,11 +733,11 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
 
     return {
         manufacturer: 'Medtronic',
-        interrogation_date: savedDate ? savedDate.split('T')[0] : '',
+        interrogation_date: normalizeDate(savedDate),
         patient: {
             first_name: firstName,
             last_name: lastName,
-            dob: dob,
+            dob: normalizeDate(dob),
         },
         device: {
             type: deviceType,

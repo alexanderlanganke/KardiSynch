@@ -8,7 +8,7 @@ import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck,
 import { Badge } from '@/components/ui/badge';
 import { usePatientStore, Patient } from './store/PatientStore';
 import { getPatientFlags, daysSinceLastVisit } from './utils/clinicalPriority';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 
 // Manufacturer Logos
 import medtronicLogo from './assets/logos/medtronic.svg';
@@ -230,7 +230,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             <div className="w-[25%] pr-2">
               <Input className="h-7 text-xs bg-background" placeholder="Model" value={editFormData.deviceModel} onChange={(e) => handleInputChange('deviceModel', e.target.value)} onClick={(e) => e.stopPropagation()} />
             </div>
-            <div className="w-[12%] text-muted-foreground text-xs pl-1 opacity-50">{patient.lastReportDate || 'Never'}</div>
+            <div className="w-[12%] text-muted-foreground text-xs pl-1 opacity-50">{patient.lastReportDate ? formatDate(patient.lastReportDate) : 'Never'}</div>
             <div className="w-[8%] flex justify-end gap-1">
               <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-full" onClick={handleSaveClick} title="Save"><Check className="h-4 w-4" /></Button>
               <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-full" onClick={handleCancelClick} title="Cancel"><X className="h-4 w-4" /></Button>
@@ -278,7 +278,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
             {/* DOB Column */}
             <div className="w-[10%] text-xs text-muted-foreground flex items-center">
-              {patient.dob}
+              {formatDate(patient.dob)}
             </div>
 
             {/* Manufacturer Column (Logo) */}
@@ -308,7 +308,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             {/* Last Report + Days */}
             <div className="w-[12%] text-sm text-muted-foreground flex items-center gap-2">
               <div className="flex flex-col">
-                <span className="text-xs">{patient.lastReportDate || 'No reports'}</span>
+                <span className="text-xs">{patient.lastReportDate ? formatDate(patient.lastReportDate) : 'No reports'}</span>
                 {days !== null && (
                   <span className={cn(
                     "text-[10px]",

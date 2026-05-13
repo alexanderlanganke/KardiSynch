@@ -56,6 +56,7 @@ function updateAllowedPaths(settings: any) {
   const dirs = new Set<string>([userDataDir]);
   if (settings?.dataPath) dirs.add(path.resolve(settings.dataPath));
   if (settings?.importDir) dirs.add(path.resolve(settings.importDir));
+  if (settings?.intraopImportDir) dirs.add(path.resolve(settings.intraopImportDir));
   if (settings?.unmatchedDir) dirs.add(path.resolve(settings.unmatchedDir));
   allowedBaseDirs = Array.from(dirs);
 }

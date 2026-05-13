@@ -10,7 +10,7 @@ import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DataMergeModal from '@/components/DataMergeModal';
 import { calculateAge } from './utils/trendDelta';
 import { hasActiveWarning, daysSinceLastVisit } from './utils/clinicalPriority';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 import { useAppDialog } from './components/AppDialogProvider';
 
 interface PatientDetailProps {
@@ -224,7 +224,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             <div className="flex items-baseline gap-2 shrink-0">
               <h1 className="text-sm font-bold leading-none">{patient?.name}</h1>
               <span className="text-[11px] text-muted-foreground">
-                {patient?.dob}{age !== null ? ` (${age}y)` : ''}
+                {formatDate(patient?.dob)}{age !== null ? ` (${age}y)` : ''}
               </span>
             </div>
 
@@ -252,7 +252,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             {/* Last interrogation + days ago */}
             <div className="flex items-center gap-1.5 shrink-0 text-[11px] text-muted-foreground">
               {patient?.lastReportDate || reports[0]?.interrogation_date
-                ? <span>{patient?.lastReportDate || reports[0]?.interrogation_date}</span>
+                ? <span>{formatDate(patient?.lastReportDate || reports[0]?.interrogation_date)}</span>
                 : <span>No visits</span>
               }
               {days !== null && (

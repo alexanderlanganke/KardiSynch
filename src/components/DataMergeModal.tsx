@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { GitMerge, ArrowRight, Check, X } from 'lucide-react';
+import { formatDate } from '@/lib/utils';
 
 interface DataMergeModalProps {
     open: boolean;
@@ -138,14 +139,14 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                                 </TableCell>
                                 <TableCell className="text-muted-foreground text-sm">
                                     <div>{currentPatient.first_name} {currentPatient.last_name}</div>
-                                    <div className="text-xs">{currentPatient.dob}</div>
+                                    <div className="text-xs">{formatDate(currentPatient.dob)}</div>
                                 </TableCell>
                                 <TableCell><ArrowRight className="h-4 w-4 text-muted-foreground/30" /></TableCell>
                                 <TableCell className="font-semibold text-sm">
                                     {scannedData.patient ? (
                                         <>
                                             <div>{scannedData.patient.first_name} {scannedData.patient.last_name}</div>
-                                            <div className="text-xs">{scannedData.patient.dob}</div>
+                                            <div className="text-xs">{formatDate(scannedData.patient.dob)}</div>
                                         </>
                                     ) : <span className="text-muted-foreground italic">No data</span>}
                                 </TableCell>

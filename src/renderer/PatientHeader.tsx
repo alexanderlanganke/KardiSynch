@@ -3,6 +3,7 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 import { UnifiedReport } from '../main/reports';
+import { formatDate } from '@/lib/utils';
 
 interface PatientHeaderProps {
   report: UnifiedReport;
@@ -17,7 +18,7 @@ const PatientHeader: React.FC<PatientHeaderProps> = ({ report }) => {
           <div>
             <h3 className="font-semibold text-sm">Patient</h3>
             <p className="text-xs">
-              {`${patient.first_name} ${patient.last_name}`} ({patient.dob})
+              {`${patient.first_name} ${patient.last_name}`} ({formatDate(patient.dob)})
             </p>
           </div>
           <div>

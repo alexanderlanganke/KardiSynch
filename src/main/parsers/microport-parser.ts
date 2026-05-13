@@ -1,5 +1,6 @@
 import { UnifiedReport, BatteryData, hasLeadData } from '../reports';
 import { XMLParser } from 'fast-xml-parser';
+import { normalizeDate } from '../../lib/dates';
 
 export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedReport | null> => {
     try {
@@ -175,11 +176,11 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
 
         const report: UnifiedReport = {
             manufacturer: manufacturer,
-            interrogation_date: interrogationDate,
+            interrogation_date: normalizeDate(interrogationDate),
             patient: {
                 first_name: firstName,
                 last_name: lastName,
-                dob: dob
+                dob: normalizeDate(dob)
             },
             device: {
                 type: deviceType,

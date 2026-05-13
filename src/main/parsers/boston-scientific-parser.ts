@@ -1,4 +1,5 @@
 import { UnifiedReport } from '../reports';
+import { normalizeDate } from '../../lib/dates';
 
 /**
  * --- Boston Scientific BNK Parser ---
@@ -53,11 +54,11 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
 
     const report: UnifiedReport = {
       manufacturer: 'Boston Scientific',
-      interrogation_date: dataMap.get('Brady.LastInterrogationDate') || '',
+      interrogation_date: normalizeDate(dataMap.get('Brady.LastInterrogationDate')),
       patient: {
         first_name: dataMap.get('Patient.PatientFirstName') || '',
         last_name: dataMap.get('Patient.PatientLastName') || '',
-        dob: dataMap.get('Patient.PatientDOB') || '',
+        dob: normalizeDate(dataMap.get('Patient.PatientDOB')),
       },
       device: {
         type: deviceType,
@@ -126,23 +127,6 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
     raw_text: text,
   };
 
-  // --- Helper: Date Formatter ---
-  const formatDate = (dateStr: string): string => {
-    try {
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        // Adjust for timezone offset to ensure we get the same calendar date
-        // new Date() creates a date in local time. toISOString() converts to UTC.
-        // If local time is behind UTC, or if the time is 00:00:00, this can shift the day.
-        // We shift the time by the timezone offset so that the UTC time matches the local calendar date.
-        const offset = date.getTimezoneOffset() * 60000;
-        const adjustedDate = new Date(date.getTime() - offset);
-        return adjustedDate.toISOString().split('T')[0];
-      }
-    } catch (e) { /* ignore */ }
-    return dateStr;
-  };
-
   // --- 1. Patient & Report Info ---
 
   // Strategy: Use DOB as an anchor to find the Name.
@@ -155,7 +139,7 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
   let dobIndex = -1;
   const dobMatch = text.match(/(?:DOB|Date of Birth|Born|Geburtsdatum)[:\s]*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i);
   if (dobMatch) {
-    report.patient.dob = formatDate(dobMatch[1]);
+    report.patient.dob = normalizeDate(dobMatch[1]);
     dobIndex = dobMatch.index || -1;
   } else {
     console.log("PDF Parsing: DOB not found.");
@@ -215,11 +199,11 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
   // Prioritize "Bericht erstellt" / "Bericht erstel."
   const reportDateMatch = text.match(/(?:Bericht\s+erstel\.?|Report Created)[:\s]*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i);
   if (reportDateMatch) {
-    report.interrogation_date = formatDate(reportDateMatch[1]);
+    report.interrogation_date = normalizeDate(reportDateMatch[1]);
   } else {
     const dateMatch = text.match(/(?:Interrogation Date|Session Date|Date|Letzte\s+Nachsorge)[:\s]*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i);
     if (dateMatch) {
-      report.interrogation_date = formatDate(dateMatch[1]);
+      report.interrogation_date = normalizeDate(dateMatch[1]);
     } else {
       console.log("PDF Parsing: Interrogation Date not found.");
     }
