@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { findPatient, createPatient, createReport, findReportByDate, getSettings } from './database';
+import { findPatient, createPatient, createReport, getSettings } from './database';
 import { UnifiedReport } from './reports';
 import { app } from 'electron';
 import { sendNotification, sendPatientListUpdate } from './windowManager';
@@ -207,17 +207,11 @@ export const storeReport = async (report: UnifiedReport): Promise<{ reportId: st
     isNewPatient = true;
   }
 
-  // Check for existing report on the same date to prevent duplicate visits
-  const datePrefix = report.interrogation_date ? report.interrogation_date.split('T')[0] : '';
-  if (datePrefix) {
-    const existingReport = await findReportByDate(patient.id, datePrefix);
-    if (existingReport) {
-      console.log(`[Storage] Found existing report ${existingReport.id} for patient ${patient.id} on ${datePrefix}. Reusing.`);
-      return { reportId: existingReport.id, patient };
-    }
-  }
-
-  // Create the report record in the database.
+  // Each call to storeReport creates a new visit. Within-batch grouping (a PKG
+  // and its extracted PDFs, or a pkg + sidecar arriving together) is handled in
+  // watcher.ts via the activeVisits map. Cross-batch DB-wide date merging is
+  // deliberately NOT done here — a patient can have multiple surgeries and
+  // interrogations on the same day, and each import session is its own visit.
   const reportId = uuidv4();
   await createReport({
     id: reportId,
