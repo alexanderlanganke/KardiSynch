@@ -7,6 +7,7 @@ import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
 import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
 import { storeReport, storeFile } from './storage';
+import { lookupAlias, setAlias } from './deviceTypeAliases';
 
 let importDir: string;
 let unmatchedDir: string;
@@ -333,12 +334,33 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
         applyIntraopTagIfNeeded(report, file);
 
         // 1. CHECK FOR DEVICE AMBIGUITY (Autodetection Failure)
-        // If manufacturer is unknown or the device model is unknown, prompt the user.
+        // First try to auto-resolve an unknown device type from the shared
+        // (manufacturer, model) alias file — one user's curation benefits the
+        // whole clinic. Only after this auto-resolve do we decide whether to
+        // prompt: the modal fires for any manufacturer where model is known
+        // but type is still Unknown, not just Biotronik.
+        if (
+          report.manufacturer && report.manufacturer !== 'Unknown' &&
+          report.device?.model && report.device.model !== 'Unknown' &&
+          (!report.device.type || report.device.type === 'Unknown')
+        ) {
+          try {
+            const aliasType = await lookupAlias(report.manufacturer, report.device.model);
+            if (aliasType && aliasType !== 'Unknown') {
+              report.device.type = aliasType;
+              console.log(`[Watcher] Auto-resolved device type from alias: ${report.manufacturer} ${report.device.model} → ${aliasType}`);
+            }
+          } catch (e) {
+            console.warn('[Watcher] Failed to look up device type alias:', e);
+          }
+        }
+
         if (
           report.manufacturer === 'Unknown' ||
           !report.device ||
           report.device.model === 'Unknown' ||
-          (report.manufacturer === 'Biotronik' && report.device.type === 'Unknown')
+          !report.device.type ||
+          report.device.type === 'Unknown'
         ) {
           console.log(`Device ambiguity detected for ${path.basename(file)}. Requesting manual device info...`);
 
@@ -379,6 +401,17 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             }
 
             console.log('Applied manual device details:', report.device);
+
+            // Persist (manufacturer, model) → type so future imports of this
+            // device auto-resolve without prompting the user again. Skip
+            // persists nothing — the user can correct via Settings.
+            if (d.manufacturer && d.model && d.model !== 'Unknown' && d.type && d.type !== 'Unknown') {
+              try {
+                await setAlias(d.manufacturer, d.model, d.type);
+              } catch (e) {
+                console.warn('[Watcher] Failed to persist device type alias:', e);
+              }
+            }
           } else {
             console.log('User skipped device selection. proceeding with Unknowns.');
           }

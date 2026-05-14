@@ -48,6 +48,11 @@ export interface IElectronAPI {
   sendDeviceSelectionResult: (result: any) => Promise<void>;
   onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => void;
 
+  // Remembered device-type aliases
+  listDeviceTypeAliases: () => Promise<{ manufacturer: string; model: string; type: string; created_at: string }[]>;
+  setDeviceTypeAlias: (manufacturer: string, model: string, type: string) => Promise<void>;
+  deleteDeviceTypeAlias: (manufacturer: string, model: string) => Promise<void>;
+
   // External links
   openExternal: (url: string) => Promise<void>;
 

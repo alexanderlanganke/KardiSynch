@@ -6,8 +6,94 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Trash2 } from 'lucide-react';
 import { useAppDialog } from './components/AppDialogProvider';
 import CredentialManagerPanel from '@/components/CredentialManagerPanel';
+
+const DEVICE_TYPE_OPTIONS = ['Pacemaker', 'ICD', 'CRT-P', 'CRT-D', 'ICM'];
+
+interface DeviceTypeAliasRow {
+  manufacturer: string;
+  model: string;
+  type: string;
+  created_at: string;
+}
+
+const DeviceTypeAliasesPanel: React.FC = () => {
+  const { showConfirm } = useAppDialog();
+  const [rows, setRows] = useState<DeviceTypeAliasRow[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const data = await window.electronAPI.listDeviceTypeAliases();
+      setRows(Array.isArray(data) ? data : []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleTypeChange = async (row: DeviceTypeAliasRow, newType: string) => {
+    if (newType === row.type) return;
+    await window.electronAPI.setDeviceTypeAlias(row.manufacturer, row.model, newType);
+    await load();
+  };
+
+  const handleDelete = async (row: DeviceTypeAliasRow) => {
+    const ok = await showConfirm(`Forget remembered type for ${row.manufacturer} ${row.model}? The next import of this model will prompt for the device type again.`);
+    if (!ok) return;
+    await window.electronAPI.deleteDeviceTypeAlias(row.manufacturer, row.model);
+    await load();
+  };
+
+  if (loading && rows.length === 0) {
+    return <p className="text-xs text-muted-foreground">Loading…</p>;
+  }
+
+  if (rows.length === 0) {
+    return <p className="text-xs text-muted-foreground">No device types remembered yet. The first time you disambiguate a device during import, it will appear here.</p>;
+  }
+
+  return (
+    <div className="border rounded-md overflow-hidden">
+      <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted text-[10px] uppercase font-semibold text-muted-foreground">
+        <div className="col-span-3">Manufacturer</div>
+        <div className="col-span-5">Model</div>
+        <div className="col-span-3">Type</div>
+        <div className="col-span-1 text-right"></div>
+      </div>
+      <div className="divide-y">
+        {rows.map(r => (
+          <div key={`${r.manufacturer}|${r.model}`} className="grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm">
+            <div className="col-span-3 truncate">{r.manufacturer}</div>
+            <div className="col-span-5 truncate font-mono text-xs">{r.model}</div>
+            <div className="col-span-3">
+              <Select value={r.type} onValueChange={(v) => handleTypeChange(r, v)}>
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {DEVICE_TYPE_OPTIONS.map(opt => (
+                    <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-1 flex justify-end">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(r)}>
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 // Logos
 import biotronikLogo from './assets/logos/biotronik.svg';
@@ -407,6 +493,18 @@ const Settings: React.FC = () => {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="mt-4">
+              <CardHeader>
+                <CardTitle>Remembered Device Types</CardTitle>
+                <CardDescription>
+                  Mappings from <span className="font-mono text-[11px]">(manufacturer, model)</span> to device type. When the parser can't infer a type, the system asks once and remembers — subsequent imports of the same model auto-resolve. Stored as <span className="font-mono text-[11px]">device_types.xml</span> in your data directory and shared across all workstations pointing at it.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <DeviceTypeAliasesPanel />
               </CardContent>
             </Card>
           </TabsContent>

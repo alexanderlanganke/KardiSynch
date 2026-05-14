@@ -989,6 +989,21 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
+ipcMain.handle('list-device-type-aliases', async () => {
+  const { listAliases } = await import('./deviceTypeAliases');
+  return listAliases();
+});
+
+ipcMain.handle('set-device-type-alias', async (_event, manufacturer: string, model: string, type: string) => {
+  const { setAlias } = await import('./deviceTypeAliases');
+  await setAlias(manufacturer, model, type);
+});
+
+ipcMain.handle('delete-device-type-alias', async (_event, manufacturer: string, model: string) => {
+  const { deleteAlias } = await import('./deviceTypeAliases');
+  await deleteAlias(manufacturer, model);
+});
+
 
 ipcMain.handle('manual-sorting-response', async (event, response) => {
   try {

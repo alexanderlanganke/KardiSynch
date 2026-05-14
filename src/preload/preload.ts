@@ -67,6 +67,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('request-device-selection', (event, fileInfo) => callback(fileInfo));
   },
 
+  // Remembered device-type aliases (shared via {dataPath}/device_types.xml)
+  listDeviceTypeAliases: () => ipcRenderer.invoke('list-device-type-aliases'),
+  setDeviceTypeAlias: (manufacturer: string, model: string, type: string) =>
+    ipcRenderer.invoke('set-device-type-alias', manufacturer, model, type),
+  deleteDeviceTypeAlias: (manufacturer: string, model: string) =>
+    ipcRenderer.invoke('delete-device-type-alias', manufacturer, model),
+
   // Updates
   checkMedtronicUpdates: () => ipcRenderer.invoke('check-medtronic-updates'),
   checkBostonUpdates: () => ipcRenderer.invoke('check-boston-updates'),
