@@ -8,6 +8,7 @@ import { UnifiedReport } from './reports';
 import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
 import { storeReport, storeFile } from './storage';
 import { lookupAlias, setAlias } from './deviceTypeAliases';
+import { logInfo, logError } from './logger';
 
 let importDir: string;
 let unmatchedDir: string;
@@ -408,9 +409,12 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             if (d.manufacturer && d.model && d.model !== 'Unknown' && d.type && d.type !== 'Unknown') {
               try {
                 await setAlias(d.manufacturer, d.model, d.type);
-              } catch (e) {
-                console.warn('[Watcher] Failed to persist device type alias:', e);
+                logInfo('Watcher', `Persisted device type alias: ${d.manufacturer} / ${d.model} → ${d.type}`);
+              } catch (e: any) {
+                logError('Watcher', `Failed to persist device type alias for ${d.manufacturer} / ${d.model} → ${d.type}: ${e?.message || e}`, e?.stack);
               }
+            } else {
+              logInfo('Watcher', `Skipping alias persist — guard failed. manufacturer="${d.manufacturer}" model="${d.model}" type="${d.type}"`);
             }
           } else {
             console.log('User skipped device selection. proceeding with Unknowns.');

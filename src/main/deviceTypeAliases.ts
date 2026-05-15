@@ -3,6 +3,7 @@ import path from 'path';
 import { app } from 'electron';
 import { XMLParser } from 'fast-xml-parser';
 import { getSettings } from './database';
+import { logInfo, logError } from './logger';
 
 /**
  * Persistent map of (manufacturer, model) → device type, shared across all
@@ -99,14 +100,22 @@ async function writeAll(aliases: DeviceTypeAlias[]): Promise<void> {
     '',
   ];
   const tmpPath = `${filePath}.tmp`;
-  await fs.writeFile(tmpPath, lines.join('\n'), 'utf-8');
-  await fs.rename(tmpPath, filePath);
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(tmpPath, lines.join('\n'), 'utf-8');
+    await fs.rename(tmpPath, filePath);
+    logInfo('deviceTypeAliases', `Wrote ${aliases.length} alias(es) to ${filePath}`);
+  } catch (e: any) {
+    logError('deviceTypeAliases', `Failed to write ${filePath}: ${e?.message || e}`, e?.stack);
+    throw e;
+  }
 }
 
 export async function setAlias(manufacturer: string, model: string, type: string): Promise<void> {
   if (!manufacturer || !model || !type) {
-    throw new Error('setAlias requires manufacturer, model, and type');
+    throw new Error(`setAlias requires manufacturer, model, and type — got manufacturer="${manufacturer}" model="${model}" type="${type}"`);
   }
+  logInfo('deviceTypeAliases', `setAlias("${manufacturer}", "${model}", "${type}")`);
   const aliases = await listAliases();
   const key = normalizeKey(manufacturer, model);
   const idx = aliases.findIndex(a => normalizeKey(a.manufacturer, a.model) === key);
