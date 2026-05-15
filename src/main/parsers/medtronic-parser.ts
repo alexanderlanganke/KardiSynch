@@ -37,7 +37,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                 dob: '1900-01-01',
             },
             device: {
-                type: 'ICD', // Default, refine later
+                type: 'Unknown', // Refined below by keyword match; if nothing matches, the watcher's alias flow asks the user once and remembers.
                 model: '',
                 serial_number: '',
             },
