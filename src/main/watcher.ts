@@ -334,6 +334,24 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
 
         applyIntraopTagIfNeeded(report, file);
 
+        // Analyzer-only intraoperative sessions carry no implanted device: the
+        // Medtronic analyzer produces lead measurements but no DeviceModelName /
+        // DeviceSerialNumber. Forcing the device-selection modal here made every
+        // such import "enter" a phantom Medtronic device (issue #134). Detect the
+        // signature (intraop tag + no model + no serial) and skip the device
+        // prompt entirely — the visit is stored as an analyzer session without a
+        // device (patient.xml device history is already serial-guarded).
+        const isIntraop = (report as any)._remoteSource?.visit_type === 'intraoperative';
+        const noDeviceModel = !report.device?.model || report.device.model === 'Unknown';
+        const noDeviceSerial = !report.device?.serial_number || report.device.serial_number === 'Unknown';
+        const isIntraopAnalyzerOnly = isIntraop && noDeviceModel && noDeviceSerial;
+        if (isIntraopAnalyzerOnly) {
+          console.log(`[Watcher] ${path.basename(file)} looks like an intraoperative analyzer-only session (no device model/serial). Skipping device entry.`);
+          // Blank the leftover 'Unknown' device type so visit.xml records no
+          // device rather than a phantom "Unknown" Medtronic device.
+          report.device = { type: '', model: '', serial_number: '' };
+        }
+
         // 1. CHECK FOR DEVICE AMBIGUITY (Autodetection Failure)
         // First try to auto-resolve an unknown device type from the shared
         // (manufacturer, model) alias file — one user's curation benefits the
@@ -357,11 +375,13 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
         }
 
         if (
-          report.manufacturer === 'Unknown' ||
-          !report.device ||
-          report.device.model === 'Unknown' ||
-          !report.device.type ||
-          report.device.type === 'Unknown'
+          !isIntraopAnalyzerOnly && (
+            report.manufacturer === 'Unknown' ||
+            !report.device ||
+            report.device.model === 'Unknown' ||
+            !report.device.type ||
+            report.device.type === 'Unknown'
+          )
         ) {
           console.log(`Device ambiguity detected for ${path.basename(file)}. Requesting manual device info...`);
 
