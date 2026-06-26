@@ -44,6 +44,12 @@ export interface IElectronAPI {
   onRequestManualSorting: (callback: (fileInfo: any) => void) => void;
   onImportSessionUpdate: (callback: (session: any) => void) => void;
 
+  // Pending manual-sort queue (issue #136)
+  getPendingSortTasks: () => Promise<any[]>;
+  resolvePendingSortTask: (taskId: string, decision: any) => Promise<{ success: boolean; error?: string; reportId?: string; movedToUnmatched?: boolean }>;
+  dismissPendingSortTasks: (taskIds: string[]) => Promise<{ success: boolean }>;
+  onPendingSortUpdate: (callback: (tasks: any[]) => void) => () => void;
+
   // Device Selection (Autodetection Fallback)
   sendDeviceSelectionResult: (result: any) => Promise<void>;
   onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => void;

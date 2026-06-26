@@ -1027,6 +1027,136 @@ ipcMain.handle('device-selection-result', async (event, result) => {
   }
 });
 
+// --- Pending manual-sort queue (issue #136) ---
+
+ipcMain.handle('get-pending-sort-tasks', async () => {
+  try {
+    const { listPendingSortTasks } = await import('./services/pendingSortService');
+    return listPendingSortTasks();
+  } catch (error) {
+    console.error('Failed to list pending sort tasks', error);
+    return [];
+  }
+});
+
+// Dismiss one or more pending tasks. The renderer asks for confirmation first;
+// dismissal always deletes the staged files/temp dir to keep things clean.
+ipcMain.handle('dismiss-pending-sort-tasks', async (_event, taskIds: string[]) => {
+  try {
+    const { removePendingSortTask, listPendingSortTasks } = await import('./services/pendingSortService');
+    const { sendPendingSortUpdate } = await import('./windowManager');
+    for (const id of taskIds || []) {
+      await removePendingSortTask(id, true);
+    }
+    sendPendingSortUpdate(listPendingSortTasks());
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to dismiss pending sort tasks', error);
+    throw error;
+  }
+});
+
+// Resolve a pending task: assign/create a patient + visit and store the file(s),
+// or move the whole task to the unmatched dir. On any failure the task is left
+// in the queue so nothing is lost.
+ipcMain.handle('resolve-pending-sort-task', async (_event, taskId: string, decision: any) => {
+  const { getPendingSortTask, pendingSortTaskFilePaths, removePendingSortTask, listPendingSortTasks } = await import('./services/pendingSortService');
+  const { sendPendingSortUpdate, sendPatientListUpdate } = await import('./windowManager');
+
+  const task = getPendingSortTask(taskId);
+  if (!task) return { success: false, error: 'Task not found' };
+  const filePaths = pendingSortTaskFilePaths(task);
+
+  try {
+    // "Move to unmatched dir" replaces the old "skip" action: move the whole
+    // task's files to the unmatched dir for later handling.
+    if (decision.action === 'move-unmatched') {
+      const settings = await getAllSettings();
+      const unmatchedDir = settings.unmatchedDir || path.join(app.getPath('userData'), '_UNMATCHED');
+      await fs.mkdir(unmatchedDir, { recursive: true });
+      for (const fp of filePaths) {
+        const dest = path.join(unmatchedDir, path.basename(fp));
+        try {
+          await fs.rename(fp, dest);
+        } catch (err: any) {
+          if (err.code === 'EXDEV') { await fs.copyFile(fp, dest); await fs.unlink(fp); }
+          else throw err;
+        }
+      }
+      await removePendingSortTask(taskId, true);
+      sendPendingSortUpdate(listPendingSortTasks());
+      return { success: true, movedToUnmatched: true };
+    }
+
+    const { getPatientById, createPatient, getReportById, createReport } = await import('./database');
+    const { storeFile } = await import('./storage');
+    const { parseFile } = await import('./parser');
+    const { v4: uuidv4 } = await import('uuid');
+
+    // Resolve the target patient (existing or freshly created).
+    let targetPatient: any;
+    if (decision.action === 'create-patient') {
+      const pd = decision.patientData;
+      if (!pd || !pd.last_name || !pd.dob) return { success: false, error: 'Missing patient last name / DOB' };
+      const newId = uuidv4();
+      await createPatient({ id: newId, first_name: pd.first_name || '', last_name: pd.last_name, dob: pd.dob, hospitalPatientId: pd.hospitalPatientId || null });
+      targetPatient = await getPatientById(newId);
+    } else if (decision.action === 'assign-patient') {
+      targetPatient = await getPatientById(decision.patientId);
+    } else {
+      return { success: false, error: `Unknown action: ${decision.action}` };
+    }
+    if (!targetPatient) return { success: false, error: 'Target patient not found' };
+    const nameForDir = `${targetPatient.last_name}_${targetPatient.first_name}`;
+
+    // Resolve the target visit once so all files in the task land together.
+    let targetReportId: string | null = null;
+    let targetDate: string = decision.visitDate || '';
+    if (decision.visitMode === 'existing' && decision.visitId) {
+      const r = await getReportById(decision.visitId);
+      if (r) { targetReportId = r.id; targetDate = r.interrogation_date; }
+    }
+
+    for (const fp of filePaths) {
+      let parsed: any = null;
+      try { parsed = await parseFile(fp); } catch { /* tolerate unparseable file */ }
+      if (parsed && task.isIntraop) {
+        parsed._remoteSource = { visit_type: 'intraoperative', source_manufacturer: parsed.manufacturer || undefined };
+      }
+
+      if (!targetReportId) {
+        // Create a new visit once, then reuse it for the rest of the task's files.
+        const date = decision.visitDate || parsed?.interrogation_date || '';
+        targetDate = date;
+        const newReportId = uuidv4();
+        const base: any = parsed || { manufacturer: 'Unknown' };
+        const newReport: any = {
+          ...base,
+          id: newReportId,
+          patient_id: targetPatient.id,
+          interrogation_date: date,
+          raw_text: base.raw_text || 'Manually sorted file',
+          data: base.data || JSON.stringify({ note: 'Created via manual sorting' }),
+        };
+        delete newReport.rowid; delete newReport.created_at; delete newReport.updated_at;
+        await createReport(newReport);
+        targetReportId = newReportId;
+        await storeFile(fp, targetReportId, targetPatient.id, nameForDir, date, targetPatient, parsed || newReport);
+      } else {
+        await storeFile(fp, targetReportId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
+      }
+    }
+
+    await removePendingSortTask(taskId, true);
+    sendPendingSortUpdate(listPendingSortTasks());
+    sendPatientListUpdate();
+    return { success: true, reportId: targetReportId };
+  } catch (error) {
+    console.error('Failed to resolve pending sort task', error);
+    return { success: false, error: (error as Error).message };
+  }
+});
+
 ipcMain.handle('get-import-history', async () => {
   try {
     const { getImportHistory } = await import('./database');

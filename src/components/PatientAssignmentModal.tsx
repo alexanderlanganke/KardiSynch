@@ -155,7 +155,9 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     };
 
     const handleUnmatched = () => {
-        onResolve({ action: 'unmatched' });
+        // For queued (pending) items, "skip" becomes "move the whole task to the
+        // unmatched dir" (issue #136); otherwise keep the legacy unmatched action.
+        onResolve({ action: sourceItem?.source === 'pending' ? 'move-unmatched' : 'unmatched' });
     };
 
     const getFileType = (filename: string): 'xml' | 'pdf' | 'text' => {
@@ -401,7 +403,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                 </div>
                                 {mode === 'import' && (
                                     <Button variant="ghost" onClick={handleUnmatched} className="w-full text-xs h-8 text-muted-foreground">
-                                        Skip this file
+                                        {sourceItem?.source === 'pending' ? 'Move to unmatched dir' : 'Skip this file'}
                                     </Button>
                                 )}
                             </div>

@@ -2,17 +2,19 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendManualSortingRequest, sendImportSessionUpdate, sendPatientListUpdate } from './windowManager';
+import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendImportSessionUpdate, sendPatientListUpdate, sendPendingSortUpdate } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
 import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
 import { storeReport, storeFile } from './storage';
 import { lookupAlias, setAlias } from './deviceTypeAliases';
 import { logInfo, logError } from './logger';
+import { initPendingSort, isPendingSortReady, enqueuePendingSort, listPendingSortTasks } from './services/pendingSortService';
 
 let importDir: string;
 let unmatchedDir: string;
 let dataDir: string;
+let pendingSortDir: string = '';
 let watcherTimeout: NodeJS.Timeout | null = null;
 let startupTimeout: NodeJS.Timeout | null = null;
 let currentWatcher: import('fs').FSWatcher | null = null;
@@ -115,6 +117,42 @@ export const resolveManualSorting = (response: any) => {
   if (pendingManualSortRequest) {
     pendingManualSortRequest.resolve(response);
     pendingManualSortRequest = null;
+  }
+};
+
+/**
+ * Non-blocking replacement for the old blocking manual-sort modal (issue #136).
+ *
+ * Stages the file out of the batch temp dir into its own pending-sort task dir
+ * and notifies the renderer's notification area. Processing continues
+ * immediately — no modal is force-opened and the batch is never stalled waiting
+ * for the user. The task is resolved later via the pending-sort IPC handlers.
+ *
+ * Returns true if the file was successfully queued. Falls back to false (caller
+ * then routes the file to the unmatched dir) if the queue isn't ready.
+ */
+const enqueueManualSort = async (
+  file: string,
+  previewData: any,
+  isIntraop: boolean,
+  sessionId: string
+): Promise<boolean> => {
+  if (!isPendingSortReady()) return false;
+  try {
+    await enqueuePendingSort([file], { previewData, isIntraop, sessionId });
+    logImportEvent({
+      id: uuidv4(),
+      session_id: sessionId,
+      file_path: file,
+      status: 'pending_manual_sort',
+      message: 'Queued for manual sorting'
+    });
+    sendPendingSortUpdate(listPendingSortTasks());
+    sendNotification(`${path.basename(file).replace(/^INTRAOP__/, '')} needs manual sorting`, 'warning');
+    return true;
+  } catch (e) {
+    console.error(`[Watcher] Failed to enqueue manual sort for ${file}:`, e);
+    return false;
   }
 };
 
@@ -259,6 +297,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
     unmatched: 0,
     errors: 0,
     manuallySorted: 0,
+    pendingSort: 0,
     warnings: [] as string[]
   };
 
@@ -457,13 +496,6 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           console.warn(`Structured file ${path.basename(file)} lacks patient identity. Attempting recovery...`);
 
           let targetPatient = null;
-          // The visit the user picked in the manual-sort dialog. This path used
-          // to ignore the dialog's visit selection/date entirely (issue #135),
-          // so a manually-created visit was stored with an empty interrogation
-          // date — dir "Unknown_<id>", blank visit.xml date — and later showed
-          // "none" in the visit list. Capture the choice and honor it below.
-          let chosenVisitId: string | undefined;
-          let chosenVisitDate: string | undefined;
 
           // 1. Try matching by Serial Number
           if (report.device && report.device.serial_number && report.device.serial_number !== 'Unknown') {
@@ -479,108 +511,43 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             }
           }
 
-          // 2. If still unknown, Manual Sort
+          // 2. If still unknown, hand off to the non-blocking manual-sort queue
+          //    (issue #136) instead of force-opening a modal. The file is staged
+          //    to its own pending task dir; the user resolves it on demand from
+          //    the notification area (assign/create patient + visit, or move to
+          //    the unmatched dir) via the pending-sort IPC handlers.
           if (!targetPatient) {
-            console.log(`No clear match for unnamed file ${path.basename(file)}. Requesting manual input...`);
-
-            // Ask user what to do
-            const userDecision: any = await withTimeout(
-              new Promise((resolve) => {
-                pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
-                sendManualSortingRequest({
-                  filename: path.basename(file),
-                  tempPath: file,
-                  previewData: {
-                    patientName: isUnparsedStructured ? "UNKNOWN (could not read file)" : "UNKNOWN (Missing in Log)",
-                    dob: report.patient.dob || "Unknown",
-                    date: report.interrogation_date,
-                    serial: report.device?.serial_number || "Unknown",
-                    manufacturer: report.manufacturer,
-                    deviceModel: report.device?.model,
-                    leads: report.leads
-                  }
-                });
-              }),
-              5 * 60 * 1000,
-              { action: 'unmatched' }
-            );
-
-            if (userDecision.action === 'assign-patient') {
-              const { getPatientById } = await import('./database');
-              targetPatient = await getPatientById(userDecision.patientId);
-              if (userDecision.visitMode === 'existing') chosenVisitId = userDecision.visitId;
-              else if (userDecision.visitMode === 'new') chosenVisitDate = userDecision.visitDate;
-            } else if (userDecision.action === 'create-patient') {
-              const { createPatient, getPatientById } = await import('./database');
-              const newId = uuidv4();
-              await createPatient({
-                id: newId,
-                first_name: userDecision.patientData.first_name,
-                last_name: userDecision.patientData.last_name,
-                dob: userDecision.patientData.dob,
-                hospitalPatientId: userDecision.patientData.hospitalPatientId || null
-              });
-              targetPatient = await getPatientById(newId);
-              chosenVisitDate = userDecision.visitDate;
+            const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
+            const queued = await enqueueManualSort(file, {
+              patientName: isUnparsedStructured ? "UNKNOWN (could not read file)" : "UNKNOWN (Missing in Log)",
+              dob: report.patient.dob || "Unknown",
+              date: report.interrogation_date,
+              serial: report.device?.serial_number || "Unknown",
+              manufacturer: report.manufacturer,
+              deviceModel: report.device?.model,
+              leads: report.leads
+            }, isIntraopFile, sessionId);
+            if (queued) {
+              sessionSummary.pendingSort++;
             } else {
-              // Skipped
               unmatchedFiles.push(file);
               logImportEvent({
                 id: uuidv4(),
                 session_id: sessionId,
                 file_path: file,
                 status: 'unmatched',
-                message: 'User skipped unnamed logfile'
+                message: 'Could not queue for manual sorting'
               });
               sessionSummary.unmatched++;
-              continue; // Skip processing this file
             }
+            continue; // handled (queued or unmatched) — nothing to store now
           }
 
-          // Apply recovered identity to the report object
-          if (targetPatient) {
-            report.patient.first_name = targetPatient.first_name;
-            report.patient.last_name = targetPatient.last_name;
-            report.patient.dob = targetPatient.dob;
-            report.patient.hospitalPatientId = targetPatient.hospitalPatientId;
-            // IMPORTANT: If duplicate report text, checking might still happen in storeReport,
-            // but at least we have a valid patient now.
-          }
-
-          // Honor the visit the user chose in the manual-sort dialog (issue #135).
-          if (targetPatient && chosenVisitId) {
-            // Existing visit: store directly into it. storeFile locates the
-            // visit dir by ${date}_${reportId}, so we must reuse that visit's
-            // own date (not the empty report date) or a divergent "Unknown_<id>"
-            // dir would be created.
-            const { getReportById } = await import('./database');
-            const existing = await getReportById(chosenVisitId);
-            const visitDate = existing?.interrogation_date || report.interrogation_date;
-            const nameForDir = `${targetPatient.last_name}_${targetPatient.first_name}`;
-            await storeFile(file, chosenVisitId, targetPatient.id, nameForDir, visitDate, targetPatient, report);
-            if (report.generatedFiles && report.generatedFiles.length > 0) {
-              for (const genFile of report.generatedFiles) {
-                await storeFile(genFile, chosenVisitId, targetPatient.id, nameForDir, visitDate, targetPatient, report);
-              }
-            }
-            logImportEvent({
-              id: uuidv4(),
-              session_id: sessionId,
-              file_path: file,
-              status: 'manually_sorted',
-              patient_id: targetPatient.id,
-              report_id: chosenVisitId,
-              message: 'Manually assigned to existing visit'
-            });
-            sessionSummary.manuallySorted++;
-            sessionSummary.imported++;
-            affectedVisits.set(chosenVisitId, { patient: targetPatient });
-            continue;
-          }
-          // New visit: apply the chosen date so the visit isn't stored dateless.
-          if (chosenVisitDate) {
-            report.interrogation_date = chosenVisitDate;
-          }
+          // Apply recovered identity to the report object (serial-number match)
+          report.patient.first_name = targetPatient.first_name;
+          report.patient.last_name = targetPatient.last_name;
+          report.patient.dob = targetPatient.dob;
+          report.patient.hospitalPatientId = targetPatient.hospitalPatientId;
         }
 
         // Defined here to be accessible for internal PDF processing
@@ -843,157 +810,22 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               });
             }
           } else {
-            // Patient found but NO visit found for this date. Trigger Manual Sorting.
-            console.log(`Patient found but no matching visit for ${path.basename(file)}. Requesting manual confirmation...`);
-
-            const userDecision: any = await withTimeout(
-              new Promise((resolve) => {
-                pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
-                sendManualSortingRequest({
-                  filename: path.basename(file),
-                  tempPath: file,
-                  previewData: {
-                    patientName: `${patient.first_name} ${patient.last_name}`,
-                    dob: patient.dob,
-                    date: report.interrogation_date,
-                    serial: report.device?.serial_number,
-                    manufacturer: report.manufacturer,
-                    deviceModel: report.device?.model,
-                    leads: report.leads
-                  }
-                });
-              }),
-              5 * 60 * 1000,
-              { action: 'unmatched' }
-            );
-
-            console.log(`User decision for ${path.basename(file)}:`, userDecision);
-
-            if (userDecision.action === 'assign-patient') {
-              // Assign to existing patient
-              try {
-                const { getPatientById } = await import('./database');
-                const targetPatient = await getPatientById(userDecision.patientId);
-                let targetVisitId: string | undefined = undefined;
-
-                if (userDecision.visitMode === 'existing' && userDecision.visitId) {
-                  // User explicitly selected a visit
-                  targetVisitId = userDecision.visitId;
-                  console.log(`[Watcher] Manually assigning to selected visit ID: ${targetVisitId}`);
-                } else if (userDecision.visitMode === 'new') {
-                  // User explicitly requested NEW visit
-                  console.log(`[Watcher] Manually creating NEW visit with date: ${userDecision.visitDate}`);
-                  targetVisitId = undefined; // Force new 
-                  report.interrogation_date = userDecision.visitDate || report.interrogation_date;
-                } else {
-                  // Auto-resolve by date (fallback)
-                  const datePrefix = (report.interrogation_date || '').split('T')[0];
-                  const { findReportByDate } = await import('./database');
-                  const existingReportByUser = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
-                  if (existingReportByUser) {
-                    targetVisitId = existingReportByUser.id;
-                  }
-                }
-
-                let storedVisitId: string;
-                if (targetVisitId) {
-                  await storeFile(file, targetVisitId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, undefined);
-                  storedVisitId = targetVisitId;
-                } else {
-                  // Ensure report has valid patient data from the target patient
-                  report.patient = {
-                    first_name: targetPatient.first_name,
-                    last_name: targetPatient.last_name,
-                    dob: targetPatient.dob
-                  };
-                  report.patient_id = targetPatient.id;
-                  // If visit mode is new, use the specific date
-                  if (userDecision.visitMode === 'new' && userDecision.visitDate) {
-                    report.interrogation_date = userDecision.visitDate;
-                  }
-
-                  const { storeReport } = await import('./storage');
-                  const { reportId } = await storeReport(report);
-                  await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
-                  storedVisitId = reportId;
-                }
-                logImportEvent({
-                  id: uuidv4(),
-                  session_id: sessionId,
-                  file_path: file,
-                  status: 'manually_sorted',
-                  patient_id: targetPatient.id,
-                  message: 'Manually assigned by user'
-                });
-                sessionSummary.manuallySorted++;
-                affectedVisits.set(storedVisitId, { patient: targetPatient });
-
-                // Register in cross-batch visit memory
-                const visitKey = getReportKey(report);
-                if (visitKey) {
-                  activeVisits.set(visitKey, { reportId: storedVisitId, patientId: targetPatient.id, patient: targetPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
-                }
-              } catch (e) {
-                console.error('Error in manual assignment', e);
-                unmatchedFiles.push(file);
-                sessionSummary.errors++;
-                continue; // Don't count as imported
-              }
-
-            } else if (userDecision.action === 'create-patient') {
-              // Create brand new patient
-              try {
-                const { getPatientById, createPatient } = await import('./database');
-                const newPatientData = userDecision.patientData;
-                const newId = uuidv4();
-                await createPatient({
-                  id: newId,
-                  first_name: newPatientData.first_name,
-                  last_name: newPatientData.last_name,
-                  dob: newPatientData.dob,
-                  hospitalPatientId: newPatientData.hospitalPatientId || null
-                });
-                const newPatient = await getPatientById(newId);
-
-                // Apply the visit date chosen in the dialog so the new visit
-                // isn't stored dateless (issue #135).
-                if (userDecision.visitDate) {
-                  report.interrogation_date = userDecision.visitDate;
-                }
-
-                // Ensure report has valid patient data
-                report.patient = {
-                  first_name: newPatient.first_name,
-                  last_name: newPatient.last_name,
-                  dob: newPatient.dob
-                };
-                report.patient_id = newPatient.id;
-                const { storeReport } = await import('./storage');
-                const { reportId } = await storeReport(report);
-                await storeFile(file, reportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
-
-                logImportEvent({
-                  id: uuidv4(),
-                  session_id: sessionId,
-                  file_path: file,
-                  status: 'manually_sorted',
-                  patient_id: newPatient.id,
-                  message: 'Manually created patient'
-                });
-                sessionSummary.manuallySorted++;
-                affectedVisits.set(reportId, { patient: newPatient });
-
-                // Register in cross-batch visit memory
-                const visitKey = getReportKey(report);
-                if (visitKey) {
-                  activeVisits.set(visitKey, { reportId, patientId: newPatient.id, patient: newPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
-                }
-              } catch (e) {
-                console.error('Error in manual creation', e);
-                unmatchedFiles.push(file);
-                sessionSummary.errors++;
-                continue; // Don't count as imported
-              }
+            // Patient found but no visit matched — hand off to the non-blocking
+            // manual-sort queue (issue #136) so the user can confirm the visit
+            // (or create a new one) on demand instead of being interrupted by a
+            // modal mid-import.
+            const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
+            const queued = await enqueueManualSort(file, {
+              patientName: `${patient.first_name} ${patient.last_name}`,
+              dob: patient.dob,
+              date: report.interrogation_date,
+              serial: report.device?.serial_number,
+              manufacturer: report.manufacturer,
+              deviceModel: report.device?.model,
+              leads: report.leads
+            }, isIntraopFile, sessionId);
+            if (queued) {
+              sessionSummary.pendingSort++;
             } else {
               unmatchedFiles.push(file);
               logImportEvent({
@@ -1001,168 +833,38 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                 session_id: sessionId,
                 file_path: file,
                 status: 'unmatched',
-                message: 'User skipped or sent to unmatched'
+                message: 'Could not queue for manual sorting'
               });
               sessionSummary.unmatched++;
-              continue; // Don't count as imported
             }
+            continue; // handled (queued or unmatched) — nothing to store now
           }
           sessionSummary.imported++;
 
         } else {
-          // Patient not found - AMBIGUITY, TRY INTERACTIVE MODE
-          console.log(`No clear match for ${path.basename(file)}. Requesting manual input...`);
-
-          // Ask user what to do
-          const userDecision: any = await withTimeout(
-            new Promise((resolve) => {
-              pendingManualSortRequest = { resolve, reject: () => resolve({ action: 'unmatched' }) };
-              sendManualSortingRequest({
-                filename: path.basename(file),
-                tempPath: file,
-                previewData: {
-                  patientName: `${report.patient.first_name} ${report.patient.last_name}`,
-                  dob: report.patient.dob,
-                  date: report.interrogation_date,
-                  serial: report.device?.serial_number,
-                  manufacturer: report.manufacturer,
-                  deviceModel: report.device?.model,
-                  leads: report.leads
-                }
-              });
-            }),
-            5 * 60 * 1000,
-            { action: 'unmatched' }
-          );
-
-          console.log(`User decision for ${path.basename(file)}:`, userDecision);
-
-          if (userDecision.action === 'assign-patient') {
-            // Assign to existing patient
-            try {
-              const targetPatient = await getPatientById(userDecision.patientId);
-
-              let targetReportId = null;
-              let targetDate = report.interrogation_date;
-
-              // Check if user selected a specific visit or date
-              if (userDecision.visitMode === 'existing' && userDecision.visitId) {
-                const r = await getReportById(userDecision.visitId);
-                if (r) {
-                  targetReportId = r.id;
-                  targetDate = r.interrogation_date;
-                }
-              } else if (userDecision.visitMode === 'new' && userDecision.visitDate) {
-                targetDate = userDecision.visitDate;
-                // Force report date update
-                report.interrogation_date = userDecision.visitDate;
-                // targetReportId is null -> Create New
-              } else {
-                // Fallback: match by date
-                const datePrefix = (report.interrogation_date || '').split('T')[0];
-                const existingReport = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
-                if (existingReport) {
-                  targetReportId = existingReport.id;
-                  targetDate = existingReport.interrogation_date;
-                }
-              }
-
-              let storedVisitId: string;
-              if (targetReportId) {
-                await storeFile(file, targetReportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetDate, targetPatient, undefined);
-                storedVisitId = targetReportId;
-              } else {
-                // Ensure report has valid patient data from the target patient
-                report.patient = {
-                  first_name: targetPatient.first_name,
-                  last_name: targetPatient.last_name,
-                  dob: targetPatient.dob
-                };
-                report.patient_id = targetPatient.id;
-
-                const { storeReport } = await import('./storage');
-                const { reportId } = await storeReport(report);
-                await storeFile(file, reportId, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, report.interrogation_date, targetPatient, report);
-                storedVisitId = reportId;
-              }
-              logImportEvent({
-                id: uuidv4(),
-                session_id: sessionId,
-                file_path: file,
-                status: 'manually_sorted',
-                patient_id: targetPatient.id,
-                message: targetReportId ? 'Manually assigned to existing visit' : 'Manually assigned to new visit'
-              });
-              sessionSummary.manuallySorted++;
-              sessionSummary.imported++;
-              affectedVisits.set(storedVisitId, { patient: targetPatient });
-
-              // Register in cross-batch visit memory
-              const visitKey = getReportKey(report);
-              if (visitKey) {
-                activeVisits.set(visitKey, { reportId: storedVisitId, patientId: targetPatient.id, patient: targetPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
-              }
-            } catch (e) {
-              console.error('Error in manual assignment', e);
-              unmatchedFiles.push(file);
-            }
-
-          } else if (userDecision.action === 'create-patient') {
-            // Create brand new patient
-            const newPatientData = userDecision.patientData; // expect { firstName, lastName, dob, id? }
-            const newId = uuidv4();
-            await createPatient({
-              id: newId,
-              first_name: newPatientData.first_name,
-              last_name: newPatientData.last_name,
-              dob: newPatientData.dob,
-              hospitalPatientId: newPatientData.hospitalPatientId || null
-            });
-            const newPatient = await getPatientById(newId);
-
-            // Update report date if provided by user
-            if (userDecision.visitDate) {
-              report.interrogation_date = userDecision.visitDate;
-            }
-
-            // Ensure report has valid patient data
-            report.patient = {
-              first_name: newPatient.first_name,
-              last_name: newPatient.last_name,
-              dob: newPatient.dob
-            };
-            report.patient_id = newPatient.id;
-            const { storeReport } = await import('./storage');
-            const { reportId: newReportId } = await storeReport(report);
-            await storeFile(file, newReportId, newPatient.id, `${newPatient.last_name}_${newPatient.first_name}`, report.interrogation_date, newPatient, report);
-
-            logImportEvent({
-              id: uuidv4(),
-              session_id: sessionId,
-              file_path: file,
-              status: 'manually_sorted',
-              patient_id: newPatient.id,
-              message: 'Manually created patient'
-            });
-            sessionSummary.manuallySorted++;
-            sessionSummary.imported++;
-            affectedVisits.set(newReportId, { patient: newPatient });
-
-            // Register in cross-batch visit memory
-            const visitKey = getReportKey(report);
-            if (visitKey) {
-              activeVisits.set(visitKey, { reportId: newReportId, patientId: newPatient.id, patient: newPatient, date: report.interrogation_date, serial: report.device?.serial_number, sessionId: report.session_id });
-            }
-
+          // Patient not found — hand off to the non-blocking manual-sort queue
+          // (issue #136) instead of force-opening a modal. The user assigns or
+          // creates a patient/visit on demand from the notification area.
+          const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
+          const queued = await enqueueManualSort(file, {
+            patientName: `${report.patient.first_name} ${report.patient.last_name}`,
+            dob: report.patient.dob,
+            date: report.interrogation_date,
+            serial: report.device?.serial_number,
+            manufacturer: report.manufacturer,
+            deviceModel: report.device?.model,
+            leads: report.leads
+          }, isIntraopFile, sessionId);
+          if (queued) {
+            sessionSummary.pendingSort++;
           } else {
-            // Unmatched
             unmatchedFiles.push(file);
             logImportEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: file,
               status: 'unmatched',
-              message: 'User skipped or sent to unmatched'
+              message: 'Could not queue for manual sorting'
             });
             sessionSummary.unmatched++;
           }
@@ -1290,6 +992,13 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
   importDir = appImportDir;
   unmatchedDir = appUnmatchedDir;
   dataDir = appDataDir;
+
+  // Initialize the pending manual-sort queue (issue #136) in a dir beside the
+  // unmatched dir. Idempotent across re-inits; reconciles persisted tasks.
+  pendingSortDir = path.join(path.dirname(appUnmatchedDir), '_PENDING_SORT_');
+  initPendingSort(pendingSortDir)
+    .then(() => sendPendingSortUpdate(listPendingSortTasks()))
+    .catch(e => console.error('[Watcher] Failed to init pending-sort queue:', e));
 
   // Helper for safe batch processing (with re-entrance guard)
   const executeBatchProcessing = async () => {

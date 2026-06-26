@@ -76,6 +76,9 @@ const App: React.FC = () => {
   const [deviceSelectionOpen, setDeviceSelectionOpen] = React.useState(false);
   const [deviceSelectionFile, setDeviceSelectionFile] = React.useState<any>(null);
 
+  // Pending manual-sort queue (issue #136) — replaces the old auto-opening modal
+  const [pendingSortTasks, setPendingSortTasks] = React.useState<any[]>([]);
+
   // Onboarding State
   const [showOnboarding, setShowOnboarding] = React.useState(false);
 
@@ -97,6 +100,14 @@ const App: React.FC = () => {
     window.electronAPI.onDeviceSelectionRequest((fileInfo) => {
       setDeviceSelectionFile(fileInfo);
       setDeviceSelectionOpen(true);
+    });
+
+    // Pending manual-sort queue: load current tasks and subscribe to updates.
+    // The sorting dialog is opened on demand from the notification area, never
+    // auto-focused (issue #136).
+    window.electronAPI.getPendingSortTasks().then((tasks) => setPendingSortTasks(tasks || []));
+    const cleanupPendingSort = window.electronAPI.onPendingSortUpdate((tasks) => {
+      setPendingSortTasks(tasks || []);
     });
 
     // Listen for web panel download interceptions
@@ -126,7 +137,27 @@ const App: React.FC = () => {
       }
     };
     checkOnboarding();
+
+    return () => {
+      cleanupPendingSort?.();
+    };
   }, []);
+
+  // Open the sorting dialog for a queued task (chosen from the notification area).
+  const openSortTask = (task: any) => {
+    setManualSortingFile({
+      source: 'pending',
+      taskId: task.id,
+      filename: (task.files && task.files[0]) || 'Unknown file',
+      tempPath: (task.filePaths && task.filePaths[0]) || undefined,
+      previewData: task.previewData || {},
+    });
+    setManualSortingOpen(true);
+  };
+
+  const dismissSortTasks = async (taskIds: string[]) => {
+    await window.electronAPI.dismissPendingSortTasks(taskIds);
+  };
 
   const handleManualSortingResolve = (decision: any) => {
     window.electronAPI.manualSortingResponse(decision);
@@ -135,6 +166,13 @@ const App: React.FC = () => {
   };
 
   const handleManualSortingCancel = () => {
+    // Pending-queue items: closing the dialog just defers — the task stays in
+    // the queue, nothing is sent to the watcher (issue #136).
+    if (manualSortingFile?.source === 'pending') {
+      setManualSortingOpen(false);
+      setManualSortingFile(null);
+      return;
+    }
     const wasRemote = manualSortingFile?.source === 'remote';
     window.electronAPI.manualSortingResponse({ action: 'unmatched' });
     setManualSortingOpen(false);
@@ -185,6 +223,14 @@ const App: React.FC = () => {
 
   // Override the manual sorting resolve to handle remote downloads differently
   const handleManualSortingResolveWrapped = (decision: any) => {
+    // Pending-queue items resolve through the dedicated pending-sort handler
+    // (assign/create patient + visit, or move-to-unmatched) — issue #136.
+    if (manualSortingFile?.source === 'pending') {
+      window.electronAPI.resolvePendingSortTask(manualSortingFile.taskId, decision);
+      setManualSortingOpen(false);
+      setManualSortingFile(null);
+      return;
+    }
     if (manualSortingFile?.source === 'remote' && decision.action !== 'unmatched') {
       // Use the web panel assignment flow instead of the watcher flow
       window.electronAPI.webPanelAssignDownload({
@@ -304,7 +350,11 @@ const App: React.FC = () => {
           </main>
 
           <div style={{ position: 'fixed', top: '0px', right: '0px', zIndex: 100, margin: '4px' }}>
-            <NotificationCenter onOpenChange={(open) => {
+            <NotificationCenter
+              pendingSortTasks={pendingSortTasks}
+              onSortTask={openSortTask}
+              onDismissSortTasks={dismissSortTasks}
+              onOpenChange={(open) => {
               if (currentView === 'webPanel') {
                 if (open) window.electronAPI.webPanelHide();
                 else window.electronAPI.webPanelShow();

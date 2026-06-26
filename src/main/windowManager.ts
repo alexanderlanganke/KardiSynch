@@ -48,6 +48,14 @@ export function sendManualSortingRequest(fileInfo: any) {
   }
 }
 
+// Notifies the renderer that the pending manual-sort queue changed (issue #136).
+// Carries the full task list so the notification area can re-render directly.
+export function sendPendingSortUpdate(tasks: any[]) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('pending-sort-update', tasks);
+  }
+}
+
 export function sendImportSessionUpdate(session: any) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('import-session-update', session);

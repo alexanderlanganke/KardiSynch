@@ -57,6 +57,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('import-session-update', (event, session) => callback(session));
   },
 
+  // Pending manual-sort queue (issue #136)
+  getPendingSortTasks: () => ipcRenderer.invoke('get-pending-sort-tasks'),
+  resolvePendingSortTask: (taskId: string, decision: any) => ipcRenderer.invoke('resolve-pending-sort-task', taskId, decision),
+  dismissPendingSortTasks: (taskIds: string[]) => ipcRenderer.invoke('dismiss-pending-sort-tasks', taskIds),
+  onPendingSortUpdate: (callback: (tasks: any[]) => void) => {
+    const handler = (_event: any, tasks: any[]) => callback(tasks);
+    ipcRenderer.on('pending-sort-update', handler);
+    return () => ipcRenderer.removeListener('pending-sort-update', handler);
+  },
+
   // Visit Management
   rescanVisit: (visitId: string) => ipcRenderer.invoke('rescan-visit', visitId),
   moveVisit: (visitId: string, targetPatientId: string) => ipcRenderer.invoke('move-visit', visitId, targetPatientId),

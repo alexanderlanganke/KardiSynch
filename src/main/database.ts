@@ -1100,7 +1100,7 @@ export const logImportEvent = (event: {
   id: string;
   session_id: string;
   file_path: string;
-  status: 'imported' | 'unmatched' | 'error' | 'manually_sorted' | 'skipped';
+  status: 'imported' | 'unmatched' | 'error' | 'manually_sorted' | 'skipped' | 'pending_manual_sort';
   patient_id?: string;
   report_id?: string;
   message?: string;

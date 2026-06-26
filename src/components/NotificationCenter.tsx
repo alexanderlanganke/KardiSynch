@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, Check, X, Activity, AlertTriangle, Info, AlertCircle, History, FileText, CheckCircle, HelpCircle } from 'lucide-react';
+import { Bell, Check, X, Activity, AlertTriangle, Info, AlertCircle, History, FileText, CheckCircle, HelpCircle, Inbox } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -7,6 +7,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { useAppDialog } from '@/renderer/components/AppDialogProvider';
 
 interface Notification {
     id: number;
@@ -37,11 +38,25 @@ interface ImportSession {
     summary: string;
 }
 
-interface NotificationCenterProps {
-    onOpenChange?: (open: boolean) => void;
+interface PendingSortTask {
+    id: string;
+    createdAt: string;
+    files: string[];
+    filePaths?: string[];
+    previewData?: any;
+    isIntraop?: boolean;
 }
 
-const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange }) => {
+interface NotificationCenterProps {
+    onOpenChange?: (open: boolean) => void;
+    // Pending manual-sort queue (issue #136)
+    pendingSortTasks?: PendingSortTask[];
+    onSortTask?: (task: PendingSortTask) => void;
+    onDismissSortTasks?: (taskIds: string[]) => Promise<void> | void;
+}
+
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, pendingSortTasks = [], onSortTask, onDismissSortTasks }) => {
+    const { showConfirm } = useAppDialog();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
     const [importSessions, setImportSessions] = useState<ImportSession[]>([]);
@@ -113,7 +128,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange })
     useEffect(() => {
         if (isOpen) {
             loadImportHistory();
-            if (activeTasks.length > 0) {
+            if (pendingSortTasks.length > 0) {
+                setActiveTab('sorting');
+            } else if (activeTasks.length > 0) {
                 setActiveTab('activity');
             }
         }
@@ -144,6 +161,22 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange })
 
     const unreadCount = notifications.filter(n => !n.read).length;
     const activeTasks = tasks.filter(t => t.status === 'running' || t.status === 'pending');
+    // Surface queued manual-sort items on the bell badge so they aren't missed.
+    const attentionCount = unreadCount + pendingSortTasks.length;
+
+    // Dismissing always deletes the staged files; confirm first, and if the user
+    // declines, leave the task in the queue (issue #136).
+    const dismissTask = async (taskId: string) => {
+        const ok = await showConfirm('Delete the staged files for this item and remove it from the queue?', 'Dismiss manual sort');
+        if (!ok) return;
+        await onDismissSortTasks?.([taskId]);
+    };
+    const dismissAllTasks = async () => {
+        if (pendingSortTasks.length === 0) return;
+        const ok = await showConfirm(`Delete the staged files for all ${pendingSortTasks.length} queued item(s) and clear the queue?`, 'Dismiss all');
+        if (!ok) return;
+        await onDismissSortTasks?.(pendingSortTasks.map(t => t.id));
+    };
 
     const markAllRead = () => {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
@@ -187,9 +220,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange })
                     ) : (
                         <Bell className="h-5 w-5 text-muted-foreground" />
                     )}
-                    {unreadCount > 0 && (
+                    {attentionCount > 0 && (
                         <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-[10px] bg-red-500 hover:bg-red-600 border-2 border-background">
-                            {unreadCount}
+                            {attentionCount}
                         </Badge>
                     )}
                 </Button>
@@ -218,6 +251,13 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange })
                         >
                             Notifications
                             {unreadCount > 0 && <span className="ml-2 text-xs bg-muted px-1.5 rounded-full">{unreadCount}</span>}
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="sorting"
+                            className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent h-10"
+                        >
+                            Sorting
+                            {pendingSortTasks.length > 0 && <span className="ml-2 text-xs bg-orange-100 text-orange-700 px-1.5 rounded-full">{pendingSortTasks.length}</span>}
                         </TabsTrigger>
                         <TabsTrigger
                             value="activity"
@@ -270,6 +310,58 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange })
                                             </div>
                                         </div>
                                     ))}
+                                </div>
+                            )}
+                        </ScrollArea>
+                    </TabsContent>
+
+                    {/* Manual Sorting Tab (issue #136) */}
+                    <TabsContent value="sorting" className="m-0">
+                        {pendingSortTasks.length > 0 && (
+                            <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted">
+                                <span className="text-xs text-muted-foreground">{pendingSortTasks.length} item(s) awaiting sorting</span>
+                                <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={dismissAllTasks}>
+                                    Dismiss All
+                                </Button>
+                            </div>
+                        )}
+                        <ScrollArea className="h-[450px]">
+                            {pendingSortTasks.length === 0 ? (
+                                <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
+                                    <Inbox className="h-8 w-8 mb-2 opacity-20" />
+                                    <p className="text-sm">Nothing to sort</p>
+                                </div>
+                            ) : (
+                                <div className="divide-y">
+                                    {pendingSortTasks.map(task => {
+                                        const preview = task.previewData || {};
+                                        const displayName = (task.files && task.files[0]) || 'Unknown file';
+                                        return (
+                                            <div key={task.id} className="p-4 space-y-2">
+                                                <div className="flex items-start gap-3">
+                                                    <FileText className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
+                                                    <div className="flex-1 min-w-0">
+                                                        <p className="text-sm font-medium truncate">{displayName}</p>
+                                                        <p className="text-xs text-muted-foreground truncate">
+                                                            {preview.patientName || 'Unknown patient'}
+                                                            {preview.manufacturer ? ` · ${preview.manufacturer}` : ''}
+                                                        </p>
+                                                        {task.isIntraop && (
+                                                            <Badge variant="outline" className="text-[9px] h-4 px-1 mt-1 text-purple-600 border-purple-200 bg-purple-50">intraop</Badge>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2 pl-7">
+                                                    <Button size="sm" className="h-7 text-xs flex-1" onClick={() => onSortTask?.(task)}>
+                                                        Sort
+                                                    </Button>
+                                                    <Button size="sm" variant="outline" className="h-7 text-xs text-muted-foreground hover:text-destructive" onClick={() => dismissTask(task.id)}>
+                                                        Dismiss
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
                         </ScrollArea>
