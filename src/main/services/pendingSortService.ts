@@ -124,9 +124,13 @@ export const enqueuePendingSort = async (
 
   const files: string[] = [];
   for (const src of sourcePaths) {
-    // Strip the INTRAOP__ staging prefix so the stored name is clean; origin is
-    // tracked via isIntraop instead.
-    const baseName = path.basename(src).replace(/^INTRAOP__/, '');
+    // Recover a clean, human-readable original name. Staged files are named
+    // `[INTRAOP__]<uuid>_<original>` by the watcher, so strip the INTRAOP__
+    // prefix and the leading UUID — otherwise the 36-char id dominates the name
+    // shown in the sorting queue and overflows the notification panel.
+    const baseName = path.basename(src)
+      .replace(/^INTRAOP__/, '')
+      .replace(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_/, '');
     let dest = path.join(dir, baseName);
     // Guard against collisions within the same task.
     if (files.includes(baseName)) {

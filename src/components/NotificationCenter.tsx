@@ -337,12 +337,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                         const preview = task.previewData || {};
                                         const displayName = (task.files && task.files[0]) || 'Unknown file';
                                         return (
-                                            <div key={task.id} className="p-4 space-y-2">
+                                            <div key={task.id} className="p-4 space-y-2 overflow-hidden">
                                                 <div className="flex items-start gap-3">
                                                     <FileText className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
                                                     <div className="flex-1 min-w-0">
-                                                        <p className="text-sm font-medium truncate">{displayName}</p>
-                                                        <p className="text-xs text-muted-foreground truncate">
+                                                        <p className="text-sm font-medium break-all line-clamp-1" title={displayName}>{displayName}</p>
+                                                        <p className="text-xs text-muted-foreground break-words line-clamp-1" title={preview.patientName || 'Unknown patient'}>
                                                             {preview.patientName || 'Unknown patient'}
                                                             {preview.manufacturer ? ` · ${preview.manufacturer}` : ''}
                                                         </p>
