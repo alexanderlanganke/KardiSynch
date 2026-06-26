@@ -317,19 +317,30 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
       sessionSummary.processed++;
 
       try {
-        const report = await parseFile(file);
+        let report = await parseFile(file);
+        // A structured file that can't be parsed used to be moved straight to
+        // the unmatched dir with no UI — a Medtronic .pkg that fails extraction
+        // "vanished" silently (issue #133). Instead, build a minimal skeleton
+        // report and route it through the manual-sorting modal below so the user
+        // can still assign it to a patient/visit. The raw file is preserved
+        // either way; if the user skips, it still ends up in unmatched.
+        let isUnparsedStructured = false;
         if (!report) {
-          console.warn(`Failed to parse structured file ${path.basename(file)}`);
-          unmatchedFiles.push(file);
-          logImportEvent({
-            id: uuidv4(),
-            session_id: sessionId,
-            file_path: file,
-            status: 'error',
-            message: 'Failed to parse structured file'
-          });
-          sessionSummary.errors++;
-          continue;
+          console.warn(`Failed to parse structured file ${path.basename(file)} — routing to manual sorting (#133).`);
+          const ext = path.extname(file).toLowerCase();
+          const manufacturerByExt: Record<string, string> = {
+            '.pkg': 'Medtronic', '.pdd': 'Medtronic', '.bnk': 'Boston Scientific', '.log': 'Abbott'
+          };
+          report = {
+            manufacturer: manufacturerByExt[ext] || 'Unknown',
+            interrogation_date: '',
+            patient: { first_name: '', last_name: '', dob: '' },
+            device: { type: '', model: '', serial_number: '' },
+            battery: {},
+            leads: [],
+            raw_text: '',
+          };
+          isUnparsedStructured = true;
         }
 
         applyIntraopTagIfNeeded(report, file);
@@ -375,7 +386,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
         }
 
         if (
-          !isIntraopAnalyzerOnly && (
+          !isIntraopAnalyzerOnly && !isUnparsedStructured && (
             report.manufacturer === 'Unknown' ||
             !report.device ||
             report.device.model === 'Unknown' ||
@@ -480,7 +491,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                   filename: path.basename(file),
                   tempPath: file,
                   previewData: {
-                    patientName: "UNKNOWN (Missing in Log)",
+                    patientName: isUnparsedStructured ? "UNKNOWN (could not read file)" : "UNKNOWN (Missing in Log)",
                     dob: report.patient.dob || "Unknown",
                     date: report.interrogation_date,
                     serial: report.device?.serial_number || "Unknown",
