@@ -364,10 +364,31 @@ export const parseMedtronicPkg = async (filePath: string): Promise<UnifiedReport
         console.error("Failed to parse Medtronic PKG:", error);
         return null;
     } finally {
+        await removeDirWithRetry(tempDir);
+    }
+};
+
+/**
+ * Recursively removes a directory, retrying a few times on transient failures.
+ *
+ * The .pkg extraction temp dir holds a PDF that pdfjs/pdf-parse (and AdmZip)
+ * may still hold an open handle/mmap on for a short moment after we finish
+ * reading it. On Windows that makes an immediate `fs.rm` throw EBUSY/EPERM,
+ * and the old code swallowed that error — leaving `kardisynch_pkg_*` dirs
+ * behind on every import (issue #132). Retrying with a short backoff lets the
+ * handles release; if it still fails we surface it instead of hiding it.
+ */
+const removeDirWithRetry = async (dir: string, attempts = 5, delayMs = 100): Promise<void> => {
+    for (let i = 0; i < attempts; i++) {
         try {
-            await fs.rm(tempDir, { recursive: true, force: true });
+            await fs.rm(dir, { recursive: true, force: true });
+            return;
         } catch (e) {
-            console.warn("Failed to clean up temp dir:", e);
+            if (i === attempts - 1) {
+                console.error(`Failed to clean up temp dir after ${attempts} attempts: ${dir}`, e);
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, delayMs * (i + 1)));
         }
     }
 };
