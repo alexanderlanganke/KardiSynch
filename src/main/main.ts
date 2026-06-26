@@ -841,9 +841,18 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
             }));
           }
 
+          // Fall back to the directory-name date (YYYY_MM_DD_<reportId>) when
+          // visit.xml has no date. Heals visits whose visit.xml date went blank
+          // so the timeline shows the real date instead of "unknown".
+          let interrogationDate = visitData.interrogation_date;
+          if (interrogationDate === undefined || interrogationDate === null || interrogationDate === '') {
+            const m = dir.name.match(/^(\d{4})_(\d{2})_(\d{2})_/);
+            if (m) interrogationDate = `${m[1]}-${m[2]}-${m[3]}`;
+          }
+
           return {
             id: visitData.report_id,
-            interrogation_date: visitData.interrogation_date,
+            interrogation_date: interrogationDate || '',
             manufacturer: visitData.manufacturer,
             device_type: visitData.device_type,
             deviceModel: visitData.device_model || undefined,
@@ -864,7 +873,7 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
       });
 
     const visits = (await Promise.all(visitPromises)).filter((v): v is NonNullable<typeof v> => v !== null);
-    return visits.sort((a, b) => b.interrogation_date.localeCompare(a.interrogation_date));
+    return visits.sort((a, b) => (b.interrogation_date || '').localeCompare(a.interrogation_date || ''));
   } catch (error) {
     console.error('[get-visit-directories] Failed:', error);
     return [];

@@ -251,10 +251,18 @@ export const storeFile = async (
   // Create patient directory: PatientId_PatientName
   const patientDir = path.join(dataDir, 'Reports', `${patientId}_${safeName}`);
 
-  // Extract date from interrogation_date (format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+  // Single source of truth for the visit date. The directory name and visit.xml
+  // are both derived from this one value so they can never diverge — previously
+  // the dir used the `interrogationDate` param while visit.xml used
+  // report.interrogation_date, so a caller passing the chosen date as the param
+  // alongside a date-less report produced a correctly-dated directory but a
+  // blank visit.xml date, which the timeline then showed as "unknown".
+  const effectiveDate = (interrogationDate && interrogationDate.trim()) || report?.interrogation_date || '';
+
+  // Extract date from effectiveDate (format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
   let dateString = 'Unknown';
-  if (interrogationDate) {
-    const date = new Date(interrogationDate);
+  if (effectiveDate) {
+    const date = new Date(effectiveDate);
     if (!isNaN(date.getTime())) {
       const year = date.getFullYear();
       const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -416,6 +424,10 @@ export const storeFile = async (
       // If current report has no leads but existing one did, preserve them
       finalReport = { ...report, leads: existingLeads };
     }
+
+    // Force the visit.xml date to match the directory's date (see effectiveDate
+    // above) so the two never disagree.
+    finalReport = { ...finalReport, interrogation_date: effectiveDate || finalReport.interrogation_date };
 
     await fs.writeFile(visitXmlPath, generateVisitXML(finalReport, reportId));
   }
