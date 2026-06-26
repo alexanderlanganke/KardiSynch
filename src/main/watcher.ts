@@ -446,6 +446,13 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           console.warn(`Structured file ${path.basename(file)} lacks patient identity. Attempting recovery...`);
 
           let targetPatient = null;
+          // The visit the user picked in the manual-sort dialog. This path used
+          // to ignore the dialog's visit selection/date entirely (issue #135),
+          // so a manually-created visit was stored with an empty interrogation
+          // date — dir "Unknown_<id>", blank visit.xml date — and later showed
+          // "none" in the visit list. Capture the choice and honor it below.
+          let chosenVisitId: string | undefined;
+          let chosenVisitDate: string | undefined;
 
           // 1. Try matching by Serial Number
           if (report.device && report.device.serial_number && report.device.serial_number !== 'Unknown') {
@@ -490,6 +497,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             if (userDecision.action === 'assign-patient') {
               const { getPatientById } = await import('./database');
               targetPatient = await getPatientById(userDecision.patientId);
+              if (userDecision.visitMode === 'existing') chosenVisitId = userDecision.visitId;
+              else if (userDecision.visitMode === 'new') chosenVisitDate = userDecision.visitDate;
             } else if (userDecision.action === 'create-patient') {
               const { createPatient, getPatientById } = await import('./database');
               const newId = uuidv4();
@@ -501,6 +510,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                 hospitalPatientId: userDecision.patientData.hospitalPatientId || null
               });
               targetPatient = await getPatientById(newId);
+              chosenVisitDate = userDecision.visitDate;
             } else {
               // Skipped
               unmatchedFiles.push(file);
@@ -522,8 +532,43 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             report.patient.last_name = targetPatient.last_name;
             report.patient.dob = targetPatient.dob;
             report.patient.hospitalPatientId = targetPatient.hospitalPatientId;
-            // IMPORTANT: If duplicate report text, checking might still happen in storeReport, 
+            // IMPORTANT: If duplicate report text, checking might still happen in storeReport,
             // but at least we have a valid patient now.
+          }
+
+          // Honor the visit the user chose in the manual-sort dialog (issue #135).
+          if (targetPatient && chosenVisitId) {
+            // Existing visit: store directly into it. storeFile locates the
+            // visit dir by ${date}_${reportId}, so we must reuse that visit's
+            // own date (not the empty report date) or a divergent "Unknown_<id>"
+            // dir would be created.
+            const { getReportById } = await import('./database');
+            const existing = await getReportById(chosenVisitId);
+            const visitDate = existing?.interrogation_date || report.interrogation_date;
+            const nameForDir = `${targetPatient.last_name}_${targetPatient.first_name}`;
+            await storeFile(file, chosenVisitId, targetPatient.id, nameForDir, visitDate, targetPatient, report);
+            if (report.generatedFiles && report.generatedFiles.length > 0) {
+              for (const genFile of report.generatedFiles) {
+                await storeFile(genFile, chosenVisitId, targetPatient.id, nameForDir, visitDate, targetPatient, report);
+              }
+            }
+            logImportEvent({
+              id: uuidv4(),
+              session_id: sessionId,
+              file_path: file,
+              status: 'manually_sorted',
+              patient_id: targetPatient.id,
+              report_id: chosenVisitId,
+              message: 'Manually assigned to existing visit'
+            });
+            sessionSummary.manuallySorted++;
+            sessionSummary.imported++;
+            affectedVisits.set(chosenVisitId, { patient: targetPatient });
+            continue;
+          }
+          // New visit: apply the chosen date so the visit isn't stored dateless.
+          if (chosenVisitDate) {
+            report.interrogation_date = chosenVisitDate;
           }
         }
 
@@ -898,6 +943,12 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                   hospitalPatientId: newPatientData.hospitalPatientId || null
                 });
                 const newPatient = await getPatientById(newId);
+
+                // Apply the visit date chosen in the dialog so the new visit
+                // isn't stored dateless (issue #135).
+                if (userDecision.visitDate) {
+                  report.interrogation_date = userDecision.visitDate;
+                }
 
                 // Ensure report has valid patient data
                 report.patient = {
