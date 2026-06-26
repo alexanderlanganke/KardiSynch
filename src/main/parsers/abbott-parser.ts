@@ -155,15 +155,26 @@ function parseAbbottDate(dateStr: string): string {
 
 /**
  * Parse MM/DD/YYYY HH:MM:SS into ISO datetime.
+ *
+ * Falls back to a date-only parse when no full HH:MM:SS time is present. Some
+ * Abbott exports (notably SR / summary-report logs) carry a date-only session
+ * timestamp, or a time without seconds. The old strict regex returned '' for
+ * those, so the visit was stored with an "Unknown" date and an empty visit.xml
+ * date field (issue #127). Returning the date keeps the visit correctly dated.
  */
 function parseAbbottDateTime(dateStr: string): string {
     const parts = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
-    if (!parts) return '';
-    const d = new Date(
-        parseInt(parts[3]), parseInt(parts[1]) - 1, parseInt(parts[2]),
-        parseInt(parts[4]), parseInt(parts[5]), parseInt(parts[6])
-    );
-    return d.toISOString();
+    if (parts) {
+        const d = new Date(
+            parseInt(parts[3]), parseInt(parts[1]) - 1, parseInt(parts[2]),
+            parseInt(parts[4]), parseInt(parts[5]), parseInt(parts[6])
+        );
+        return d.toISOString();
+    }
+    // No full time component — fall back to the date alone (parseAbbottDate
+    // matches the MM/DD/YYYY anywhere in the string, so this also recovers the
+    // date from timestamps with an unrecognized time format).
+    return parseAbbottDate(dateStr);
 }
 
 /**
@@ -296,7 +307,7 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
 function parseAbbottText(text: string, filePath: string): UnifiedReport {
     const patterns = {
         patientName: /Patient Name\s+(.+)/i,
-        sessionTimestamp: /Session Timestamp\s+(\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2})/i,
+        sessionTimestamp: /Session Timestamp\s+(\d{1,2}\/\d{1,2}\/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/i,
         model: /Model Number:?\s*(.+)/i,
         serial: /Serial Number\s+([A-Z0-9]+)/i,
         batteryVoltage: /Unloaded Battery Voltage\s+([0-9.]+)\s*V/i,
