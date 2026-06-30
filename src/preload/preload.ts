@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Pending manual-sort queue (issue #136)
   getPendingSortTasks: () => ipcRenderer.invoke('get-pending-sort-tasks'),
   resolvePendingSortTask: (taskId: string, decision: any) => ipcRenderer.invoke('resolve-pending-sort-task', taskId, decision),
+  // Bulk sort several queued tasks to the same patient/visit (issue #137)
+  resolvePendingSortTasks: (taskIds: string[], decision: any) => ipcRenderer.invoke('resolve-pending-sort-tasks', taskIds, decision),
   dismissPendingSortTasks: (taskIds: string[]) => ipcRenderer.invoke('dismiss-pending-sort-tasks', taskIds),
   onPendingSortUpdate: (callback: (tasks: any[]) => void) => {
     const handler = (_event: any, tasks: any[]) => callback(tasks);

@@ -47,6 +47,7 @@ export interface IElectronAPI {
   // Pending manual-sort queue (issue #136)
   getPendingSortTasks: () => Promise<any[]>;
   resolvePendingSortTask: (taskId: string, decision: any) => Promise<{ success: boolean; error?: string; reportId?: string; movedToUnmatched?: boolean }>;
+  resolvePendingSortTasks: (taskIds: string[], decision: any) => Promise<{ success: boolean; error?: string; reportId?: string; movedToUnmatched?: boolean; resolved?: number }>;
   dismissPendingSortTasks: (taskIds: string[]) => Promise<{ success: boolean }>;
   onPendingSortUpdate: (callback: (tasks: any[]) => void) => () => void;
 

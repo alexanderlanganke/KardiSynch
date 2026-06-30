@@ -147,10 +147,29 @@ const App: React.FC = () => {
   const openSortTask = (task: any) => {
     setManualSortingFile({
       source: 'pending',
-      taskId: task.id,
+      taskIds: [task.id],
       filename: (task.files && task.files[0]) || 'Unknown file',
       tempPath: (task.filePaths && task.filePaths[0]) || undefined,
       previewData: task.previewData || {},
+    });
+    setManualSortingOpen(true);
+  };
+
+  // Open the sorting dialog once for several selected tasks; the chosen
+  // patient/visit is applied to all of them in bulk (issue #137).
+  const openSortTasks = (tasks: any[]) => {
+    if (!tasks || tasks.length === 0) return;
+    if (tasks.length === 1) { openSortTask(tasks[0]); return; }
+    const first = tasks[0];
+    const totalFiles = tasks.reduce((n, t) => n + ((t.files && t.files.length) || 0), 0);
+    setManualSortingFile({
+      source: 'pending',
+      taskIds: tasks.map(t => t.id),
+      bulkCount: tasks.length,
+      bulkFileCount: totalFiles,
+      filename: (first.files && first.files[0]) || 'Unknown file',
+      tempPath: (first.filePaths && first.filePaths[0]) || undefined,
+      previewData: first.previewData || {},
     });
     setManualSortingOpen(true);
   };
@@ -226,7 +245,7 @@ const App: React.FC = () => {
     // Pending-queue items resolve through the dedicated pending-sort handler
     // (assign/create patient + visit, or move-to-unmatched) — issue #136.
     if (manualSortingFile?.source === 'pending') {
-      window.electronAPI.resolvePendingSortTask(manualSortingFile.taskId, decision);
+      window.electronAPI.resolvePendingSortTasks(manualSortingFile.taskIds, decision);
       setManualSortingOpen(false);
       setManualSortingFile(null);
       return;
@@ -353,6 +372,7 @@ const App: React.FC = () => {
             <NotificationCenter
               pendingSortTasks={pendingSortTasks}
               onSortTask={openSortTask}
+              onSortTasks={openSortTasks}
               onDismissSortTasks={dismissSortTasks}
               onOpenChange={(open) => {
               if (currentView === 'webPanel') {

@@ -209,6 +209,15 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                             {mode === 'import' ? (
                                                 <>
                                                     <h3 className="font-semibold text-lg leading-tight break-all">{sourceItem.filename}</h3>
+                                                    {sourceItem.bulkCount > 1 && (
+                                                        <div className="flex items-center gap-2 rounded-md bg-orange-100 dark:bg-orange-500/15 border border-orange-200 dark:border-orange-500/30 px-3 py-2 text-xs text-orange-800 dark:text-orange-300">
+                                                            <FileText className="h-3.5 w-3.5 shrink-0" />
+                                                            <span>
+                                                                Bulk sort: <strong>{sourceItem.bulkCount}</strong> items
+                                                                {sourceItem.bulkFileCount ? ` (${sourceItem.bulkFileCount} files)` : ''} will be assigned to the same patient &amp; visit.
+                                                            </span>
+                                                        </div>
+                                                    )}
                                                     <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted -mx-4 -mb-4 p-4 border-t">
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Name</span>

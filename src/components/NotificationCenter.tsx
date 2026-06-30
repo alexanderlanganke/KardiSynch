@@ -52,10 +52,12 @@ interface NotificationCenterProps {
     // Pending manual-sort queue (issue #136)
     pendingSortTasks?: PendingSortTask[];
     onSortTask?: (task: PendingSortTask) => void;
+    // Bulk-sort the selected tasks to one patient/visit (issue #137)
+    onSortTasks?: (tasks: PendingSortTask[]) => void;
     onDismissSortTasks?: (taskIds: string[]) => Promise<void> | void;
 }
 
-const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, pendingSortTasks = [], onSortTask, onDismissSortTasks }) => {
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, pendingSortTasks = [], onSortTask, onSortTasks, onDismissSortTasks }) => {
     const { showConfirm } = useAppDialog();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [tasks, setTasks] = useState<Task[]>([]);
@@ -64,6 +66,8 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
     const [sessionEvents, setSessionEvents] = useState<any[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const [activeTab, setActiveTab] = useState<string>('notifications');
+    // Bulk-sort selection (issue #137): ids of tasks ticked for a one-shot sort.
+    const [selectedSortIds, setSelectedSortIds] = useState<Set<string>>(new Set());
 
     // Listen for notifications
     useEffect(() => {
@@ -164,12 +168,47 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
     // Surface queued manual-sort items on the bell badge so they aren't missed.
     const attentionCount = unreadCount + pendingSortTasks.length;
 
+    // Drop selections for tasks that have left the queue (resolved/dismissed).
+    useEffect(() => {
+        setSelectedSortIds(prev => {
+            const live = new Set(pendingSortTasks.map(t => t.id));
+            const next = new Set<string>();
+            prev.forEach(id => { if (live.has(id)) next.add(id); });
+            return next.size === prev.size ? prev : next;
+        });
+    }, [pendingSortTasks]);
+
+    const toggleSortSelection = (taskId: string) => {
+        setSelectedSortIds(prev => {
+            const next = new Set(prev);
+            if (next.has(taskId)) next.delete(taskId); else next.add(taskId);
+            return next;
+        });
+    };
+    const allSortSelected = pendingSortTasks.length > 0 && selectedSortIds.size === pendingSortTasks.length;
+    const toggleSelectAllSort = () => {
+        setSelectedSortIds(allSortSelected ? new Set() : new Set(pendingSortTasks.map(t => t.id)));
+    };
+    // Open the sorting dialog once for every ticked task (issue #137).
+    const sortSelected = () => {
+        const chosen = pendingSortTasks.filter(t => selectedSortIds.has(t.id));
+        if (chosen.length === 0) return;
+        onSortTasks?.(chosen);
+    };
+
     // Dismissing always deletes the staged files; confirm first, and if the user
     // declines, leave the task in the queue (issue #136).
     const dismissTask = async (taskId: string) => {
         const ok = await showConfirm('Delete the staged files for this item and remove it from the queue?', 'Dismiss manual sort');
         if (!ok) return;
         await onDismissSortTasks?.([taskId]);
+    };
+    const dismissSelectedTasks = async () => {
+        const ids = pendingSortTasks.filter(t => selectedSortIds.has(t.id)).map(t => t.id);
+        if (ids.length === 0) return;
+        const ok = await showConfirm(`Delete the staged files for ${ids.length} selected item(s) and remove them from the queue?`, 'Dismiss selected');
+        if (!ok) return;
+        await onDismissSortTasks?.(ids);
     };
     const dismissAllTasks = async () => {
         if (pendingSortTasks.length === 0) return;
@@ -315,14 +354,39 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                         </ScrollArea>
                     </TabsContent>
 
-                    {/* Manual Sorting Tab (issue #136) */}
+                    {/* Manual Sorting Tab (issue #136, bulk sort #137) */}
                     <TabsContent value="sorting" className="m-0">
                         {pendingSortTasks.length > 0 && (
                             <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-muted">
-                                <span className="text-xs text-muted-foreground">{pendingSortTasks.length} item(s) awaiting sorting</span>
-                                <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={dismissAllTasks}>
-                                    Dismiss All
-                                </Button>
+                                <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer select-none">
+                                    <input
+                                        type="checkbox"
+                                        className="h-3.5 w-3.5 accent-primary cursor-pointer"
+                                        checked={allSortSelected}
+                                        ref={el => { if (el) el.indeterminate = selectedSortIds.size > 0 && !allSortSelected; }}
+                                        onChange={toggleSelectAllSort}
+                                        aria-label="Select all items"
+                                    />
+                                    {selectedSortIds.size > 0
+                                        ? `${selectedSortIds.size} selected`
+                                        : `${pendingSortTasks.length} item(s) awaiting sorting`}
+                                </label>
+                                <div className="flex items-center gap-1">
+                                    {selectedSortIds.size > 0 ? (
+                                        <>
+                                            <Button size="xs" className="h-6 text-xs" onClick={sortSelected}>
+                                                Sort Selected
+                                            </Button>
+                                            <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={dismissSelectedTasks}>
+                                                Dismiss Selected
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <Button variant="ghost" size="xs" className="h-6 text-xs text-muted-foreground hover:text-destructive" onClick={dismissAllTasks}>
+                                            Dismiss All
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
                         )}
                         <ScrollArea className="h-[450px]">
@@ -337,8 +401,15 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                         const preview = task.previewData || {};
                                         const displayName = (task.files && task.files[0]) || 'Unknown file';
                                         return (
-                                            <div key={task.id} className="p-4 space-y-2 overflow-hidden">
+                                            <div key={task.id} className={cn("p-4 space-y-2 overflow-hidden", selectedSortIds.has(task.id) && "bg-orange-50/60 dark:bg-orange-500/5")}>
                                                 <div className="flex items-start gap-3">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-3.5 w-3.5 mt-0.5 accent-primary cursor-pointer shrink-0"
+                                                        checked={selectedSortIds.has(task.id)}
+                                                        onChange={() => toggleSortSelection(task.id)}
+                                                        aria-label={`Select ${displayName}`}
+                                                    />
                                                     <FileText className="h-4 w-4 text-orange-500 mt-0.5 shrink-0" />
                                                     <div className="flex-1 min-w-0">
                                                         <p className="text-sm font-medium break-all line-clamp-1" title={displayName}>{displayName}</p>
