@@ -1,7 +1,7 @@
 import fs from 'fs/promises';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { findPatient, createPatient, createReport, getSettings } from './database';
+import { findOrCreatePatient, createReport, getSettings } from './database';
 import { UnifiedReport } from './reports';
 import { app } from 'electron';
 import { sendNotification, sendPatientListUpdate } from './windowManager';
@@ -190,21 +190,15 @@ export const storeReport = async (report: UnifiedReport): Promise<{ reportId: st
     throw new Error('Cannot store report without patient last name and DOB.');
   }
 
-  // Find or create the patient.
-  let patient = await findPatient(patientData.last_name, patientData.dob);
-  let isNewPatient = false;
-  if (!patient) {
-    const newPatientId = uuidv4();
-    patient = {
-      id: newPatientId,
-      first_name: patientData.first_name || '',
-      last_name: patientData.last_name,
-      dob: patientData.dob,
-      hospitalPatientId: patientData.hospitalPatientId || null
-    };
-    await createPatient(patient);
+  // Find or create the patient (atomic dedup — see findOrCreatePatient).
+  const { patient, created: isNewPatient } = await findOrCreatePatient({
+    first_name: patientData.first_name || '',
+    last_name: patientData.last_name,
+    dob: patientData.dob,
+    hospitalPatientId: patientData.hospitalPatientId || null
+  });
+  if (isNewPatient) {
     sendNotification(`New patient created: ${patient.first_name} ${patient.last_name}`);
-    isNewPatient = true;
   }
 
   // Each call to storeReport creates a new visit. Within-batch grouping (a PKG

@@ -341,14 +341,17 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
 
 ipcMain.handle('create-patient', async (event, patient) => {
   try {
-    const { createPatient } = await import('./database');
-    const { v4: uuidv4 } = await import('uuid');
+    const { findOrCreatePatient } = await import('./database');
 
-    if (!patient.id) {
-      patient.id = uuidv4();
-    }
-
-    await createPatient(patient);
+    // Reuse an existing patient with the same name + DOB instead of inserting a
+    // duplicate (the sorting dialogue routes "create new patient" through here).
+    const { patient: result } = await findOrCreatePatient({
+      id: patient.id,
+      first_name: patient.first_name || '',
+      last_name: patient.last_name,
+      dob: patient.dob,
+      hospitalPatientId: patient.hospitalPatientId ?? null
+    });
 
     // Notify renderer so the dashboard updates immediately
     const mainWindow = getMainWindow();
@@ -356,7 +359,7 @@ ipcMain.handle('create-patient', async (event, patient) => {
       mainWindow.webContents.send('patient-list-update');
     }
 
-    return { success: true, id: patient.id };
+    return { success: true, id: result.id };
   } catch (error) {
     console.error('Failed to create patient:', error);
     throw error;
@@ -1114,7 +1117,7 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
       return { success: true, movedToUnmatched: true };
     }
 
-    const { getPatientById, createPatient, getReportById, createReport } = await import('./database');
+    const { getPatientById, findOrCreatePatient, getReportById, createReport } = await import('./database');
     const { storeFile } = await import('./storage');
     const { parseFile } = await import('./parser');
     const { v4: uuidv4 } = await import('uuid');
@@ -1124,9 +1127,10 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
     if (decision.action === 'create-patient') {
       const pd = decision.patientData;
       if (!pd || !pd.last_name || !pd.dob) return { success: false, error: 'Missing patient last name / DOB' };
-      const newId = uuidv4();
-      await createPatient({ id: newId, first_name: pd.first_name || '', last_name: pd.last_name, dob: pd.dob, hospitalPatientId: pd.hospitalPatientId || null });
-      targetPatient = await getPatientById(newId);
+      // Dedup: an existing patient with the same name + DOB is reused instead of
+      // creating a second record from the sorting dialogue.
+      const { patient } = await findOrCreatePatient({ first_name: pd.first_name || '', last_name: pd.last_name, dob: pd.dob, hospitalPatientId: pd.hospitalPatientId || null });
+      targetPatient = patient;
     } else if (decision.action === 'assign-patient') {
       targetPatient = await getPatientById(decision.patientId);
     } else {
@@ -1579,25 +1583,25 @@ ipcMain.handle('web-panel-assign-download', async (_event, info: {
   sourceManufacturer: string;
 }) => {
   try {
-    const { getPatientById, createPatient, createReport } = await import('./database');
+    const { getPatientById, findOrCreatePatient, createReport } = await import('./database');
     const { storeFile } = await import('./storage');
     const { v4: uuidv4 } = await import('uuid');
 
     let patient: any;
 
     if (info.patientData && !info.patientId) {
-      // Create-patient flow: create the patient first
-      const newId = uuidv4();
-      await createPatient({
-        id: newId,
+      // Create-patient flow: reuse an existing matching patient if present.
+      const { patient: p, created } = await findOrCreatePatient({
         first_name: info.patientData.first_name || '',
         last_name: info.patientData.last_name,
         dob: info.patientData.dob,
         hospitalPatientId: info.patientData.hospitalPatientId || null,
       });
-      info.patientId = newId;
-      patient = await getPatientById(newId);
-      sendNotification(`New patient created: ${info.patientData.first_name} ${info.patientData.last_name}`);
+      info.patientId = p.id;
+      patient = p;
+      if (created) {
+        sendNotification(`New patient created: ${info.patientData.first_name} ${info.patientData.last_name}`);
+      }
       const mainWindow = getMainWindow();
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('patient-list-update');

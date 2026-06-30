@@ -62,12 +62,12 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                 let last = '';
 
                 if (patientName && patientName !== 'Unknown Unknown') {
-                    const parts = patientName.split(' ');
+                    const parts = patientName.trim().split(/\s+/);
                     if (parts.length > 1) {
                         last = parts.pop() || '';
                         first = parts.join(' ');
                     } else {
-                        last = patientName || '';
+                        last = parts[0] || '';
                         first = '';
                     }
                 }

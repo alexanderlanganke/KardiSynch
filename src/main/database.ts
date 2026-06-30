@@ -2,6 +2,7 @@ import { app } from 'electron';
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { v4 as uuidv4 } from 'uuid';
 import { UnifiedReport } from './reports';
 import { normalizeDate } from '../lib/dates';
 
@@ -249,13 +250,20 @@ export const closeDatabase = (): Promise<void> => {
 export const findPatient = (lastName: string, dob: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    db.get('SELECT * FROM Patients WHERE last_name = ? AND dob = ?', [lastName, dob], (err, row) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(row);
+    // Match case- and whitespace-insensitively so name variants coming from
+    // different parsers / manual entry ("Smith " vs "smith") resolve to the
+    // same patient instead of spawning a duplicate.
+    db.get(
+      'SELECT * FROM Patients WHERE TRIM(last_name) = TRIM(?) COLLATE NOCASE AND dob = ?',
+      [lastName, dob],
+      (err, row) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(row);
+        }
       }
-    });
+    );
   });
 };
 
@@ -300,6 +308,54 @@ export const createPatient = (patient: {
         } else {
           resolve();
         }
+      }
+    );
+  });
+};
+
+/**
+ * Return the existing patient matching last_name (case/whitespace-insensitive)
+ * + dob, or create a new one. The insert is guarded by a `WHERE NOT EXISTS`
+ * sub-select so the check-then-insert is a single atomic statement — this closes
+ * the race window that let concurrent imports (auto-import + manual sort, or two
+ * parallel files) each create a duplicate patient for the same person.
+ *
+ * Every patient-creation path (auto-import, the sorting dialogue, drag-to-move,
+ * remote import) routes through here so duplicate detection is consistent.
+ */
+export const findOrCreatePatient = (patient: {
+  id?: string;
+  first_name: string;
+  last_name: string;
+  dob: string;
+  hospitalPatientId: string | null;
+}): Promise<{ patient: any; created: boolean }> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    const id = patient.id || uuidv4();
+    db.run(
+      `INSERT INTO Patients (id, first_name, last_name, dob, hospitalPatientId)
+       SELECT ?, ?, ?, ?, ?
+       WHERE NOT EXISTS (
+         SELECT 1 FROM Patients WHERE TRIM(last_name) = TRIM(?) COLLATE NOCASE AND dob = ?
+       )`,
+      [id, patient.first_name, patient.last_name, patient.dob, patient.hospitalPatientId, patient.last_name, patient.dob],
+      function (this: sqlite3.RunResult, err: Error | null) {
+        if (err) {
+          reject(err);
+          return;
+        }
+        const created = this.changes > 0;
+        // Re-read the canonical row — either the one we just inserted or the
+        // pre-existing match the guard prevented us from duplicating.
+        db.get(
+          'SELECT * FROM Patients WHERE TRIM(last_name) = TRIM(?) COLLATE NOCASE AND dob = ?',
+          [patient.last_name, patient.dob],
+          (gErr, row) => {
+            if (gErr) reject(gErr);
+            else resolve({ patient: row, created });
+          }
+        );
       }
     );
   });
