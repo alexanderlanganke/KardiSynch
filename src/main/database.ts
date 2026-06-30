@@ -5,6 +5,7 @@ import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { UnifiedReport } from './reports';
 import { normalizeDate } from '../lib/dates';
+import { normalizeNameKey } from '../lib/names';
 
 /**
  * Recursively strip fast-xml-parser leftovers from a parsed-report payload
@@ -94,6 +95,7 @@ const createTables = (db: sqlite3.Database) => {
         id TEXT PRIMARY KEY,
         first_name TEXT,
         last_name TEXT NOT NULL,
+        last_name_key TEXT,
         dob TEXT NOT NULL,
         hospitalPatientId TEXT,
         mri_status TEXT,
@@ -113,6 +115,9 @@ const createTables = (db: sqlite3.Database) => {
     };
 
     // Migration for existing databases
+    // Unicode-normalized last-name key for case/diacritic-insensitive matching.
+    // Backfilled for existing rows in backfillLastNameKeys() after init.
+    safeAddColumn("ALTER TABLE Patients ADD COLUMN last_name_key TEXT");
     safeAddColumn("ALTER TABLE Patients ADD COLUMN mri_status TEXT");
     safeAddColumn("ALTER TABLE Patients ADD COLUMN mri_data_hash TEXT");
     // Add Manual Device Data Columns (Patient Profile)
@@ -177,8 +182,38 @@ const createTables = (db: sqlite3.Database) => {
     db.run(`CREATE INDEX IF NOT EXISTS idx_reports_patient_id ON Reports(patient_id);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_reports_interrogation_date ON Reports(interrogation_date);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_patients_last_name_dob ON Patients(last_name, dob);`);
+    db.run(`CREATE INDEX IF NOT EXISTS idx_patients_last_name_key_dob ON Patients(last_name_key, dob);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_import_events_session_id ON ImportEvents(session_id);`);
     db.run(`CREATE INDEX IF NOT EXISTS idx_import_events_patient_id ON ImportEvents(patient_id);`);
+  });
+};
+
+/**
+ * Populate last_name_key for rows created before the column existed (or any row
+ * left null). Best-effort: a failure here must not block startup, so we resolve
+ * regardless. Runs on the same connection as createTables, so it is queued after
+ * the ADD COLUMN migration.
+ */
+const backfillLastNameKeys = (db: sqlite3.Database): Promise<void> => {
+  return new Promise((resolve) => {
+    db.all(
+      `SELECT id, last_name FROM Patients WHERE last_name_key IS NULL OR last_name_key = ''`,
+      (err, rows: any[]) => {
+        if (err || !rows || rows.length === 0) {
+          if (err) console.warn('[Schema Migration] last_name_key backfill skipped:', err.message);
+          resolve();
+          return;
+        }
+        const stmt = db.prepare('UPDATE Patients SET last_name_key = ? WHERE id = ?');
+        for (const row of rows) {
+          stmt.run(normalizeNameKey(row.last_name), row.id);
+        }
+        stmt.finalize(() => {
+          console.log(`[Schema Migration] Backfilled last_name_key for ${rows.length} patient(s).`);
+          resolve();
+        });
+      }
+    );
   });
 };
 
@@ -215,7 +250,11 @@ export const initializeDatabase = (customDbPath: string): Promise<sqlite3.Databa
         }
         createTables(db);
         dbInstance = db;
-        resolve(db);
+        // Backfill is queued after createTables on the same connection; await it
+        // so the first match query never races an un-keyed row.
+        backfillLastNameKeys(db)
+          .then(() => resolve(db))
+          .catch(() => resolve(db));
       }
     });
   });
@@ -250,12 +289,13 @@ export const closeDatabase = (): Promise<void> => {
 export const findPatient = (lastName: string, dob: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    // Match case- and whitespace-insensitively so name variants coming from
-    // different parsers / manual entry ("Smith " vs "smith") resolve to the
-    // same patient instead of spawning a duplicate.
+    // Match on the Unicode-normalized last-name key (see normalizeNameKey) so
+    // name variants from different parsers / manual entry — case, whitespace and
+    // accents ("Smith " / "smith" / "Müller" / "müller") — resolve to the same
+    // patient instead of spawning a duplicate.
     db.get(
-      'SELECT * FROM Patients WHERE TRIM(last_name) = TRIM(?) COLLATE NOCASE AND dob = ?',
-      [lastName, dob],
+      'SELECT * FROM Patients WHERE last_name_key = ? AND dob = ?',
+      [normalizeNameKey(lastName), dob],
       (err, row) => {
         if (err) {
           reject(err);
@@ -300,8 +340,8 @@ export const createPatient = (patient: {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
-      'INSERT INTO Patients (id, first_name, last_name, dob, hospitalPatientId) VALUES (?, ?, ?, ?, ?)',
-      [patient.id, patient.first_name, patient.last_name, patient.dob, patient.hospitalPatientId],
+      'INSERT INTO Patients (id, first_name, last_name, last_name_key, dob, hospitalPatientId) VALUES (?, ?, ?, ?, ?, ?)',
+      [patient.id, patient.first_name, patient.last_name, normalizeNameKey(patient.last_name), patient.dob, patient.hospitalPatientId],
       (err) => {
         if (err) {
           reject(err);
@@ -314,11 +354,12 @@ export const createPatient = (patient: {
 };
 
 /**
- * Return the existing patient matching last_name (case/whitespace-insensitive)
- * + dob, or create a new one. The insert is guarded by a `WHERE NOT EXISTS`
- * sub-select so the check-then-insert is a single atomic statement — this closes
- * the race window that let concurrent imports (auto-import + manual sort, or two
- * parallel files) each create a duplicate patient for the same person.
+ * Return the existing patient matching the Unicode-normalized last-name key
+ * (see normalizeNameKey — case/whitespace/accent-insensitive) + dob, or create a
+ * new one. The insert is guarded by a `WHERE NOT EXISTS` sub-select so the
+ * check-then-insert is a single atomic statement — this closes the race window
+ * that let concurrent imports (auto-import + manual sort, or two parallel files)
+ * each create a duplicate patient for the same person.
  *
  * Every patient-creation path (auto-import, the sorting dialogue, drag-to-move,
  * remote import) routes through here so duplicate detection is consistent.
@@ -333,13 +374,14 @@ export const findOrCreatePatient = (patient: {
   return new Promise((resolve, reject) => {
     const db = getDb();
     const id = patient.id || uuidv4();
+    const lastNameKey = normalizeNameKey(patient.last_name);
     db.run(
-      `INSERT INTO Patients (id, first_name, last_name, dob, hospitalPatientId)
-       SELECT ?, ?, ?, ?, ?
+      `INSERT INTO Patients (id, first_name, last_name, last_name_key, dob, hospitalPatientId)
+       SELECT ?, ?, ?, ?, ?, ?
        WHERE NOT EXISTS (
-         SELECT 1 FROM Patients WHERE TRIM(last_name) = TRIM(?) COLLATE NOCASE AND dob = ?
+         SELECT 1 FROM Patients WHERE last_name_key = ? AND dob = ?
        )`,
-      [id, patient.first_name, patient.last_name, patient.dob, patient.hospitalPatientId, patient.last_name, patient.dob],
+      [id, patient.first_name, patient.last_name, lastNameKey, patient.dob, patient.hospitalPatientId, lastNameKey, patient.dob],
       function (this: sqlite3.RunResult, err: Error | null) {
         if (err) {
           reject(err);
@@ -349,8 +391,8 @@ export const findOrCreatePatient = (patient: {
         // Re-read the canonical row — either the one we just inserted or the
         // pre-existing match the guard prevented us from duplicating.
         db.get(
-          'SELECT * FROM Patients WHERE TRIM(last_name) = TRIM(?) COLLATE NOCASE AND dob = ?',
-          [patient.last_name, patient.dob],
+          'SELECT * FROM Patients WHERE last_name_key = ? AND dob = ?',
+          [lastNameKey, patient.dob],
           (gErr, row) => {
             if (gErr) reject(gErr);
             else resolve({ patient: row, created });
@@ -378,14 +420,15 @@ export const updatePatient = (patient: {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
-      `UPDATE Patients SET 
-         first_name = ?, last_name = ?, dob = ?, hospitalPatientId = ?,
+      `UPDATE Patients SET
+         first_name = ?, last_name = ?, last_name_key = ?, dob = ?, hospitalPatientId = ?,
          device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?, devices = ?,
          manufacturer_warning_status = ?, manufacturer_warning_hash = ?
        WHERE id = ?`,
       [
         patient.first_name,
         patient.last_name,
+        normalizeNameKey(patient.last_name),
         patient.dob,
         patient.hospitalPatientId,
         patient.device_manufacturer || null,

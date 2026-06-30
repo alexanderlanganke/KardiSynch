@@ -51,6 +51,26 @@ describe('Patient dedup (issue #139: double patients)', () => {
         expect((await getAllPatients({})).length).toBe(1);
     });
 
+    it('reuses across Unicode case + accents (Müller vs MÜLLER)', async () => {
+        const first = await findOrCreatePatient({ ...base, first_name: 'Hans', last_name: 'Müller' });
+        const variant = await findOrCreatePatient({ ...base, first_name: 'Hans', last_name: 'MÜLLER' });
+        expect(variant.created).toBe(false);
+        expect(variant.patient.id).toBe(first.patient.id);
+        expect((await getAllPatients({})).length).toBe(1);
+    });
+
+    it('reuses across Unicode normalization forms (precomposed vs combining)', async () => {
+        // "Mueller" written with precomposed u-umlaut (U+00FC) vs base u + combining diaeresis (U+0308)
+        const precomposed = 'M\u00FCller';        // u-umlaut as one codepoint
+        const decomposed = 'Mu\u0308ller';        // u + combining diaeresis
+        expect(precomposed).not.toBe(decomposed); // genuinely different byte sequences
+        const first = await findOrCreatePatient({ ...base, last_name: precomposed });
+        const variant = await findOrCreatePatient({ ...base, last_name: decomposed });
+        expect(variant.created).toBe(false);
+        expect(variant.patient.id).toBe(first.patient.id);
+        expect((await getAllPatients({})).length).toBe(1);
+    });
+
     it('creates a distinct patient when the DOB differs', async () => {
         await findOrCreatePatient(base);
         const other = await findOrCreatePatient({ ...base, dob: '1960-02-20' });
