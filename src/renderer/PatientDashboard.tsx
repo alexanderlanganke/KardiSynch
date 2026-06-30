@@ -39,22 +39,65 @@ interface FilterState {
 type SortField = 'name' | 'dob' | 'hospitalPatientId' | 'deviceManufacturer' | 'deviceModel' | 'lastReportDate';
 type SortDirection = 'asc' | 'desc';
 
+const EMPTY_FILTERS: FilterState = {
+  dob: '',
+  patientId: '',
+  hospitalPatientId: '',
+  hospitalVisitId: '',
+  deviceManufacturer: '',
+};
+
+// The dashboard unmounts when navigating into a patient profile, so its search
+// and filter state would reset on return. Persist it to sessionStorage (cleared
+// when the window closes) so returning to the dashboard keeps the same view.
+const DASHBOARD_STATE_KEY = 'patientDashboard.searchState.v1';
+
+interface DashboardState {
+  searchTerm: string;
+  showFilters: boolean;
+  sortField: SortField;
+  sortDirection: SortDirection;
+  filters: FilterState;
+}
+
+const loadDashboardState = (): Partial<DashboardState> => {
+  try {
+    const raw = sessionStorage.getItem(DASHBOARD_STATE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
 const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void }> = ({ onPatientSelect }) => {
   const { patients, loading, dispatch, fetchPatients } = usePatientStore();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+
+  // Seed from any persisted state once, so the dashboard restores the previous
+  // search/filter/sort when the user returns from a patient profile.
+  const persisted = React.useRef<Partial<DashboardState>>(undefined as any);
+  if (persisted.current === undefined) persisted.current = loadDashboardState();
+  const initial = persisted.current;
+
+  const [searchTerm, setSearchTerm] = useState(initial.searchTerm ?? '');
+  const [showFilters, setShowFilters] = useState(initial.showFilters ?? false);
   // Sorting
-  const [sortField, setSortField] = useState<SortField>('name');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [sortField, setSortField] = useState<SortField>(initial.sortField ?? 'name');
+  const [sortDirection, setSortDirection] = useState<SortDirection>(initial.sortDirection ?? 'asc');
 
 
-  const [filters, setFilters] = useState<FilterState>({
-    dob: '',
-    patientId: '',
-    hospitalPatientId: '',
-    hospitalVisitId: '',
-    deviceManufacturer: '',
-  });
+  const [filters, setFilters] = useState<FilterState>(initial.filters ?? { ...EMPTY_FILTERS });
+
+  // Persist search/filter/sort so it survives the dashboard unmounting on navigation.
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        DASHBOARD_STATE_KEY,
+        JSON.stringify({ searchTerm, showFilters, sortField, sortDirection, filters }),
+      );
+    } catch {
+      /* storage unavailable — non-fatal, filters just won't persist */
+    }
+  }, [searchTerm, showFilters, sortField, sortDirection, filters]);
 
   // Debounced fetch
   useEffect(() => {
@@ -169,7 +212,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   };
 
   const clearFilters = () => {
-    setFilters({ dob: '', patientId: '', hospitalPatientId: '', hospitalVisitId: '', deviceManufacturer: '' });
+    setFilters({ ...EMPTY_FILTERS });
     setSearchTerm('');
   };
 
