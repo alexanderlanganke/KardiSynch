@@ -612,9 +612,19 @@ export const moveReport = async (reportId: string, oldPatientId: string, newPati
   const newPatient = await getPatientById(newPatientId);
   if (!newPatient) throw new Error('New patient not found');
 
-  // Create/Get new patient directory
-  const safeName = `${newPatient.last_name}_${newPatient.first_name}`.replace(/[^a-zA-Z0-9]/g, '_');
-  const newPatientDirName = `${newPatient.id}_${safeName}`;
+  // Reuse the destination patient's EXISTING directory, located by ID prefix the
+  // same way the rest of the app finds patient dirs (getPatientById,
+  // removePatientDirectory, etc.). Only derive a fresh name if none exists yet.
+  // Rebuilding the name unconditionally from the current DB record was a bug: if
+  // the on-disk name had drifted from the DB (e.g. the patient's first name was
+  // filled in after the folder was created), a SECOND directory was spawned and
+  // the moved visits ended up split across the two — so a merge left visits out
+  // of the keeper the app actually reads.
+  let newPatientDirName = patientDirs.find(d => d === newPatientId || d.startsWith(`${newPatientId}_`));
+  if (!newPatientDirName) {
+    const safeName = `${newPatient.last_name}_${newPatient.first_name}`.replace(/[^a-zA-Z0-9]/g, '_');
+    newPatientDirName = `${newPatient.id}_${safeName}`;
+  }
   const newPatientPath = path.join(reportsDir, newPatientDirName);
 
   await fs.mkdir(newPatientPath, { recursive: true });
