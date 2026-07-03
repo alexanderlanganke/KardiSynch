@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dedupReports: () => ipcRenderer.invoke('dedup-reports'),
   findDuplicatePatients: () => ipcRenderer.invoke('find-duplicate-patients'),
   mergePatients: (keeperId: string, loserIds: string[]) => ipcRenderer.invoke('merge-patients', keeperId, loserIds),
+  findOrphanedVisits: () => ipcRenderer.invoke('find-orphaned-visits'),
+  moveOrphanedVisits: (reportIds: string[]) => ipcRenderer.invoke('move-orphaned-visits', reportIds),
   getPatientReports: (patientId: string) => ipcRenderer.invoke('get-patient-reports', patientId),
   getPdfData: (filePath: string) => ipcRenderer.invoke('get-pdf-data', filePath),
   readFileText: (filePath: string) => ipcRenderer.invoke('read-file-text', filePath),

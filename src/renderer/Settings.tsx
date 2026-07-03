@@ -4,13 +4,14 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX, Users } from 'lucide-react';
+import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX, Users, FolderInput } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trash2 } from 'lucide-react';
 import { useAppDialog } from './components/AppDialogProvider';
 import CredentialManagerPanel from '@/components/CredentialManagerPanel';
 import PatientMergeModal from '@/components/PatientMergeModal';
+import OrphanVisitsModal from '@/components/OrphanVisitsModal';
 
 const DEVICE_TYPE_OPTIONS = ['Pacemaker', 'ICD', 'CRT-P', 'CRT-D', 'ICM'];
 
@@ -118,6 +119,7 @@ const DEBUG_MODE = import.meta.env.VITE_DEBUG_MODE === 'true';
 const Settings: React.FC = () => {
   const { showAlert, showConfirm } = useAppDialog();
   const [patientMergeOpen, setPatientMergeOpen] = useState(false);
+  const [orphanVisitsOpen, setOrphanVisitsOpen] = useState(false);
   const [settings, setSettings] = useState<{
     importDir: string;
     intraopImportDir: string;
@@ -478,6 +480,18 @@ const Settings: React.FC = () => {
                     </div>
                     <Button type="button" variant="secondary" onClick={() => setPatientMergeOpen(true)} disabled={loading}>
                       <Users className="mr-2 h-4 w-4" /> Find Duplicates
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label>Repair Misplaced Visits</Label>
+                      <p className="text-xs text-muted-foreground">Find visits stored under the wrong patient folder and move them to the patient they actually belong to.</p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={() => setOrphanVisitsOpen(true)} disabled={loading}>
+                      <FolderInput className="mr-2 h-4 w-4" /> Find Misplaced
                     </Button>
                   </div>
                 </div>
@@ -870,6 +884,7 @@ const Settings: React.FC = () => {
         </form>
       </Tabs>
       <PatientMergeModal open={patientMergeOpen} onClose={() => setPatientMergeOpen(false)} />
+      <OrphanVisitsModal open={orphanVisitsOpen} onClose={() => setOrphanVisitsOpen(false)} />
     </div>
   );
 };

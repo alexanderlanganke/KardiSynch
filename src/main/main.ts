@@ -478,6 +478,34 @@ ipcMain.handle('merge-patients', async (_event, keeperId: string, loserIds: stri
   }
 });
 
+ipcMain.handle('find-orphaned-visits', async () => {
+  try {
+    const { findOrphanedVisits } = await import('./services/orphanService');
+    return await findOrphanedVisits();
+  } catch (error) {
+    console.error('Failed to find orphaned visits:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('move-orphaned-visits', async (_event, reportIds: string[]) => {
+  try {
+    const mainWindow = getMainWindow();
+    const { moveOrphanedVisits } = await import('./services/orphanService');
+    const result = await moveOrphanedVisits(reportIds, (status) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('process-status', { ...status, taskId: 'move-orphaned-visits' });
+      }
+    });
+    const { sendPatientListUpdate } = await import('./windowManager');
+    sendPatientListUpdate();
+    return result;
+  } catch (error) {
+    console.error('Failed to move orphaned visits:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
   try {
     const reports = await getPatientReports(patientId);

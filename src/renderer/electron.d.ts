@@ -24,6 +24,24 @@ export interface PatientMergeResult {
   errors: string[];
 }
 
+export interface OrphanVisit {
+  reportId: string;
+  visitDirName: string;
+  date: string | null;
+  fileCount: number;
+  currentPatientId: string | null;
+  currentPatientDirName: string;
+  currentPatientLabel: string | null;
+  correctPatientId: string;
+  correctPatientLabel: string | null;
+  correctPatientDirExists: boolean;
+}
+
+export interface OrphanMoveResult {
+  moved: number;
+  errors: string[];
+}
+
 export interface IElectronAPI {
   readFileText(filePath: string): Promise<string>;
   getPreviewPath: (originalPath: string) => Promise<string | null>;
@@ -47,6 +65,8 @@ export interface IElectronAPI {
   dedupReports: () => Promise<{ groupsFound: number; reportsRemoved: number; directoriesRemoved: number }>;
   findDuplicatePatients: () => Promise<PatientDupGroup[]>;
   mergePatients: (keeperId: string, loserIds: string[]) => Promise<PatientMergeResult>;
+  findOrphanedVisits: () => Promise<OrphanVisit[]>;
+  moveOrphanedVisits: (reportIds: string[]) => Promise<OrphanMoveResult>;
   clearAllData: () => Promise<boolean>;
   checkForUpdates: () => Promise<any>;
   checkMedtronicUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;
