@@ -1,3 +1,29 @@
+export type DupTier = 'exact' | 'serial' | 'dob-fuzzy-name' | 'name-close-dob' | 'name-only';
+
+export interface PatientSummary {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  dob: string | null;
+  hospitalPatientId: string | null;
+  reportCount: number;
+  lastReportDate: string | null;
+  serials: string[];
+}
+
+export interface PatientDupGroup {
+  tier: DupTier;
+  reason: string;
+  patients: PatientSummary[];
+}
+
+export interface PatientMergeResult {
+  keeperId: string;
+  patientsDeleted: number;
+  reportsMoved: number;
+  errors: string[];
+}
+
 export interface IElectronAPI {
   readFileText(filePath: string): Promise<string>;
   getPreviewPath: (originalPath: string) => Promise<string | null>;
@@ -19,6 +45,8 @@ export interface IElectronAPI {
   updatePatient: (patient: any) => Promise<any>;
   rebuildDatabase: () => Promise<any>;
   dedupReports: () => Promise<{ groupsFound: number; reportsRemoved: number; directoriesRemoved: number }>;
+  findDuplicatePatients: () => Promise<PatientDupGroup[]>;
+  mergePatients: (keeperId: string, loserIds: string[]) => Promise<PatientMergeResult>;
   clearAllData: () => Promise<boolean>;
   checkForUpdates: () => Promise<any>;
   checkMedtronicUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;

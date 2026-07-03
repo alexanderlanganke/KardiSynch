@@ -450,6 +450,34 @@ ipcMain.handle('dedup-reports', async () => {
   }
 });
 
+ipcMain.handle('find-duplicate-patients', async () => {
+  try {
+    const { findDuplicatePatientGroups } = await import('./services/patientMergeService');
+    return await findDuplicatePatientGroups();
+  } catch (error) {
+    console.error('Failed to find duplicate patients:', error);
+    throw error;
+  }
+});
+
+ipcMain.handle('merge-patients', async (_event, keeperId: string, loserIds: string[]) => {
+  try {
+    const mainWindow = getMainWindow();
+    const { mergePatients } = await import('./services/patientMergeService');
+    const result = await mergePatients(keeperId, loserIds, (status) => {
+      if (mainWindow) {
+        mainWindow.webContents.send('process-status', { ...status, taskId: 'merge-patients' });
+      }
+    });
+    const { sendPatientListUpdate } = await import('./windowManager');
+    sendPatientListUpdate();
+    return result;
+  } catch (error) {
+    console.error('Failed to merge patients:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('get-patient-reports', async (event, patientId) => {
   try {
     const reports = await getPatientReports(patientId);

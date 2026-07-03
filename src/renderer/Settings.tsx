@@ -4,12 +4,13 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX } from 'lucide-react';
+import { FolderOpen, Save, RotateCcw, RefreshCw, Archive, Download, ShieldCheck, ArrowDown, ArrowRight, Check, HelpCircle, Bug, Copy, CircleCheck, CircleX, Users } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Trash2 } from 'lucide-react';
 import { useAppDialog } from './components/AppDialogProvider';
 import CredentialManagerPanel from '@/components/CredentialManagerPanel';
+import PatientMergeModal from '@/components/PatientMergeModal';
 
 const DEVICE_TYPE_OPTIONS = ['Pacemaker', 'ICD', 'CRT-P', 'CRT-D', 'ICM'];
 
@@ -116,6 +117,7 @@ const DEBUG_MODE = import.meta.env.VITE_DEBUG_MODE === 'true';
 
 const Settings: React.FC = () => {
   const { showAlert, showConfirm } = useAppDialog();
+  const [patientMergeOpen, setPatientMergeOpen] = useState(false);
   const [settings, setSettings] = useState<{
     importDir: string;
     intraopImportDir: string;
@@ -464,6 +466,18 @@ const Settings: React.FC = () => {
                       }
                     }} disabled={loading}>
                       <Copy className="mr-2 h-4 w-4" /> Deduplicate
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label>Merge Duplicate Patients</Label>
+                      <p className="text-xs text-muted-foreground">Find duplicate or probable-duplicate patient records and merge them &mdash; moves all visits to one record, then deletes the duplicate.</p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={() => setPatientMergeOpen(true)} disabled={loading}>
+                      <Users className="mr-2 h-4 w-4" /> Find Duplicates
                     </Button>
                   </div>
                 </div>
@@ -855,6 +869,7 @@ const Settings: React.FC = () => {
           </div>
         </form>
       </Tabs>
+      <PatientMergeModal open={patientMergeOpen} onClose={() => setPatientMergeOpen(false)} />
     </div>
   );
 };

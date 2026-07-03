@@ -33,7 +33,7 @@ export const initializeStorage = async () => {
 /**
  * Generates patient.xml content
  */
-const generatePatientXML = (
+export const generatePatientXML = (
   patient: { id: string; first_name: string; last_name: string; dob: string; hospitalPatientId: string | null },
   devices: any[] = [],
   leads: any[] = [],
@@ -634,6 +634,147 @@ export const moveReport = async (reportId: string, oldPatientId: string, newPati
 
   // Update Database
   await updateReportPatient(reportId, newPatientId);
+};
+
+/**
+ * Parse a JSON-encoded array column (devices/leads) into an array. Tolerates
+ * null, a bare object, or malformed JSON.
+ */
+const parseJsonArray = (value: any): any[] => {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    if (Array.isArray(parsed)) return parsed;
+    return parsed ? [parsed] : [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Union two device/lead lists, deduplicating by serial number. Entries from
+ * `incoming` fill in fields missing on an existing entry with the same serial;
+ * serials of "Unknown"/empty are dropped.
+ */
+const unionBySerial = (existing: any[], incoming: any[]): any[] => {
+  const merged = existing.filter(d => d && d.serial && String(d.serial) !== 'Unknown');
+  for (const item of incoming) {
+    if (!item || !item.serial || String(item.serial) === 'Unknown') continue;
+    const idx = merged.findIndex(d => String(d.serial) === String(item.serial));
+    if (idx !== -1) {
+      merged[idx] = { ...item, ...merged[idx] };
+    } else {
+      merged.push(item);
+    }
+  }
+  return merged;
+};
+
+/**
+ * Merge the patient-level device/lead history (and missing demographic fields)
+ * of one or more "loser" patients into a "keeper" patient, then rewrite the
+ * keeper's patient.xml so the on-disk summary stays authoritative. Reports/visits
+ * are moved separately (see {@link moveReport}); this only consolidates the
+ * aggregate device history shown on the patient profile.
+ *
+ * Call this BEFORE deleting the loser patients, while their directories still
+ * exist. getPatientById read-repairs each patient from its patient.xml, so the
+ * device/lead arrays reflect the on-disk source of truth.
+ */
+export const mergePatientProfiles = async (keeperId: string, loserIds: string[]): Promise<void> => {
+  const { getPatientById, updatePatient } = await import('./database');
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  const keeper = await getPatientById(keeperId).catch(() => null);
+  if (!keeper) return;
+
+  let devices = parseJsonArray(keeper.devices);
+  let leads = parseJsonArray(keeper.leads);
+  let hospitalPatientId: string | null = keeper.hospitalPatientId || null;
+
+  for (const loserId of loserIds) {
+    const loser = await getPatientById(loserId).catch(() => null);
+    if (!loser) continue;
+    devices = unionBySerial(devices, parseJsonArray(loser.devices));
+    leads = unionBySerial(leads, parseJsonArray(loser.leads));
+    if (!hospitalPatientId && loser.hospitalPatientId) hospitalPatientId = loser.hospitalPatientId;
+  }
+
+  // Persist merged aggregate to the DB row...
+  await updatePatient({
+    id: keeper.id,
+    first_name: keeper.first_name || '',
+    last_name: keeper.last_name,
+    dob: keeper.dob,
+    hospitalPatientId,
+    device_manufacturer: keeper.device_manufacturer || null,
+    device_model: keeper.device_model || null,
+    device_serial: keeper.device_serial || null,
+    leads: leads.length > 0 ? JSON.stringify(leads) : null,
+    devices: devices.length > 0 ? devices : null,
+  });
+
+  // ...and rewrite patient.xml (the read-repair source of truth).
+  try {
+    const dirs = await fs.readdir(reportsDir);
+    const keeperDirName = dirs.find(d => d.startsWith(keeperId));
+    if (keeperDirName) {
+      const keeperXmlPath = path.join(reportsDir, keeperDirName, 'patient.xml');
+      let mriStatus: any = null;
+      let mriDataHash: string | null = null;
+      let warningStatus: any = null;
+      let warningHash: string | null = null;
+      try {
+        const xmlContent = await fs.readFile(keeperXmlPath, 'utf-8');
+        const parsed = new XMLParser({ ignoreAttributes: false }).parse(xmlContent);
+        if (parsed.patient) {
+          if (parsed.patient.mri_status) { try { mriStatus = JSON.parse(parsed.patient.mri_status); } catch { } }
+          mriDataHash = parsed.patient.mri_data_hash || null;
+          if (parsed.patient.manufacturer_warning_status) { try { warningStatus = JSON.parse(parsed.patient.manufacturer_warning_status); } catch { } }
+          warningHash = parsed.patient.manufacturer_warning_hash || null;
+        }
+      } catch (e: any) {
+        if (e.code !== 'ENOENT') console.warn('[mergePatientProfiles] Could not read keeper patient.xml:', e.message);
+      }
+      await fs.writeFile(
+        keeperXmlPath,
+        generatePatientXML(
+          { id: keeper.id, first_name: keeper.first_name || '', last_name: keeper.last_name, dob: keeper.dob, hospitalPatientId },
+          devices,
+          leads,
+          mriStatus,
+          mriDataHash,
+          warningStatus,
+          warningHash
+        )
+      );
+    }
+  } catch (e: any) {
+    console.warn('[mergePatientProfiles] Failed to rewrite keeper patient.xml:', e.message);
+  }
+};
+
+/**
+ * Remove a patient's directory (and its now-empty contents) from disk. Used
+ * after a merge has moved all visits away and the DB row has been deleted.
+ */
+export const removePatientDirectory = async (patientId: string): Promise<boolean> => {
+  const settings = await getSettings();
+  const dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(dataDir, 'Reports');
+  try {
+    const dirs = await fs.readdir(reportsDir);
+    const patientDirName = dirs.find(d => d.startsWith(patientId));
+    if (!patientDirName) return false;
+    await fs.rm(path.join(reportsDir, patientDirName), { recursive: true, force: true });
+    return true;
+  } catch (e: any) {
+    console.warn('[removePatientDirectory] Failed to remove directory for', patientId, e.message);
+    return false;
+  }
 };
 
 /**

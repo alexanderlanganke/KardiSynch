@@ -948,6 +948,96 @@ export const deleteReport = (reportId: string): Promise<void> => {
   });
 };
 
+export interface PatientWithSerials {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  last_name_key: string | null;
+  dob: string | null;
+  hospitalPatientId: string | null;
+  reportCount: number;
+  lastReportDate: string | null;
+  serials: string[];
+}
+
+/**
+ * Fetch every patient together with the distinct device serial numbers that
+ * appear in their reports, plus report counts and last-visit date. Used by the
+ * patient-merge service to detect duplicate/near-duplicate patient records.
+ */
+export const getPatientsWithSerials = (): Promise<PatientWithSerials[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all(
+      `SELECT
+         p.id,
+         p.first_name,
+         p.last_name,
+         p.last_name_key,
+         p.dob,
+         p.hospitalPatientId,
+         COUNT(r.id) as reportCount,
+         MAX(r.interrogation_date) as lastReportDate,
+         GROUP_CONCAT(DISTINCT r.device_serial_number) as serials
+       FROM Patients p
+       LEFT JOIN Reports r ON p.id = r.patient_id
+       GROUP BY p.id`,
+      (err, rows: any[]) => {
+        if (err) return reject(err);
+        const patients: PatientWithSerials[] = rows.map(row => ({
+          id: row.id,
+          first_name: row.first_name ?? null,
+          last_name: row.last_name ?? null,
+          last_name_key: row.last_name_key ?? null,
+          dob: row.dob ?? null,
+          hospitalPatientId: row.hospitalPatientId ?? null,
+          reportCount: row.reportCount || 0,
+          lastReportDate: row.lastReportDate ?? null,
+          serials: (row.serials ? String(row.serials).split(',') : [])
+            .map((s: string) => s.trim())
+            .filter((s: string) => s && s !== 'Unknown'),
+        }));
+        resolve(patients);
+      }
+    );
+  });
+};
+
+/**
+ * Return just the report IDs belonging to a patient (lightweight; avoids the
+ * per-report filesystem reads that getPatientReports performs).
+ */
+export const getReportIdsForPatient = (patientId: string): Promise<string[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.all('SELECT id FROM Reports WHERE patient_id = ?', [patientId], (err, rows: any[]) => {
+      if (err) return reject(err);
+      resolve(rows.map(r => r.id));
+    });
+  });
+};
+
+/**
+ * Delete a patient row and any reports still referencing it. Reports are
+ * normally moved away before a merge deletes the loser patient; the report
+ * delete here is a safety net against orphaned rows. Filesystem cleanup of the
+ * patient directory is handled by the caller.
+ */
+export const deletePatient = (patientId: string): Promise<void> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    db.serialize(() => {
+      db.run('DELETE FROM Reports WHERE patient_id = ?', [patientId], (err) => {
+        if (err) return reject(err);
+        db.run('DELETE FROM Patients WHERE id = ?', [patientId], (err2) => {
+          if (err2) return reject(err2);
+          resolve();
+        });
+      });
+    });
+  });
+};
+
 export const rebuildDatabase = async (onProgress?: (status: any) => void): Promise<{ patients: number; reports: number }> => {
   console.log('[rebuildDatabase] Starting database rebuild...');
   if (onProgress) onProgress({ type: 'start', title: 'Rebuilding Database', message: 'Initializing...', progress: 0 });
