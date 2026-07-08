@@ -1173,7 +1173,7 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
       return { success: true, movedToUnmatched: true };
     }
 
-    const { getPatientById, findOrCreatePatient, getReportById, createReport } = await import('./database');
+    const { getPatientById, findOrCreatePatient, getReportById, createReport, findReportByDate } = await import('./database');
     const { storeFile } = await import('./storage');
     const { parseFile } = await import('./parser');
     const { v4: uuidv4 } = await import('uuid');
@@ -1212,23 +1212,39 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
         }
 
         if (!targetReportId) {
-          // Create a new visit once, then reuse it for every remaining file.
           const date = decision.visitDate || parsed?.interrogation_date || '';
           targetDate = date;
-          const newReportId = uuidv4();
-          const base: any = parsed || { manufacturer: 'Unknown' };
-          const newReport: any = {
-            ...base,
-            id: newReportId,
-            patient_id: targetPatient.id,
-            interrogation_date: date,
-            raw_text: base.raw_text || 'Manually sorted file',
-            data: base.data || JSON.stringify({ note: 'Created via manual sorting' }),
-          };
-          delete newReport.rowid; delete newReport.created_at; delete newReport.updated_at;
-          await createReport(newReport);
-          targetReportId = newReportId;
-          await storeFile(fp, targetReportId, targetPatient.id, nameForDir, date, targetPatient, parsed || newReport);
+
+          // Dedup: while this task sat in the non-blocking sort queue, the
+          // auto-import path may have already created a visit for this
+          // patient+date (issue #140). Reuse it instead of creating a second
+          // instance of the same visit, mirroring the auto-PDF path in
+          // watcher.ts. Only a new visit is created when none exists yet.
+          const datePrefix = (date || '').split('T')[0];
+          const existingReport = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
+
+          if (existingReport) {
+            const existingId: string = existingReport.id;
+            targetReportId = existingId;
+            targetDate = existingReport.interrogation_date;
+            await storeFile(fp, existingId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
+          } else {
+            // Create a new visit once, then reuse it for every remaining file.
+            const newReportId = uuidv4();
+            const base: any = parsed || { manufacturer: 'Unknown' };
+            const newReport: any = {
+              ...base,
+              id: newReportId,
+              patient_id: targetPatient.id,
+              interrogation_date: date,
+              raw_text: base.raw_text || 'Manually sorted file',
+              data: base.data || JSON.stringify({ note: 'Created via manual sorting' }),
+            };
+            delete newReport.rowid; delete newReport.created_at; delete newReport.updated_at;
+            await createReport(newReport);
+            targetReportId = newReportId;
+            await storeFile(fp, targetReportId, targetPatient.id, nameForDir, date, targetPatient, parsed || newReport);
+          }
         } else {
           await storeFile(fp, targetReportId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
         }
