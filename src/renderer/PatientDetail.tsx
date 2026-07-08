@@ -68,9 +68,14 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   };
 
   const handleReportSelect = (paneId: number, report: any | null) => {
-    const newSelected = [...selectedReports];
-    newSelected[paneId] = report;
-    setSelectedReports(newSelected);
+    // Use the functional updater so rapid drops onto different panes (or a drop
+    // that races an async patient-data reload) don't clobber each other via a
+    // stale `selectedReports` closure (issue #141).
+    setSelectedReports(prev => {
+      const newSelected = [...prev];
+      newSelected[paneId] = report;
+      return newSelected;
+    });
   };
 
   const handleVisitSelect = (visit: any) => {

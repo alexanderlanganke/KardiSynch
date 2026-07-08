@@ -33,16 +33,28 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     const [viewMode, setViewMode] = useState<'raw' | 'formatted'>('raw');
 
     // Fetch files when selected report changes
+    const prevReportIdRef = React.useRef<string | null>(null);
     React.useEffect(() => {
         const loadFiles = async () => {
             if (selectedReport && selectedReport.directoryName) {
+                const reportChanged = prevReportIdRef.current !== selectedReport.id;
+                prevReportIdRef.current = selectedReport.id;
                 try {
                     const files = await window.electronAPI.getVisitFiles(patientId, selectedReport.directoryName);
                     const safeFiles = Array.isArray(files) ? files : [];
                     setAvailableFiles(safeFiles);
 
                     const pdfs = safeFiles.filter((f: string) => !f.toLowerCase().endsWith('.xml'));
-                    if (pdfs.length > 0 && !selectedFile) {
+                    // When the pane switches to a different visit (e.g. a new visit
+                    // is dropped onto an already-occupied pane), always pick that
+                    // visit's best file. Previously this was gated on `!selectedFile`,
+                    // so the stale file from the prior visit kept being displayed and
+                    // the dragged visit did not show up (issue #141). Preserve the
+                    // user's manual dropdown choice only while the same visit stays
+                    // selected.
+                    if (reportChanged) {
+                        setSelectedFile(pdfs.length > 0 ? getBestFile(pdfs) : null);
+                    } else if (pdfs.length > 0 && !selectedFile) {
                         setSelectedFile(getBestFile(pdfs));
                     }
                 } catch (error) {
@@ -50,6 +62,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                     setAvailableFiles([]);
                 }
             } else {
+                prevReportIdRef.current = null;
                 setAvailableFiles([]);
                 setSelectedFile(null);
             }
