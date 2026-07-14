@@ -6,6 +6,7 @@ import { UnifiedReport } from './reports';
 import { app } from 'electron';
 import { sendNotification, sendPatientListUpdate } from './windowManager';
 import { XMLParser } from 'fast-xml-parser';
+import { writeFileAtomic } from './utils/atomicFile';
 
 function escapeXml(value: string | number | undefined | null): string {
   return String(value ?? '')
@@ -17,6 +18,29 @@ function escapeXml(value: string | number | undefined | null): string {
 }
 
 let dataDir: string;
+
+/**
+ * Derives the YYYY_MM_DD directory-name component for a visit date.
+ *
+ * ISO strings are sliced textually: `new Date('YYYY-MM-DD')` parses as UTC
+ * midnight while getFullYear()/getMonth()/getDate() are LOCAL — in any
+ * timezone west of UTC that shifted every visit folder to the previous day.
+ * Non-ISO strings fall back to Date parsing with local getters (those are
+ * parsed as local time, so local getters are correct for them).
+ */
+export const visitDirDateString = (dateStr?: string | null): string => {
+  if (!dateStr) return 'Unknown';
+  const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[1]}_${m[2]}_${m[3]}`;
+  const date = new Date(dateStr);
+  if (!isNaN(date.getTime())) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}_${month}_${day}`;
+  }
+  return 'Unknown';
+};
 
 /**
  * Initializes the storage module by setting the data directory path.
@@ -179,6 +203,111 @@ const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
 };
 
 /**
+ * Reads the existing patient.xml (if any), merges in the device/lead data from
+ * `report`, and atomically rewrites the file — preserving MRI status/hash AND
+ * manufacturer-warning status/hash. Shared by storeFile and storeZipContents so
+ * every write path merges instead of clobbering the on-disk device history.
+ */
+const writeMergedPatientXML = async (
+  patientDir: string,
+  patient: any,
+  report?: UnifiedReport
+): Promise<void> => {
+  const patientXmlPath = path.join(patientDir, 'patient.xml');
+  let existingDevices: any[] = [];
+  let existingLeads: any[] = [];
+
+  // Read existing data if available (single read for devices, leads, MRI, warnings)
+  let mriStatus: any = null;
+  let mriDataHash: string | null = null;
+  let manufacturerWarningStatus: any = null;
+  let manufacturerWarningHash: string | null = null;
+  try {
+    const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
+    const parser = new XMLParser({ ignoreAttributes: false });
+    const parsed = parser.parse(xmlContent);
+
+    if (parsed.patient) {
+      if (parsed.patient.devices && parsed.patient.devices.device) {
+        existingDevices = Array.isArray(parsed.patient.devices.device)
+          ? parsed.patient.devices.device
+          : [parsed.patient.devices.device];
+      }
+      if (parsed.patient.leads && parsed.patient.leads.lead) {
+        existingLeads = Array.isArray(parsed.patient.leads.lead)
+          ? parsed.patient.leads.lead
+          : [parsed.patient.leads.lead];
+      }
+      if (parsed.patient.mri_status) {
+        try { mriStatus = JSON.parse(parsed.patient.mri_status); } catch { }
+      }
+      mriDataHash = parsed.patient.mri_data_hash || null;
+      if (parsed.patient.manufacturer_warning_status) {
+        try { manufacturerWarningStatus = JSON.parse(parsed.patient.manufacturer_warning_status); } catch { }
+      }
+      manufacturerWarningHash = parsed.patient.manufacturer_warning_hash || null;
+    }
+  } catch (e: any) {
+    if (e.code !== 'ENOENT') console.error('Error reading existing patient.xml:', e);
+  }
+
+  // Append new device if from a report
+  if (report && report.device && report.device.serial_number && report.manufacturer !== 'Unknown') {
+    const newDevice = {
+      model: report.device.model,
+      serial: report.device.serial_number,
+      manufacturer: report.manufacturer,
+      implant_date: report.device.implant_date || 'Unknown'
+    };
+
+    // Sanity check: Don't add if THIS device is Unknown
+    if (newDevice.serial !== 'Unknown' && newDevice.serial !== '') {
+      // 1. CLEANUP: Remove any existing "Unknown" placeholders
+      existingDevices = existingDevices.filter(d => d.serial && String(d.serial) !== 'Unknown');
+
+      // 2. DEDUPLICATE: Check if already exists (by serial)
+      const index = existingDevices.findIndex(d => String(d.serial) === String(newDevice.serial));
+      if (index !== -1) {
+        // Update existing entry with potentially newer metadata (e.g. better model name)
+        existingDevices[index] = { ...existingDevices[index], ...newDevice };
+      } else {
+        existingDevices.push(newDevice);
+      }
+    }
+  }
+
+  // Append new leads if from a report
+  if (report && report.leads) {
+    report.leads.forEach(l => {
+      if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
+        const newLead = {
+          model: l.model,
+          serial: l.serial,
+          manufacturer: l.manufacturer || report.manufacturer,
+          implant_date: l.implant_date || 'Unknown'
+        };
+
+        // 1. CLEANUP: Remove "Unknown" leads? (Less critical for leads, but consistency is good)
+        existingLeads = existingLeads.filter(lead => lead.serial && String(lead.serial) !== 'Unknown');
+
+        // 2. DEDUPLICATE
+        const index = existingLeads.findIndex(existing => String(existing.serial) === String(newLead.serial));
+        if (index !== -1) {
+          existingLeads[index] = { ...existingLeads[index], ...newLead };
+        } else {
+          existingLeads.push(newLead);
+        }
+      }
+    });
+  }
+
+  await writeFileAtomic(
+    patientXmlPath,
+    generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash, manufacturerWarningStatus, manufacturerWarningHash)
+  );
+};
+
+/**
  * Stores a unified report in the database, creating a new patient if necessary.
  * @param report The UnifiedReport object to store.
  * @returns The ID of the newly created report.
@@ -253,17 +382,10 @@ export const storeFile = async (
   // blank visit.xml date, which the timeline then showed as "unknown".
   const effectiveDate = (interrogationDate && interrogationDate.trim()) || report?.interrogation_date || '';
 
-  // Extract date from effectiveDate (format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
-  let dateString = 'Unknown';
-  if (effectiveDate) {
-    const date = new Date(effectiveDate);
-    if (!isNaN(date.getTime())) {
-      const year = date.getFullYear();
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const day = String(date.getDate()).padStart(2, '0');
-      dateString = `${year}_${month}_${day}`;
-    }
-  }
+  // Extract date from effectiveDate (format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS).
+  // Sliced textually (see visitDirDateString) to avoid the UTC-parse/local-getter
+  // mismatch that shifted folders one day back in timezones west of UTC.
+  const dateString = visitDirDateString(effectiveDate);
 
   // Create visit subdirectory: YYYY_MM_DD_reportId
   const visitDir = path.join(patientDir, `${dateString}_${reportId}`);
@@ -293,91 +415,10 @@ export const storeFile = async (
     }
   }
 
-  // Generate or update patient.xml with device history
+  // Generate or update patient.xml with device history (merges with the
+  // existing file and preserves MRI + manufacturer-warning fields)
   if (patient) {
-    const patientXmlPath = path.join(patientDir, 'patient.xml');
-    let existingDevices: any[] = [];
-    let existingLeads: any[] = [];
-
-    // Read existing data if available (single read for devices, leads, MRI, warnings)
-    let mriStatus: any = null;
-    let mriDataHash: string | null = null;
-    try {
-      const xmlContent = await fs.readFile(patientXmlPath, 'utf-8');
-      const parser = new XMLParser({ ignoreAttributes: false });
-      const parsed = parser.parse(xmlContent);
-
-      if (parsed.patient) {
-        if (parsed.patient.devices && parsed.patient.devices.device) {
-          existingDevices = Array.isArray(parsed.patient.devices.device)
-            ? parsed.patient.devices.device
-            : [parsed.patient.devices.device];
-        }
-        if (parsed.patient.leads && parsed.patient.leads.lead) {
-          existingLeads = Array.isArray(parsed.patient.leads.lead)
-            ? parsed.patient.leads.lead
-            : [parsed.patient.leads.lead];
-        }
-        if (parsed.patient.mri_status) {
-          try { mriStatus = JSON.parse(parsed.patient.mri_status); } catch { }
-        }
-        mriDataHash = parsed.patient.mri_data_hash || null;
-      }
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') console.error('Error reading existing patient.xml:', e);
-    }
-
-    // Append new device if from a report
-    if (report && report.device && report.device.serial_number && report.manufacturer !== 'Unknown') {
-      const newDevice = {
-        model: report.device.model,
-        serial: report.device.serial_number,
-        manufacturer: report.manufacturer,
-        implant_date: report.device.implant_date || 'Unknown'
-      };
-
-      // Sanity check: Don't add if THIS device is Unknown
-      if (newDevice.serial !== 'Unknown' && newDevice.serial !== '') {
-        // 1. CLEANUP: Remove any existing "Unknown" placeholders
-        existingDevices = existingDevices.filter(d => d.serial && String(d.serial) !== 'Unknown');
-
-        // 2. DEDUPLICATE: Check if already exists (by serial)
-        const index = existingDevices.findIndex(d => String(d.serial) === String(newDevice.serial));
-        if (index !== -1) {
-          // Update existing entry with potentially newer metadata (e.g. better model name)
-          existingDevices[index] = { ...existingDevices[index], ...newDevice };
-        } else {
-          existingDevices.push(newDevice);
-        }
-      }
-    }
-
-    // Append new leads if from a report
-    if (report && report.leads) {
-      report.leads.forEach(l => {
-        if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
-          const newLead = {
-            model: l.model,
-            serial: l.serial,
-            manufacturer: l.manufacturer || report.manufacturer,
-            implant_date: l.implant_date || 'Unknown'
-          };
-
-          // 1. CLEANUP: Remove "Unknown" leads? (Less critical for leads, but consistency is good)
-          existingLeads = existingLeads.filter(lead => lead.serial && String(lead.serial) !== 'Unknown');
-
-          // 2. DEDUPLICATE
-          const index = existingLeads.findIndex(existing => String(existing.serial) === String(newLead.serial));
-          if (index !== -1) {
-            existingLeads[index] = { ...existingLeads[index], ...newLead };
-          } else {
-            existingLeads.push(newLead);
-          }
-        }
-      });
-    }
-
-    await fs.writeFile(patientXmlPath, generatePatientXML(patient, existingDevices, existingLeads, mriStatus, mriDataHash, null, null));
+    await writeMergedPatientXML(patientDir, patient, report);
   }
 
   // Generate or update visit.xml if report data provided
@@ -423,7 +464,7 @@ export const storeFile = async (
     // above) so the two never disagree.
     finalReport = { ...finalReport, interrogation_date: effectiveDate || finalReport.interrogation_date };
 
-    await fs.writeFile(visitXmlPath, generateVisitXML(finalReport, reportId));
+    await writeFileAtomic(visitXmlPath, generateVisitXML(finalReport, reportId));
   }
 
 };
@@ -446,13 +487,8 @@ export const storeZipContents = async (
   const safeName = patientName ? patientName.replace(/[^a-zA-Z0-9]/g, '_') : 'Unknown';
   const patientDir = path.join(dataDir, 'Reports', `${patientId}_${safeName}`);
 
-  let dateString = 'Unknown';
-  if (interrogationDate) {
-    const date = new Date(interrogationDate);
-    if (!isNaN(date.getTime())) {
-      dateString = `${date.getFullYear()}_${String(date.getMonth() + 1).padStart(2, '0')}_${String(date.getDate()).padStart(2, '0')}`;
-    }
-  }
+  // Textual date slicing — see visitDirDateString (avoids the timezone shift).
+  const dateString = visitDirDateString(interrogationDate);
 
   const visitDir = path.join(patientDir, `${dateString}_${reportId}`);
   await fs.mkdir(visitDir, { recursive: true });
@@ -466,12 +502,20 @@ export const storeZipContents = async (
     await fs.writeFile(path.join(visitDir, entryName), entry.getData());
   }
 
-  // Generate metadata XML
+  // Generate metadata XML.
+  // visit.xml: only write the skeleton when the visit has none yet — assigning
+  // a download to an EXISTING visit must not clobber its parsed metadata.
   if (report) {
-    await fs.writeFile(path.join(visitDir, 'visit.xml'), generateVisitXML(report, reportId));
+    const visitXmlPath = path.join(visitDir, 'visit.xml');
+    const visitXmlExists = await fs.access(visitXmlPath).then(() => true).catch(() => false);
+    if (!visitXmlExists) {
+      await writeFileAtomic(visitXmlPath, generateVisitXML(report, reportId));
+    }
   }
+  // patient.xml: merge with the existing file (device/lead history, MRI and
+  // warning fields) exactly like storeFile — never overwrite with a skeleton.
   if (patient) {
-    await fs.writeFile(path.join(patientDir, 'patient.xml'), generatePatientXML(patient));
+    await writeMergedPatientXML(patientDir, patient, report);
   }
 
   // Clean up source ZIP
@@ -584,7 +628,7 @@ export const updatePatientXML = async (
     manufacturerWarningHash
   );
 
-  await fs.writeFile(patientXmlPath, newXml);
+  await writeFileAtomic(patientXmlPath, newXml);
 };
 
 /**
@@ -749,7 +793,7 @@ export const mergePatientProfiles = async (keeperId: string, loserIds: string[])
       } catch (e: any) {
         if (e.code !== 'ENOENT') console.warn('[mergePatientProfiles] Could not read keeper patient.xml:', e.message);
       }
-      await fs.writeFile(
+      await writeFileAtomic(
         keeperXmlPath,
         generatePatientXML(
           { id: keeper.id, first_name: keeper.first_name || '', last_name: keeper.last_name, dob: keeper.dob, hospitalPatientId },
@@ -964,7 +1008,7 @@ export const refreshVisitMetadata = async (
     if (e.code !== 'ENOENT') console.warn('[refreshVisitMetadata] Error reading existing visit.xml:', e);
   }
 
-  await fs.writeFile(visitXmlPath, generateVisitXML(aggregated, reportId));
+  await writeFileAtomic(visitXmlPath, generateVisitXML(aggregated, reportId));
 
   // --- Update patient.xml ---
   const patientDir = path.dirname(visitPath);
@@ -1041,7 +1085,7 @@ export const refreshVisitMetadata = async (
     }
   }
 
-  await fs.writeFile(patientXmlPath, generatePatientXML(
+  await writeFileAtomic(patientXmlPath, generatePatientXML(
     { id: patient.id, first_name: patient.first_name, last_name: patient.last_name, dob: patient.dob, hospitalPatientId: patient.hospitalPatientId || null },
     existingDevices,
     existingLeads,

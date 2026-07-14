@@ -4,6 +4,13 @@ let mainWindow: BrowserWindow | null;
 
 export function setMainWindow(window: BrowserWindow) {
   mainWindow = window;
+  // Clear the reference once the window is gone so callers that only
+  // truthiness-check getMainWindow() can't send to a destroyed window.
+  window.on('closed', () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
 }
 
 export function getMainWindow(): BrowserWindow | null {

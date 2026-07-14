@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { UnifiedReport } from './reports';
 import { normalizeDate } from '../lib/dates';
 import { normalizeNameKey } from '../lib/names';
+import { writeFileAtomic } from './utils/atomicFile';
 
 /**
  * Recursively strip fast-xml-parser leftovers from a parsed-report payload
@@ -58,7 +59,7 @@ async function healDateField(xmlPath: string, fieldName: string): Promise<string
   const normalized = normalizeDate(raw);
   if (!normalized || normalized === raw) return raw;
   try {
-    await fs.promises.writeFile(xmlPath, content.replace(re, `<${fieldName}>${normalized}</${fieldName}>`), 'utf-8');
+    await writeFileAtomic(xmlPath, content.replace(re, `<${fieldName}>${normalized}</${fieldName}>`));
     console.log(`[rebuildDatabase] Normalized ${fieldName} in ${xmlPath}: "${raw}" -> "${normalized}"`);
   } catch (e) {
     console.warn(`[rebuildDatabase] Failed to rewrite ${fieldName} in ${xmlPath}:`, e);
@@ -66,6 +67,54 @@ async function healDateField(xmlPath: string, fieldName: string): Promise<string
   }
   return normalized;
 }
+
+/**
+ * Safe JSON parse: returns `fallback` for empty/malformed input instead of
+ * throwing. Used wherever JSON-encoded DB columns are decoded — a single
+ * corrupted row must never take down a whole query (e.g. the dashboard list).
+ */
+const safeJSONParse = (str: any, fallback: any = null) => {
+  if (!str) return fallback;
+  try {
+    return JSON.parse(str);
+  } catch (e) {
+    console.warn('[database] JSON parse failed, returning fallback:', e);
+    return fallback;
+  }
+};
+
+/**
+ * First-name compatibility check used when matching patients by last name +
+ * DOB. Two first names are compatible when either is empty, or when one
+ * normalized key is a prefix of the other ("Jo" / "Johann", "Anna" /
+ * "Anna Maria").
+ *
+ * Patient identity intentionally remains last name + DOB (issue #139: parser
+ * first-name variants like "Jon"/"John" must not spawn duplicates), so this is
+ * ADVISORY only: when several rows share the key we prefer a compatible one,
+ * and a clear mismatch is logged for review — it never blocks the match.
+ */
+const firstNamesCompatible = (a: string | null | undefined, b: string | null | undefined): boolean => {
+  const keyA = normalizeNameKey(a ?? '');
+  const keyB = normalizeNameKey(b ?? '');
+  if (!keyA || !keyB) return true;
+  return keyA.startsWith(keyB) || keyB.startsWith(keyA);
+};
+
+/** Pick the best last-name+DOB candidate: prefer a first-name-compatible row,
+ *  fall back to the first match (legacy behavior) with a logged warning. */
+const pickPatientCandidate = (rows: any[], firstName?: string | null): any | undefined => {
+  const candidates = rows || [];
+  if (candidates.length === 0) return undefined;
+  const compatible = candidates.find(r => firstNamesCompatible(firstName, r.first_name));
+  if (compatible) return compatible;
+  console.warn(
+    `[database] Patient match on last name + DOB with differing first name ` +
+    `("${firstName}" vs "${candidates[0].first_name}") — matched anyway (id ${candidates[0].id}). ` +
+    `If these are two different people, split them via the patient editor.`
+  );
+  return candidates[0];
+};
 
 let dbInstance: sqlite3.Database;
 
@@ -286,21 +335,26 @@ export const closeDatabase = (): Promise<void> => {
   });
 };
 
-export const findPatient = (lastName: string, dob: string): Promise<any> => {
+export const findPatient = (lastName: string, dob: string, firstName?: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     // Match on the Unicode-normalized last-name key (see normalizeNameKey) so
     // name variants from different parsers / manual entry — case, whitespace and
     // accents ("Smith " / "smith" / "Müller" / "müller") — resolve to the same
     // patient instead of spawning a duplicate.
-    db.get(
+    //
+    // When a first name is supplied it is used to PREFER among multiple
+    // candidates (see pickPatientCandidate) — it never rejects the match,
+    // since parser first-name variants ("Jon"/"John") must resolve to the
+    // same patient (issue #139).
+    db.all(
       'SELECT * FROM Patients WHERE last_name_key = ? AND dob = ?',
       [normalizeNameKey(lastName), dob],
-      (err, row) => {
+      (err, rows: any[]) => {
         if (err) {
           reject(err);
         } else {
-          resolve(row);
+          resolve(pickPatientCandidate(rows, firstName));
         }
       }
     );
@@ -308,25 +362,31 @@ export const findPatient = (lastName: string, dob: string): Promise<any> => {
 };
 
 
-export const findPatientBySerial = (serial: string): Promise<any> => {
+export const findPatientBySerial = (serial: string, manufacturer?: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    // Find the most recent patient associated with this serial number
-    db.get(
-      `SELECT p.* FROM Patients p
+    // Find the most recent patient associated with this serial number.
+    // Serial numbers are only unique per manufacturer, so when the caller
+    // knows the manufacturer we scope the lookup to it — otherwise a Medtronic
+    // serial could match an unrelated patient's Biotronik device.
+    let query = `SELECT p.* FROM Patients p
        JOIN Reports r ON p.id = r.patient_id
-       WHERE r.device_serial_number = ?
+       WHERE r.device_serial_number = ?`;
+    const params: any[] = [serial];
+    if (manufacturer && manufacturer !== 'Unknown') {
+      query += ' AND r.manufacturer = ?';
+      params.push(manufacturer);
+    }
+    query += `
        ORDER BY r.interrogation_date DESC
-       LIMIT 1`,
-      [serial],
-      (err, row) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(row);
-        }
+       LIMIT 1`;
+    db.get(query, params, (err, row) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve(row);
       }
-    );
+    });
   });
 };
 
@@ -364,17 +424,43 @@ export const createPatient = (patient: {
  * Every patient-creation path (auto-import, the sorting dialogue, drag-to-move,
  * remote import) routes through here so duplicate detection is consistent.
  */
-export const findOrCreatePatient = (patient: {
+export const findOrCreatePatient = async (patient: {
   id?: string;
   first_name: string;
   last_name: string;
   dob: string;
   hospitalPatientId: string | null;
 }): Promise<{ patient: any; created: boolean }> => {
-  return new Promise((resolve, reject) => {
-    const db = getDb();
-    const id = patient.id || uuidv4();
-    const lastNameKey = normalizeNameKey(patient.last_name);
+  const db = getDb();
+  const lastNameKey = normalizeNameKey(patient.last_name);
+
+  const selectMatch = (): Promise<any | undefined> => new Promise((resolve, reject) => {
+    db.all(
+      'SELECT * FROM Patients WHERE last_name_key = ? AND dob = ?',
+      [lastNameKey, patient.dob],
+      (err, rows: any[]) => {
+        if (err) reject(err);
+        // Prefer a first-name-compatible candidate, but never refuse the
+        // match — identity is last name + DOB (issue #139).
+        else resolve(pickPatientCandidate(rows, patient.first_name));
+      }
+    );
+  });
+
+  const selectById = (id: string): Promise<any> => new Promise((resolve, reject) => {
+    db.get('SELECT * FROM Patients WHERE id = ?', [id], (err, row) => err ? reject(err) : resolve(row));
+  });
+
+  // 1. Reuse an existing matching patient.
+  const existing = await selectMatch();
+  if (existing) return { patient: existing, created: false };
+
+  const id = patient.id || uuidv4();
+
+  // 2. Guarded insert: the `WHERE NOT EXISTS` sub-select keeps the
+  //    check-then-insert atomic against a concurrent import creating the same
+  //    person (auto-import + manual sort, or two parallel files).
+  const changes = await new Promise<number>((resolve, reject) => {
     db.run(
       `INSERT INTO Patients (id, first_name, last_name, last_name_key, dob, hospitalPatientId)
        SELECT ?, ?, ?, ?, ?, ?
@@ -383,24 +469,22 @@ export const findOrCreatePatient = (patient: {
        )`,
       [id, patient.first_name, patient.last_name, lastNameKey, patient.dob, patient.hospitalPatientId, lastNameKey, patient.dob],
       function (this: sqlite3.RunResult, err: Error | null) {
-        if (err) {
-          reject(err);
-          return;
-        }
-        const created = this.changes > 0;
-        // Re-read the canonical row — either the one we just inserted or the
-        // pre-existing match the guard prevented us from duplicating.
-        db.get(
-          'SELECT * FROM Patients WHERE last_name_key = ? AND dob = ?',
-          [lastNameKey, patient.dob],
-          (gErr, row) => {
-            if (gErr) reject(gErr);
-            else resolve({ patient: row, created });
-          }
-        );
+        if (err) reject(err);
+        else resolve(this.changes);
       }
     );
   });
+  if (changes > 0) {
+    return { patient: await selectById(id), created: true };
+  }
+
+  // 3. The guard blocked us: a concurrent import inserted the same person
+  //    between step 1 and step 2 — reuse that row.
+  const concurrent = await selectMatch();
+  if (concurrent) return { patient: concurrent, created: false };
+
+  // Unreachable: the guard only blocks when a matching row exists.
+  throw new Error(`findOrCreatePatient: insert blocked but no row found for key ${lastNameKey}/${patient.dob}`);
 };
 
 export const updatePatient = (patient: {
@@ -419,35 +503,43 @@ export const updatePatient = (patient: {
 }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
-    db.run(
-      `UPDATE Patients SET
+    // The warning columns are only touched when the caller explicitly passes
+    // them (even as null). Callers that update demographics/devices without
+    // warning data (e.g. the update-patient IPC) must not wipe the cached
+    // manufacturer-warning result.
+    let query = `UPDATE Patients SET
          first_name = ?, last_name = ?, last_name_key = ?, dob = ?, hospitalPatientId = ?,
-         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?, devices = ?,
-         manufacturer_warning_status = ?, manufacturer_warning_hash = ?
-       WHERE id = ?`,
-      [
-        patient.first_name,
-        patient.last_name,
-        normalizeNameKey(patient.last_name),
-        patient.dob,
-        patient.hospitalPatientId,
-        patient.device_manufacturer || null,
-        patient.device_model || null,
-        patient.device_serial || null,
-        patient.leads || null,
-        patient.devices ? JSON.stringify(patient.devices) : null,
-        patient.manufacturer_warning_status ? JSON.stringify(patient.manufacturer_warning_status) : null,
-        patient.manufacturer_warning_hash || null,
-        patient.id
-      ],
-      (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
+         device_manufacturer = ?, device_model = ?, device_serial = ?, leads = ?, devices = ?`;
+    const params: any[] = [
+      patient.first_name,
+      patient.last_name,
+      normalizeNameKey(patient.last_name),
+      patient.dob,
+      patient.hospitalPatientId,
+      patient.device_manufacturer || null,
+      patient.device_model || null,
+      patient.device_serial || null,
+      patient.leads || null,
+      patient.devices ? JSON.stringify(patient.devices) : null,
+    ];
+    if (patient.manufacturer_warning_status !== undefined) {
+      query += ', manufacturer_warning_status = ?';
+      params.push(patient.manufacturer_warning_status ? JSON.stringify(patient.manufacturer_warning_status) : null);
+    }
+    if (patient.manufacturer_warning_hash !== undefined) {
+      query += ', manufacturer_warning_hash = ?';
+      params.push(patient.manufacturer_warning_hash || null);
+    }
+    query += ' WHERE id = ?';
+    params.push(patient.id);
+
+    db.run(query, params, (err) => {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
       }
-    );
+    });
   });
 };
 
@@ -465,210 +557,205 @@ export const getReportById = (id: string): Promise<any> => {
   });
 };
 
-export const getPatientById = (patientId: string): Promise<any> => {
-  return new Promise(async (resolve, reject) => {
-    const db = getDb();
+export const getPatientById = async (patientId: string): Promise<any> => {
+  // Plain async function (NOT an async Promise executor): a synchronous throw
+  // here — e.g. getDb() while the DB is closed — must reject the returned
+  // promise instead of leaving the caller hanging forever.
+  const db = getDb();
 
-    // 1. Fetch from DB
+  // 1. Fetch from DB
+  let row: any = await new Promise((resolve, reject) => {
     db.get(
-      `SELECT 
-         p.*, 
-         r.manufacturer as deviceManufacturer, 
-         r.device_model as deviceModel, 
+      `SELECT
+         p.*,
+         r.manufacturer as deviceManufacturer,
+         r.device_model as deviceModel,
          r.device_serial_number as deviceSerial
-       FROM Patients p 
-       LEFT JOIN Reports r ON p.id = r.patient_id 
+       FROM Patients p
+       LEFT JOIN Reports r ON p.id = r.patient_id
        WHERE p.id = ?
-       ORDER BY r.interrogation_date DESC 
+       ORDER BY r.interrogation_date DESC
        LIMIT 1`,
       [patientId],
-      async (err, row: any) => {
+      (err, r: any) => {
         if (err) {
           console.error('[getPatientById] Database error:', err);
           reject(err);
-          return;
+        } else {
+          resolve(r);
         }
-
-        // 2. Resolve Data Path for Verification
-        let dataDir;
-        try {
-          const settings = await getSettings();
-          dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
-        } catch (e) {
-          dataDir = path.join(app.getPath('userData'), '_DATA');
-        }
-        const reportsDir = path.join(dataDir, 'Reports');
-
-        // Access FS to find patient directory (heuristic by ID prefix)
-        let patientXmlPath: string | null = null;
-        try {
-          const dirs = await fs.promises.readdir(reportsDir);
-          const patientDirName = dirs.find(dir => dir.startsWith(patientId));
-          if (patientDirName) {
-            patientXmlPath = path.join(reportsDir, patientDirName, 'patient.xml');
-          }
-        } catch (e) { /* ignore */ }
-
-        // 3. Lazy Sync / Read Repair
-        let shouldRepair = false;
-        let fileStats: fs.Stats | undefined;
-
-        let patientXmlExists = false;
-        if (patientXmlPath) {
-          try {
-            await fs.promises.access(patientXmlPath);
-            patientXmlExists = true;
-          } catch { /* doesn't exist */ }
-        }
-
-        if (patientXmlPath && patientXmlExists) {
-          try {
-            fileStats = await fs.promises.stat(patientXmlPath);
-            // If DB is missing row OR timestamps mismatch OR critical data is missing (e.g. bad previous repair)
-            const isStale = !row || !row.last_indexed_mtime || Math.abs(fileStats.mtimeMs - row.last_indexed_mtime) > 1000;
-            const isMissingData = row && (!row.device_manufacturer || !row.device_model || !row.devices);
-
-            if (isStale || isMissingData) {
-              console.log(`[getPatientById] Repair triggered for ${patientId}. Stale: ${isStale}, Missing Data: ${isMissingData}. DB Mtime: ${row?.last_indexed_mtime}, File Mtime: ${fileStats.mtimeMs}.`);
-              shouldRepair = true;
-            }
-          } catch (e) { console.warn('[getPatientById] Stat failed:', e); }
-        } else if (!row) {
-          // No DB row and no File -> Not found
-          reject(new Error('Patient not found'));
-          return;
-        }
-
-        // 4. Perform Repair if needed
-        if (shouldRepair && patientXmlPath) {
-          try {
-            const { XMLParser } = await import('fast-xml-parser');
-            const parser = new XMLParser({ ignoreAttributes: false });
-            const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
-            const parsed = parser.parse(xmlContent);
-            const p = parsed.patient;
-
-            if (p) {
-              console.log('[getPatientById] Repair Debug - Parsed Device:', JSON.stringify(p.devices, null, 2));
-
-              // Update DB immediately
-              await new Promise<void>((res, rej) => {
-                db.run(
-                  `INSERT OR REPLACE INTO Patients (
-                             id, first_name, last_name, dob, hospitalPatientId, 
-                             device_manufacturer, device_model, device_serial, leads, devices,
-                             last_indexed_mtime,
-                             mri_status, mri_data_hash,
-                             manufacturer_warning_status, manufacturer_warning_hash
-                           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                  [
-                    p.id,
-                    p.first_name,
-                    p.last_name,
-                    p.dob,
-                    p.hospitalPatientId || null,
-                    p.device_manufacturer || (Array.isArray(p.devices?.device) ? p.devices.device[0].manufacturer : p.devices?.device?.manufacturer) || null,
-                    p.device_model || (Array.isArray(p.devices?.device) ? p.devices.device[0].model : p.devices?.device?.model) || null,
-                    p.device_serial || (Array.isArray(p.devices?.device) ? p.devices.device[0].serial : p.devices?.device?.serial) || null,
-                    p.leads ? JSON.stringify(p.leads) : null,
-                    p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
-                    fileStats?.mtimeMs || Date.now(),
-                    p.mri_status || null,
-                    p.mri_data_hash || null,
-                    p.manufacturer_warning_status || null,
-                    p.manufacturer_warning_hash || null
-                  ],
-                  (e) => {
-                    if (e) rej(e);
-                    else res();
-                  }
-                );
-              });
-
-              // Update the 'row' variable so we return fresh data
-              row = {
-                ...row,
-                id: p.id,
-                first_name: p.first_name,
-                last_name: p.last_name,
-                dob: p.dob,
-                deviceManufacturer: p.device_manufacturer || (p.devices?.device?.[0]?.manufacturer),
-                deviceModel: p.device_model || (p.devices?.device?.[0]?.model),
-                deviceSerial: p.device_serial || (p.devices?.device?.[0]?.serial),
-                leads: p.leads ? JSON.stringify(p.leads) : null,
-                devices: p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
-                mri_status: row?.mri_status, // Preserve existing analysis if any
-                manufacturer_warning_status: row?.manufacturer_warning_status // Preserve existing
-              };
-              console.log('[getPatientById] Read-repair complete.');
-            }
-          } catch (e) {
-            console.error('[getPatientById] Repair failed:', e);
-          }
-        }
-
-        // 5. Return Data
-        if (!row) {
-          reject(new Error('Patient not found'));
-          return;
-        }
-
-        // Safe JSON Parse Helper
-        const safeJSONParse = (str: any, fallback: any = []) => {
-          if (!str) return fallback;
-          try {
-            return JSON.parse(str);
-          } catch (e) {
-            console.warn('[getPatientById] JSON parse failed, returning fallback:', e);
-            return fallback;
-          }
-        };
-
-        const normalizeLeads = (source: any) => {
-          if (!source) return [];
-          if (Array.isArray(source)) return source;
-          if (source.lead && Array.isArray(source.lead)) return source.lead;
-          if (source.lead) return [source.lead];
-          return [];
-        };
-
-        const leads = normalizeLeads(safeJSONParse(row.leads, []));
-        const devices = safeJSONParse(row.devices, []);
-
-        // Resolve Device Data: Prioritize 'devices' list (from patient.xml) as it represents the current implant profile.
-        // Fallback to Report/DB columns only if 'devices' list is empty.
-        let deviceManufacturer = row.deviceManufacturer || row.device_manufacturer;
-        let deviceModel = row.deviceModel || row.device_model;
-        let deviceSerial = row.deviceSerial || row.device_serial;
-
-        if (devices.length > 0) {
-          const activeDevice = devices[0];
-          if (activeDevice && activeDevice.model) {
-            deviceManufacturer = activeDevice.manufacturer || deviceManufacturer;
-            deviceModel = activeDevice.model;
-            deviceSerial = activeDevice.serial || deviceSerial;
-          }
-        }
-
-        const patient = {
-          id: row.id,
-          patientId: `P-${row.id}`,
-          first_name: row.first_name,
-          last_name: row.last_name,
-          name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
-          dob: row.dob || '',
-          deviceManufacturer,
-          deviceModel,
-          deviceSerial,
-          leads,
-          devices,
-          mriStatus: safeJSONParse(row.mri_status, null),
-          manufacturerWarningStatus: safeJSONParse(row.manufacturer_warning_status, null)
-        };
-        resolve(patient);
       }
     );
   });
+
+  // 2. Resolve Data Path for Verification
+  let dataDir;
+  try {
+    const settings = await getSettings();
+    dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  } catch (e) {
+    dataDir = path.join(app.getPath('userData'), '_DATA');
+  }
+  const reportsDir = path.join(dataDir, 'Reports');
+
+  // Access FS to find patient directory (heuristic by ID prefix)
+  let patientXmlPath: string | null = null;
+  try {
+    const dirs = await fs.promises.readdir(reportsDir);
+    const patientDirName = dirs.find(dir => dir.startsWith(patientId));
+    if (patientDirName) {
+      patientXmlPath = path.join(reportsDir, patientDirName, 'patient.xml');
+    }
+  } catch (e) { /* ignore */ }
+
+  // 3. Lazy Sync / Read Repair
+  let shouldRepair = false;
+  let fileStats: fs.Stats | undefined;
+
+  let patientXmlExists = false;
+  if (patientXmlPath) {
+    try {
+      await fs.promises.access(patientXmlPath);
+      patientXmlExists = true;
+    } catch { /* doesn't exist */ }
+  }
+
+  if (patientXmlPath && patientXmlExists) {
+    try {
+      fileStats = await fs.promises.stat(patientXmlPath);
+      // If DB is missing row OR timestamps mismatch OR critical data is missing (e.g. bad previous repair)
+      const isStale = !row || !row.last_indexed_mtime || Math.abs(fileStats.mtimeMs - row.last_indexed_mtime) > 1000;
+      const isMissingData = row && (!row.device_manufacturer || !row.device_model || !row.devices);
+
+      if (isStale || isMissingData) {
+        console.log(`[getPatientById] Repair triggered for ${patientId}. Stale: ${isStale}, Missing Data: ${isMissingData}. DB Mtime: ${row?.last_indexed_mtime}, File Mtime: ${fileStats.mtimeMs}.`);
+        shouldRepair = true;
+      }
+    } catch (e) { console.warn('[getPatientById] Stat failed:', e); }
+  } else if (!row) {
+    // No DB row and no File -> Not found
+    throw new Error('Patient not found');
+  }
+
+  // 4. Perform Repair if needed
+  if (shouldRepair && patientXmlPath) {
+    try {
+      const { XMLParser } = await import('fast-xml-parser');
+      const parser = new XMLParser({ ignoreAttributes: false });
+      const xmlContent = await fs.promises.readFile(patientXmlPath, 'utf-8');
+      const parsed = parser.parse(xmlContent);
+      const p = parsed.patient;
+
+      if (p) {
+        console.log('[getPatientById] Repair Debug - Parsed Device:', JSON.stringify(p.devices, null, 2));
+
+        // Update DB immediately.
+        // NOTE: INSERT OR REPLACE nulls any column not listed, so last_name_key
+        // MUST be included here — losing it silently breaks the name+DOB patient
+        // matching (findPatient / findOrCreatePatient) until the next startup
+        // backfill and spawns duplicate patients on import.
+        await new Promise<void>((res, rej) => {
+          db.run(
+            `INSERT OR REPLACE INTO Patients (
+                       id, first_name, last_name, last_name_key, dob, hospitalPatientId,
+                       device_manufacturer, device_model, device_serial, leads, devices,
+                       last_indexed_mtime,
+                       mri_status, mri_data_hash,
+                       manufacturer_warning_status, manufacturer_warning_hash
+                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              p.id,
+              p.first_name,
+              p.last_name,
+              normalizeNameKey(p.last_name),
+              p.dob,
+              p.hospitalPatientId || null,
+              p.device_manufacturer || (Array.isArray(p.devices?.device) ? p.devices.device[0].manufacturer : p.devices?.device?.manufacturer) || null,
+              p.device_model || (Array.isArray(p.devices?.device) ? p.devices.device[0].model : p.devices?.device?.model) || null,
+              p.device_serial || (Array.isArray(p.devices?.device) ? p.devices.device[0].serial : p.devices?.device?.serial) || null,
+              p.leads ? JSON.stringify(p.leads) : null,
+              p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
+              fileStats?.mtimeMs || Date.now(),
+              p.mri_status || null,
+              p.mri_data_hash || null,
+              p.manufacturer_warning_status || null,
+              p.manufacturer_warning_hash || null
+            ],
+            (e) => {
+              if (e) rej(e);
+              else res();
+            }
+          );
+        });
+
+        // Update the 'row' variable so we return fresh data
+        row = {
+          ...row,
+          id: p.id,
+          first_name: p.first_name,
+          last_name: p.last_name,
+          dob: p.dob,
+          deviceManufacturer: p.device_manufacturer || (p.devices?.device?.[0]?.manufacturer),
+          deviceModel: p.device_model || (p.devices?.device?.[0]?.model),
+          deviceSerial: p.device_serial || (p.devices?.device?.[0]?.serial),
+          leads: p.leads ? JSON.stringify(p.leads) : null,
+          devices: p.devices && p.devices.device ? JSON.stringify(Array.isArray(p.devices.device) ? p.devices.device : [p.devices.device]) : null,
+          mri_status: row?.mri_status, // Preserve existing analysis if any
+          manufacturer_warning_status: row?.manufacturer_warning_status // Preserve existing
+        };
+        console.log('[getPatientById] Read-repair complete.');
+      }
+    } catch (e) {
+      console.error('[getPatientById] Repair failed:', e);
+    }
+  }
+
+  // 5. Return Data
+  if (!row) {
+    throw new Error('Patient not found');
+  }
+
+  const normalizeLeads = (source: any) => {
+    if (!source) return [];
+    if (Array.isArray(source)) return source;
+    if (source.lead && Array.isArray(source.lead)) return source.lead;
+    if (source.lead) return [source.lead];
+    return [];
+  };
+
+  const leads = normalizeLeads(safeJSONParse(row.leads, []));
+  const devices = safeJSONParse(row.devices, []);
+
+  // Resolve Device Data: Prioritize 'devices' list (from patient.xml) as it represents the current implant profile.
+  // Fallback to Report/DB columns only if 'devices' list is empty.
+  let deviceManufacturer = row.deviceManufacturer || row.device_manufacturer;
+  let deviceModel = row.deviceModel || row.device_model;
+  let deviceSerial = row.deviceSerial || row.device_serial;
+
+  if (devices.length > 0) {
+    const activeDevice = devices[0];
+    if (activeDevice && activeDevice.model) {
+      deviceManufacturer = activeDevice.manufacturer || deviceManufacturer;
+      deviceModel = activeDevice.model;
+      deviceSerial = activeDevice.serial || deviceSerial;
+    }
+  }
+
+  return {
+    id: row.id,
+    patientId: `P-${row.id}`,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Unknown Patient',
+    dob: row.dob || '',
+    deviceManufacturer,
+    deviceModel,
+    deviceSerial,
+    leads,
+    devices,
+    mriStatus: safeJSONParse(row.mri_status, null),
+    manufacturerWarningStatus: safeJSONParse(row.manufacturer_warning_status, null)
+  };
 };
 
 export const getPatientReports = async (patientId: string): Promise<any[]> => {
@@ -683,10 +770,10 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.all(
-      `SELECT r.*, p.first_name, p.last_name, p.dob 
-       FROM Reports r 
-       JOIN Patients p ON r.patient_id = p.id 
-       WHERE r.patient_id = ? 
+      `SELECT r.*, p.first_name, p.last_name, p.dob
+       FROM Reports r
+       JOIN Patients p ON r.patient_id = p.id
+       WHERE r.patient_id = ?
        ORDER BY r.interrogation_date DESC`,
       [patientId],
       (err, rows: any[]) => {
@@ -695,6 +782,23 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
         } else {
           // Parse JSON fields and extract file info
           const processRows = async () => {
+            // Resolve the real patient directory once: the on-disk layout is
+            // Reports/{patientId}_{Name}/{YYYY_MM_DD}_{reportId}/ — NOT
+            // Reports/{reportId}/ — so files must be looked up per visit dir.
+            let patientDirPath: string | null = null;
+            let visitDirNames: string[] = [];
+            try {
+              const reportsRoot = path.join(dataDir, 'Reports');
+              const dirs = await fs.promises.readdir(reportsRoot);
+              const patientDirName = dirs.find(d => d === patientId || d.startsWith(`${patientId}_`));
+              if (patientDirName) {
+                patientDirPath = path.join(reportsRoot, patientDirName);
+                visitDirNames = await fs.promises.readdir(patientDirPath);
+              }
+            } catch {
+              // Reports dir missing — return reports without file lists
+            }
+
             const reports = [];
             for (const row of rows) {
               let device = null;
@@ -713,13 +817,18 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
                   arrhythmia_summary = fullData.arrhythmia_summary;
                 }
 
-                // Scan for files in the report directory
-                const reportDir = path.join(dataDir, 'Reports', row.id);
-                try {
-                  const reportFiles = await fs.promises.readdir(reportDir);
-                  files = reportFiles.map(file => path.join(reportDir, file));
-                } catch {
-                  // directory doesn't exist
+                // Scan for files in the visit directory belonging to this report
+                if (patientDirPath) {
+                  const visitDirName = visitDirNames.find(d => d.endsWith(`_${row.id}`) || d === row.id);
+                  if (visitDirName) {
+                    const visitDir = path.join(patientDirPath, visitDirName);
+                    try {
+                      const reportFiles = await fs.promises.readdir(visitDir);
+                      files = reportFiles.map(file => path.join(visitDir, file));
+                    } catch {
+                      // directory doesn't exist
+                    }
+                  }
                 }
               } catch (e) {
                 console.error('Error parsing report data or reading files:', e);
@@ -818,6 +927,7 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
         p.dob,
         p.hospitalPatientId,
         p.mri_status,
+        p.manufacturer_warning_status,
         COUNT(r.id) as reportCount,
         MAX(r.interrogation_date) as lastReportDate
       FROM Patients p 
@@ -851,7 +961,7 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
       params.push(filters.deviceManufacturer);
     }
 
-    query += ' GROUP BY p.id, p.first_name, p.last_name, p.dob, p.mri_status';
+    query += ' GROUP BY p.id, p.first_name, p.last_name, p.dob, p.mri_status, p.manufacturer_warning_status';
 
     db.all(query, params, (err, rows: any[]) => {
       if (err) {
@@ -866,8 +976,9 @@ export const getAllPatients = (filters: any): Promise<any[]> => {
           dob: row.dob || '',
           lastReportDate: row.lastReportDate || '',
           reportCount: row.reportCount || 0,
-          mriStatus: row.mri_status ? JSON.parse(row.mri_status) : null,
-          manufacturerWarningStatus: row.manufacturer_warning_status ? JSON.parse(row.manufacturer_warning_status) : null
+          // safeJSONParse: one corrupted JSON cell must not break the whole list
+          mriStatus: safeJSONParse(row.mri_status, null),
+          manufacturerWarningStatus: safeJSONParse(row.manufacturer_warning_status, null)
         }));
         resolve(patients);
       }
@@ -1026,13 +1137,23 @@ export const getReportIdsForPatient = (patientId: string): Promise<string[]> => 
 export const deletePatient = (patientId: string): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
+    // Both deletes run in one transaction so a mid-way failure can't leave the
+    // patient deleted with orphaned reports (or vice versa). BEGIN + the two
+    // DELETEs are queued back-to-back inside serialize(); COMMIT/ROLLBACK is
+    // dispatched from the final callback based on whether either failed.
     db.serialize(() => {
+      db.run('BEGIN IMMEDIATE');
+      let txError: Error | null = null;
       db.run('DELETE FROM Reports WHERE patient_id = ?', [patientId], (err) => {
-        if (err) return reject(err);
-        db.run('DELETE FROM Patients WHERE id = ?', [patientId], (err2) => {
-          if (err2) return reject(err2);
-          resolve();
-        });
+        if (err) txError = txError || err;
+      });
+      db.run('DELETE FROM Patients WHERE id = ?', [patientId], (err) => {
+        if (err) txError = txError || err;
+        if (txError) {
+          db.run('ROLLBACK', () => reject(txError));
+        } else {
+          db.run('COMMIT', (commitErr) => commitErr ? reject(commitErr) : resolve());
+        }
       });
     });
   });
@@ -1086,17 +1207,20 @@ export const rebuildDatabase = async (onProgress?: (status: any) => void): Promi
         await new Promise<void>((resolve, reject) => {
           const db = getDb();
           db.run(
+            // INSERT OR REPLACE nulls unlisted columns — last_name_key must be
+            // included or patient matching breaks until the next startup backfill.
             `INSERT OR REPLACE INTO Patients (
-               id, first_name, last_name, dob, hospitalPatientId,
+               id, first_name, last_name, last_name_key, dob, hospitalPatientId,
                device_manufacturer, device_model, device_serial, leads, devices,
                mri_status, mri_data_hash,
                manufacturer_warning_status, manufacturer_warning_hash,
                last_indexed_mtime
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               p.id,
               p.first_name,
               p.last_name,
+              normalizeNameKey(p.last_name),
               p.dob,
               p.hospitalPatientId || null,
               p.device_manufacturer || null,
@@ -1474,15 +1598,19 @@ export const syncDatabase = async (): Promise<{ newPatients: number; newReports:
           if (p) {
             await new Promise<void>((resolve, reject) => {
               db.run(
+                // INSERT OR REPLACE nulls unlisted columns — last_name_key must
+                // be included or newly synced patients can't be matched by
+                // name+DOB until the next startup backfill (duplicate patients).
                 `INSERT OR REPLACE INTO Patients (
-                   id, first_name, last_name, dob, hospitalPatientId,
+                   id, first_name, last_name, last_name_key, dob, hospitalPatientId,
                    device_manufacturer, device_model, device_serial, leads, devices, last_indexed_mtime,
                    mri_status, mri_data_hash
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                 [
                   p.id,
                   p.first_name,
                   p.last_name,
+                  normalizeNameKey(p.last_name),
                   p.dob,
                   p.hospitalPatientId || null,
                   p.device_manufacturer || null,

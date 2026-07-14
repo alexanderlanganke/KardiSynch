@@ -52,6 +52,16 @@ export const ensureDatabaseLocation = (): string => {
         try {
             console.log(`[Database Migration] Migrating from ${sourcePath} to ${STANDARD_DB_PATH}...`);
             fs.copyFileSync(sourcePath, STANDARD_DB_PATH);
+            // The DB runs in WAL mode: committed transactions may still live in
+            // the -wal sidecar if the last session didn't checkpoint cleanly.
+            // Copying only the .db file would silently drop those transactions.
+            for (const suffix of ['-wal', '-shm']) {
+                const sidecar = sourcePath + suffix;
+                if (fs.existsSync(sidecar)) {
+                    console.log(`[Database Migration] Copying WAL sidecar ${sidecar}...`);
+                    fs.copyFileSync(sidecar, STANDARD_DB_PATH + suffix);
+                }
+            }
             console.log('[Database Migration] Migration successful.');
         } catch (error) {
             console.error('[Database Migration] FAILED to copy database:', error);

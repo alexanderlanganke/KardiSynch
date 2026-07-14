@@ -10,6 +10,8 @@ import { storeReport, storeFile } from './storage';
 import { lookupAlias, setAlias } from './deviceTypeAliases';
 import { logInfo, logError } from './logger';
 import { initPendingSort, isPendingSortReady, enqueuePendingSort, listPendingSortTasks } from './services/pendingSortService';
+import { moveFileSafe, uniqueDestPath } from './utils/fileMove';
+import { normalizeNameKey } from '../lib/names';
 
 let importDir: string;
 let unmatchedDir: string;
@@ -20,6 +22,33 @@ let startupTimeout: NodeJS.Timeout | null = null;
 let currentWatcher: import('fs').FSWatcher | null = null;
 let pollingFallbackInterval: NodeJS.Timeout | null = null;
 let isProcessing = false;
+// Last serialized file snapshot seen by each polling fallback — processing is
+// only triggered once the same snapshot is observed on two consecutive polls.
+let pollingStableSnapshot: string | null = null;
+let intraopPollingStableSnapshot: string | null = null;
+
+/**
+ * True while an import batch is being staged/processed. Maintenance operations
+ * that rewrite the DB or move visit directories (rebuild, dedup, merge, orphan
+ * repair) must not run concurrently with an import.
+ */
+export const isImportProcessing = (): boolean => isProcessing;
+
+/**
+ * Serializes name+size+mtime of a file list so the polling fallback can require
+ * the set to be identical across two consecutive polls (files still being
+ * written by a programmer change size/mtime between polls) before triggering.
+ */
+const serializeFileSnapshot = async (files: string[]): Promise<string> => {
+  const parts: string[] = [];
+  for (const file of [...files].sort()) {
+    try {
+      const stat = await fs.stat(file);
+      parts.push(`${file}|${stat.size}|${stat.mtimeMs}`);
+    } catch { /* file vanished between listing and stat */ }
+  }
+  return parts.join('\n');
+};
 
 // Parallel state for the intraoperative-import watcher (separate source dir,
 // shares unmatchedDir + dataDir + activeVisits + isProcessing with the primary watcher).
@@ -140,7 +169,7 @@ const enqueueManualSort = async (
   if (!isPendingSortReady()) return false;
   try {
     await enqueuePendingSort([file], { previewData, isIntraop, sessionId });
-    logImportEvent({
+    logEvent({
       id: uuidv4(),
       session_id: sessionId,
       file_path: file,
@@ -181,23 +210,18 @@ const createTempDirectory = async (parentDir: string): Promise<string> => {
 
 /**
  * Moves a file, handling cross-device moves (EXDEV) by falling back to copy+unlink.
+ * (Shared implementation in utils/fileMove so main.ts uses the same semantics.)
  */
-const moveFile = async (src: string, dest: string) => {
-  try {
-    await fs.rename(src, dest);
-  } catch (error: any) {
-    if (error.code === 'EXDEV') {
-      await fs.copyFile(src, dest);
-      const srcStats = await fs.stat(src);
-      const destStats = await fs.stat(dest);
-      if (destStats.size !== srcStats.size) {
-        throw new Error(`Cross-device copy verification failed for ${src} (expected ${srcStats.size} bytes, got ${destStats.size})`);
-      }
-      await fs.unlink(src);
-    } else {
-      throw error;
-    }
-  }
+const moveFile = (src: string, dest: string) => moveFileSafe(src, dest);
+
+/**
+ * Fire-and-forget import-event logging with an attached error handler — the
+ * bare `logImportEvent(...)` calls below return promises nobody awaits, so a
+ * DB error would otherwise surface as an unhandled rejection and the missing
+ * history entry would go unnoticed.
+ */
+const logEvent = (event: Parameters<typeof logImportEvent>[0]): void => {
+  logImportEvent(event).catch(e => console.warn('[Watcher] Failed to log import event:', e));
 };
 
 /**
@@ -225,6 +249,86 @@ const getFilesRecursively = async (dir: string): Promise<string[]> => {
     console.error(`Error reading directory ${dir}:`, e);
   }
   return results;
+};
+
+/**
+ * Lists ALL files under a directory recursively — unlike getFilesRecursively it
+ * skips nothing (no dotfile / _TEMP_ filtering), because it is used to recover
+ * every last original from a temp processing dir.
+ */
+const listAllFiles = async (dir: string): Promise<string[]> => {
+  let results: string[] = [];
+  let entries: import('fs').Dirent[] = [];
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      results = results.concat(await listAllFiles(fullPath));
+    } else {
+      results.push(fullPath);
+    }
+  }
+  return results;
+};
+
+/**
+ * Safely disposes of a temp processing dir: any files still inside (files a
+ * failed batch never processed, or files that couldn't be moved to the
+ * unmatched dir) are swept back into the watched source dir under
+ * collision-safe names so the next batch retries them. The temp dir itself is
+ * only deleted once it is empty — a temp dir must NEVER be rm -rf'd while it
+ * may still hold unprocessed originals, because staging MOVED them out of the
+ * import dir and deleting the temp dir would destroy the only copy.
+ *
+ * Returns the number of files swept back.
+ */
+const recoverTempDirFiles = async (tempDir: string, sourceDir: string): Promise<number> => {
+  let recovered = 0;
+  const files = await listAllFiles(tempDir);
+  for (const file of files) {
+    try {
+      const dest = await uniqueDestPath(path.join(sourceDir, path.basename(file)));
+      await moveFile(file, dest);
+      recovered++;
+    } catch (e) {
+      console.error(`[Watcher] Failed to recover ${file} from temp dir:`, e);
+    }
+  }
+
+  const remaining = await listAllFiles(tempDir);
+  if (remaining.length === 0) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  } else {
+    console.error(`[Watcher] ${remaining.length} file(s) could not be recovered from ${tempDir}; leaving the temp dir in place to avoid data loss.`);
+    sendNotification(`Some import files could not be recovered and remain in ${tempDir}`, 'error');
+  }
+  return recovered;
+};
+
+/**
+ * Recovers files stranded in leftover _TEMP_* dirs (e.g. after a crash or
+ * hard kill mid-batch) back into the watched dir so they get re-processed.
+ */
+const recoverLeftoverTempDirs = async (sourceDir: string): Promise<void> => {
+  let entries: import('fs').Dirent[];
+  try {
+    entries = await fs.readdir(sourceDir, { withFileTypes: true });
+  } catch { return; }
+
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name.startsWith('_TEMP_')) {
+      total += await recoverTempDirFiles(path.join(sourceDir, entry.name), sourceDir);
+    }
+  }
+  if (total > 0) {
+    console.warn(`[Watcher] Recovered ${total} file(s) from interrupted import batch(es) in ${sourceDir}.`);
+    sendNotification(`Recovered ${total} file(s) from an interrupted import. They will be re-processed.`, 'warning');
+  }
 };
 
 /**
@@ -271,7 +375,9 @@ const applyIntraopTagIfNeeded = (report: UnifiedReport, file: string) => {
 const getReportKey = (report: UnifiedReport): string | null => {
   const { patient, interrogation_date } = report;
   if (patient && patient.last_name && patient.dob && interrogation_date) {
-    return `${patient.last_name}_${patient.dob}_${interrogation_date.split('T')[0]}`;
+    // Normalized last-name key so "Müller"/"müller"/"MULLER " from different
+    // manufacturers' files map to the same in-batch visit.
+    return `${normalizeNameKey(patient.last_name)}_${patient.dob}_${interrogation_date.split('T')[0]}`;
   }
   return null;
 }
@@ -314,7 +420,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
       if (['.docx', '.zip', '.jar', '.bat', '.bak'].includes(ext)) {
         console.log(`Skipping unsupported file type: ${ext} (${path.basename(file)})`);
         unmatchedFiles.push(file);
-        logImportEvent({
+        logEvent({
           id: uuidv4(),
           session_id: sessionId,
           file_path: file,
@@ -452,6 +558,10 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             5 * 60 * 1000,
             { action: 'skip' }
           );
+          // Always clear the pending marker: if the timeout fallback fired, a
+          // stale non-null value would gate the fs.watch + polling triggers
+          // forever and permanently stall all future imports (W3).
+          pendingDeviceSelectionRequest = null;
 
           if (userDeviceResult.action === 'save' && userDeviceResult.deviceData) {
             const d = userDeviceResult.deviceData;
@@ -501,7 +611,11 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           if (report.device && report.device.serial_number && report.device.serial_number !== 'Unknown') {
             try {
               const { findPatientBySerial } = await import('./database');
-              const existing = await findPatientBySerial(report.device.serial_number);
+              // Scope by manufacturer when known — serials are only unique per manufacturer.
+              const existing = await findPatientBySerial(
+                report.device.serial_number,
+                report.manufacturer && report.manufacturer !== 'Unknown' ? report.manufacturer : undefined
+              );
               if (existing) {
                 console.log(`Recovered patient identity via Serial Number for ${path.basename(file)}.`);
                 targetPatient = existing;
@@ -531,7 +645,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               sessionSummary.pendingSort++;
             } else {
               unmatchedFiles.push(file);
-              logImportEvent({
+              logEvent({
                 id: uuidv4(),
                 session_id: sessionId,
                 file_path: file,
@@ -568,7 +682,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           // Store file and MERGE data (storeFile now handles additive visit.xml)
           await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
 
-          logImportEvent({
+          logEvent({
             id: uuidv4(),
             session_id: sessionId,
             file_path: file,
@@ -590,7 +704,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           // Store the structured file itself
           await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
 
-          logImportEvent({
+          logEvent({
             id: uuidv4(),
             session_id: sessionId,
             file_path: file,
@@ -621,7 +735,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           for (const genFile of report.generatedFiles) {
             await storeFile(genFile, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
 
-            logImportEvent({
+            logEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: genFile,
@@ -636,7 +750,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
       } catch (e) {
         console.error(`Error processing structured file ${path.basename(file)}:`, e);
         unmatchedFiles.push(file);
-        logImportEvent({
+        logEvent({
           id: uuidv4(),
           session_id: sessionId,
           file_path: file,
@@ -672,7 +786,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
             await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
 
-            logImportEvent({
+            logEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: file,
@@ -693,7 +807,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             console.log(`Matched PDF ${path.basename(file)} to visit ${key} by Session ID (${visit.sessionId})`);
             await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
 
-            logImportEvent({
+            logEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: file,
@@ -717,7 +831,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             // Pass undefined for report to PREVENT overwriting valid XML data with PDF data
             await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
 
-            logImportEvent({
+            logEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: file,
@@ -757,7 +871,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
         if (!report) {
           // Should have been caught earlier, but safe fallback
           unmatchedFiles.push(file);
-          logImportEvent({ id: uuidv4(), session_id: sessionId, file_path: file, status: 'error', message: 'Parse failed' });
+          logEvent({ id: uuidv4(), session_id: sessionId, file_path: file, status: 'error', message: 'Parse failed' });
           sessionSummary.errors++;
           continue;
         }
@@ -767,14 +881,18 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
         // Check for existing patient in DB
         let patient = null;
 
-        // 1. Try by Name + DOB
+        // 1. Try by Name + DOB (first name passed as a conservative guard so
+        //    two people sharing last name + DOB are never fused)
         if (report.patient.last_name !== 'Unknown' && report.patient.dob) {
-          patient = await findPatient(report.patient.last_name, report.patient.dob);
+          patient = await findPatient(report.patient.last_name, report.patient.dob, report.patient.first_name);
         }
 
-        // 2. Try by Serial Number
+        // 2. Try by Serial Number (scoped by manufacturer when known)
         if (!patient && report.device?.serial_number && report.device.serial_number !== 'Unknown') {
-          patient = await findPatientBySerial(report.device.serial_number);
+          patient = await findPatientBySerial(
+            report.device.serial_number,
+            report.manufacturer && report.manufacturer !== 'Unknown' ? report.manufacturer : undefined
+          );
         }
 
         if (patient) {
@@ -786,7 +904,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
 
           if (existingReport) {
             await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, undefined);
-            logImportEvent({
+            logEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: file,
@@ -828,7 +946,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               sessionSummary.pendingSort++;
             } else {
               unmatchedFiles.push(file);
-              logImportEvent({
+              logEvent({
                 id: uuidv4(),
                 session_id: sessionId,
                 file_path: file,
@@ -859,7 +977,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             sessionSummary.pendingSort++;
           } else {
             unmatchedFiles.push(file);
-            logImportEvent({
+            logEvent({
               id: uuidv4(),
               session_id: sessionId,
               file_path: file,
@@ -873,7 +991,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
       } catch (e) {
         console.error(`Error processing standalone PDF ${path.basename(file)}:`, e);
         unmatchedFiles.push(file);
-        logImportEvent({
+        logEvent({
           id: uuidv4(),
           session_id: sessionId,
           file_path: file,
@@ -920,12 +1038,19 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
     }
 
   } finally {
-    // ALWAYS Clean up temp directory
+    // ALWAYS clean up the temp directory — but never delete unprocessed
+    // originals: anything still inside (e.g. files whose move to the unmatched
+    // dir failed) is swept back into the source dir first.
     try {
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      console.log(`Successfully removed temporary directory: ${tempDir}`);
+      const recovered = await recoverTempDirFiles(tempDir, sourceDir);
+      if (recovered > 0) {
+        console.warn(`[Watcher] Swept ${recovered} leftover file(s) from ${tempDir} back to ${sourceDir} for re-processing.`);
+        sendNotification(`${recovered} file(s) could not be fully processed and were returned to the import folder.`, 'warning');
+      } else {
+        console.log(`Successfully removed temporary directory: ${tempDir}`);
+      }
     } catch (error) {
-      console.error(`Error removing temporary directory ${tempDir}:`, error);
+      console.error(`Error cleaning up temporary directory ${tempDir}:`, error);
       sendNotification(`Error cleaning up temp directory: ${(error as Error).message}`, 'error');
     }
 
@@ -1014,12 +1139,17 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
       await processTempDirectory(tempDir, importDir);
     } catch (e) {
       console.error('Error during batch processing:', e);
-      // Fallback cleanup if processTempDirectory didn't run or failed catastrophically
+      // Fallback cleanup if processTempDirectory didn't run or failed
+      // catastrophically. NEVER rm -rf here: the temp dir holds the ONLY copy
+      // of the staged originals — sweep them back into the import dir instead.
       if (tempDir) {
         try {
-          await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+          const recovered = await recoverTempDirFiles(tempDir, importDir);
+          if (recovered > 0) {
+            sendNotification(`Import batch failed; ${recovered} file(s) were returned to the import folder for retry.`, 'warning');
+          }
         } catch (cleanupErr) {
-          console.error('Failed to cleanup temp dir after error:', cleanupErr);
+          console.error('Failed to recover temp dir after error:', cleanupErr);
         }
       }
     } finally {
@@ -1059,10 +1189,20 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
         const allFiles = await getFilesRecursively(importDir);
 
         if (allFiles.length > 0) {
+          // Stability gate: only trigger once the exact same set of files
+          // (names + sizes + mtimes) is seen on two consecutive polls, so a
+          // programmer still writing PDFs isn't cut off mid-export — mirrors
+          // the stabilization delay of the fs.watch path.
+          const snapshot = await serializeFileSnapshot(allFiles);
+          if (snapshot !== pollingStableSnapshot) {
+            pollingStableSnapshot = snapshot;
+            return;
+          }
           console.log(`POLLING: Found ${allFiles.length} files in ${importDir}`);
           if (!watcherTimeout) {
             if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
               console.log('POLLING: Triggering processing fallback...');
+              pollingStableSnapshot = null;
               watcherTimeout = setTimeout(async () => {
                 watcherTimeout = null;
                 await executeBatchProcessing();
@@ -1079,6 +1219,10 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
   // Check for existing files on startup
   (async () => {
     try {
+      // Recover files stranded in _TEMP_* dirs by a crash mid-batch before
+      // scanning — they are moved back to the import root and re-processed.
+      await recoverLeftoverTempDirs(importDir);
+
       const existingFiles = await getFilesRecursively(importDir);
       if (existingFiles.length > 0) {
         console.log(`Found ${existingFiles.length} existing files in import directory. Processing...`);
@@ -1115,6 +1259,10 @@ export const initializeWatcher = (appImportDir: string, appUnmatchedDir: string,
 
             console.log(`Watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
 
+            // Re-clear: another event may have armed a new timer while we were
+            // awaiting the directory listing above — overwriting it would leak
+            // the old timer and double-trigger processing (W5).
+            if (watcherTimeout) clearTimeout(watcherTimeout);
             watcherTimeout = setTimeout(async () => {
               watcherTimeout = null;
               console.log('Watcher timeout triggered. Checking for files...');
@@ -1161,6 +1309,7 @@ export const stopWatcher = () => {
   activeVisits.clear();
   lastFileSnapshot.clear();
   lastImportActivity = 0;
+  pollingStableSnapshot = null;
   console.log('File watcher stopped.');
 };
 
@@ -1190,11 +1339,16 @@ export const initializeIntraopWatcher = (appIntraopDir: string, appUnmatchedDir:
       await processTempDirectory(tempDir, intraopImportDir);
     } catch (e) {
       console.error('Error during intraop batch processing:', e);
+      // Same as the primary watcher: sweep unprocessed originals back instead
+      // of deleting them with the temp dir.
       if (tempDir) {
         try {
-          await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+          const recovered = await recoverTempDirFiles(tempDir, intraopImportDir);
+          if (recovered > 0) {
+            sendNotification(`Intraop import batch failed; ${recovered} file(s) were returned to the intraop folder for retry.`, 'warning');
+          }
         } catch (cleanupErr) {
-          console.error('Failed to cleanup intraop temp dir after error:', cleanupErr);
+          console.error('Failed to recover intraop temp dir after error:', cleanupErr);
         }
       }
     } finally {
@@ -1225,10 +1379,17 @@ export const initializeIntraopWatcher = (appIntraopDir: string, appUnmatchedDir:
       if (files.length > 0) {
         const allFiles = await getFilesRecursively(intraopImportDir);
         if (allFiles.length > 0) {
+          // Stability gate — see the primary watcher's polling fallback.
+          const snapshot = await serializeFileSnapshot(allFiles);
+          if (snapshot !== intraopPollingStableSnapshot) {
+            intraopPollingStableSnapshot = snapshot;
+            return;
+          }
           console.log(`POLLING (intraop): Found ${allFiles.length} files in ${intraopImportDir}`);
           if (!intraopWatcherTimeout) {
             if (!pendingManualSortRequest && !pendingDeviceSelectionRequest) {
               console.log('POLLING (intraop): Triggering processing fallback...');
+              intraopPollingStableSnapshot = null;
               intraopWatcherTimeout = setTimeout(async () => {
                 intraopWatcherTimeout = null;
                 await executeIntraopBatchProcessing();
@@ -1244,6 +1405,9 @@ export const initializeIntraopWatcher = (appIntraopDir: string, appUnmatchedDir:
 
   (async () => {
     try {
+      // Recover files stranded in _TEMP_* dirs by a crash mid-batch.
+      await recoverLeftoverTempDirs(intraopImportDir);
+
       const existingFiles = await getFilesRecursively(intraopImportDir);
       if (existingFiles.length > 0) {
         console.log(`Found ${existingFiles.length} existing files in intraop directory. Processing...`);
@@ -1274,6 +1438,8 @@ export const initializeIntraopWatcher = (appIntraopDir: string, appUnmatchedDir:
 
             console.log(`Intraop watcher: File event. PDF detected: ${hasPdf}. Waiting ${stabilizationTime}ms...`);
 
+            // Re-clear to avoid leaking a timer armed while awaiting above (W5).
+            if (intraopWatcherTimeout) clearTimeout(intraopWatcherTimeout);
             intraopWatcherTimeout = setTimeout(async () => {
               intraopWatcherTimeout = null;
               const finalFiles = await getFilesRecursively(intraopImportDir);
@@ -1316,6 +1482,7 @@ export const stopIntraopWatcher = () => {
     intraopCurrentWatcher = null;
   }
   intraopImportDir = '';
+  intraopPollingStableSnapshot = null;
   console.log('Intraop file watcher stopped.');
 };
 
@@ -1481,14 +1648,30 @@ const performMove = async (sourcePath: string, targetParentPath: string, targetP
   }
 
   // Update Database
-  // Only update patient_id for the report(s) associated with this visit. 
+  // Only update patient_id for the report(s) associated with this visit.
   // We assume the visit ID corresponds to a report ID.
   const db = getDb();
 
-  // Update the specific report
-  db.run(`UPDATE Reports SET patient_id = ? WHERE id = ?`, [targetPatientId, visitId], (err: any) => {
-    if (err) console.error('[MoveVisit] DB Update failed:', err);
-  });
+  // Update the specific report. The write is awaited and, on failure, the
+  // directory move is rolled back — otherwise the visit's files would live
+  // under the target patient while the DB still points at the source patient,
+  // and the renderer would be told the move succeeded.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      db.run(`UPDATE Reports SET patient_id = ? WHERE id = ?`, [targetPatientId, visitId], (err: any) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } catch (err: any) {
+    console.error('[MoveVisit] DB Update failed, rolling back directory move:', err);
+    try {
+      await fs.rename(destPath, sourcePath);
+    } catch (rollbackErr) {
+      console.error('[MoveVisit] Rollback of directory move failed:', rollbackErr);
+    }
+    throw new Error(`Failed to update database for moved visit: ${err?.message || err}`);
+  }
 
   // Also update any other reports that might have been linking to this visit? 
   // (Usually 1:1, but if multiple reports shared a folder, we might miss them if we only update by visitId.

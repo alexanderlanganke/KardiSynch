@@ -4,9 +4,10 @@ import path from 'path';
 import fs from 'fs/promises';
 import { initializeDatabase, getDb, getAllPatients, getPatientById, getPatientReports, closeDatabase, syncDatabase } from './database';
 import { ensureDatabaseLocation } from './databaseMigration';
-import { initializeWatcher, stopWatcher, initializeIntraopWatcher, stopIntraopWatcher } from './watcher';
+import { initializeWatcher, stopWatcher, initializeIntraopWatcher, stopIntraopWatcher, isImportProcessing } from './watcher';
 import { startUsbWatcher, stopUsbWatcher } from './usbWatcher';
 import { initializeStorage } from './storage';
+import { moveFileSafe, uniqueDestPath } from './utils/fileMove';
 import { setMainWindow, getMainWindow, sendNotification } from './windowManager';
 import { getAllSettings, saveSettings } from './settingsService';
 import { getConfig } from './config';
@@ -69,11 +70,27 @@ function updateAllowedPaths(settings: any) {
   allowedBaseDirs = Array.from(dirs);
 }
 
+// Files the user explicitly picked via a native open dialog (select-file).
+// These are trusted individually even when they live outside the base dirs —
+// the debug analyzers read files from arbitrary user-chosen locations.
+const dialogApprovedPaths = new Set<string>();
+
 function isPathAllowed(filePath: string): boolean {
   const resolved = path.resolve(filePath);
+  if (dialogApprovedPaths.has(resolved)) return true;
   return allowedBaseDirs.some(dir =>
     resolved.startsWith(dir + path.sep) || resolved === dir
   );
+}
+
+/**
+ * Guard for maintenance operations that rewrite the DB / move visit dirs.
+ * Running them concurrently with an import batch corrupts both.
+ */
+function assertNoImportInProgress(operation: string): void {
+  if (isImportProcessing()) {
+    throw new Error(`An import is currently in progress — cannot run "${operation}" now. Please try again when the import finishes.`);
+  }
 }
 
 function createWindow() {
@@ -198,27 +215,27 @@ app.whenReady().then(async () => {
     // Setup listeners to forward to renderer
     autoUpdater.on('checking-for-update', () => {
       const win = getMainWindow();
-      if (win) win.webContents.send('update-status', 'Checking for updates...');
+      if (win && !win.isDestroyed()) win.webContents.send('update-status', 'Checking for updates...');
     });
     autoUpdater.on('update-available', (info) => {
       const win = getMainWindow();
-      if (win) win.webContents.send('update-status', `Update available: ${info.version}`);
+      if (win && !win.isDestroyed()) win.webContents.send('update-status', `Update available: ${info.version}`);
     });
     autoUpdater.on('update-not-available', (info) => {
       const win = getMainWindow();
-      if (win) win.webContents.send('update-status', 'Your application is up to date.');
+      if (win && !win.isDestroyed()) win.webContents.send('update-status', 'Your application is up to date.');
     });
     autoUpdater.on('error', (err) => {
       const win = getMainWindow();
-      if (win) win.webContents.send('update-status', { message: 'Update error', error: err.toString() });
+      if (win && !win.isDestroyed()) win.webContents.send('update-status', { message: 'Update error', error: err.toString() });
     });
     autoUpdater.on('download-progress', (progressObj) => {
       const win = getMainWindow();
-      if (win) win.webContents.send('update-status', `Downloading: ${Math.round(progressObj.percent)}%`);
+      if (win && !win.isDestroyed()) win.webContents.send('update-status', `Downloading: ${Math.round(progressObj.percent)}%`);
     });
     autoUpdater.on('update-downloaded', (info) => {
       const win = getMainWindow();
-      if (win) win.webContents.send('update-status', `Update downloaded. Ready to install.`);
+      if (win && !win.isDestroyed()) win.webContents.send('update-status', `Update downloaded. Ready to install.`);
 
       // Ask user to update? Or just notify. Detailed UI can handle "Restart and Install"
     });
@@ -396,15 +413,9 @@ ipcMain.handle('update-patient', async (event, patient) => {
       device_serial = d.serial;
     }
 
-    await import('./database').then(m => m.updatePatient({
-      ...patient,
-      device_manufacturer,
-      device_model,
-      device_serial,
-      leads: patient.leads ? JSON.stringify(patient.leads) : null
-    }));
-
-    // 2. Update XML Storage
+    // Update XML storage FIRST: patient.xml is the read-repair source of truth,
+    // so if this throws (e.g. missing patient dir) the DB stays untouched, and
+    // if the DB update below fails the read-repair heals it from the XML.
     await import('./storage').then(m => m.updatePatientXML(patient.id, {
       first_name: patient.first_name,
       last_name: patient.last_name,
@@ -412,6 +423,25 @@ ipcMain.handle('update-patient', async (event, patient) => {
       hospitalPatientId: patient.hospitalPatientId,
       devices: patient.devices,
       leads: patient.leads
+    }));
+
+    // 2. Update Database.
+    // The renderer sends warning data camelCased (manufacturerWarningStatus,
+    // per getPatientById's return shape) — map it so updatePatient sees it.
+    // When neither casing is present we pass undefined and updatePatient leaves
+    // the cached warning columns untouched instead of nulling them.
+    await import('./database').then(m => m.updatePatient({
+      ...patient,
+      device_manufacturer,
+      device_model,
+      device_serial,
+      leads: patient.leads ? JSON.stringify(patient.leads) : null,
+      manufacturer_warning_status: patient.manufacturer_warning_status !== undefined
+        ? patient.manufacturer_warning_status
+        : patient.manufacturerWarningStatus,
+      manufacturer_warning_hash: patient.manufacturer_warning_hash !== undefined
+        ? patient.manufacturer_warning_hash
+        : patient.manufacturerWarningHash
     }));
 
     return { success: true };
@@ -423,9 +453,10 @@ ipcMain.handle('update-patient', async (event, patient) => {
 
 ipcMain.handle('rebuild-database', async () => {
   try {
+    assertNoImportInProgress('rebuild database');
     const mainWindow = getMainWindow();
     return await import('./database').then(m => m.rebuildDatabase((status) => {
-      if (mainWindow) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('process-status', { ...status, taskId: 'rebuild-db' });
       }
     }));
@@ -437,10 +468,11 @@ ipcMain.handle('rebuild-database', async () => {
 
 ipcMain.handle('dedup-reports', async () => {
   try {
+    assertNoImportInProgress('deduplicate reports');
     const mainWindow = getMainWindow();
     const { runDedupCleanup } = await import('./services/dedupService');
     return await runDedupCleanup((status) => {
-      if (mainWindow) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('process-status', { ...status, taskId: 'dedup-reports' });
       }
     });
@@ -462,10 +494,11 @@ ipcMain.handle('find-duplicate-patients', async () => {
 
 ipcMain.handle('merge-patients', async (_event, keeperId: string, loserIds: string[]) => {
   try {
+    assertNoImportInProgress('merge patients');
     const mainWindow = getMainWindow();
     const { mergePatients } = await import('./services/patientMergeService');
     const result = await mergePatients(keeperId, loserIds, (status) => {
-      if (mainWindow) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('process-status', { ...status, taskId: 'merge-patients' });
       }
     });
@@ -490,10 +523,11 @@ ipcMain.handle('find-orphaned-visits', async () => {
 
 ipcMain.handle('move-orphaned-visits', async (_event, reportIds: string[]) => {
   try {
+    assertNoImportInProgress('repair misplaced visits');
     const mainWindow = getMainWindow();
     const { moveOrphanedVisits } = await import('./services/orphanService');
     const result = await moveOrphanedVisits(reportIds, (status) => {
-      if (mainWindow) {
+      if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('process-status', { ...status, taskId: 'move-orphaned-visits' });
       }
     });
@@ -558,6 +592,13 @@ ipcMain.handle('set-settings', async (event, settings) => {
     // Update allowed paths for IPC security validation
     updateAllowedPaths(newSettings);
 
+    // Re-initialize storage so a changed dataPath takes effect immediately.
+    // storage.ts caches dataDir at init time; without this, every new import
+    // keeps writing into the OLD data directory until the app restarts.
+    if (oldSettings.dataPath !== newSettings.dataPath) {
+      await initializeStorage();
+    }
+
     // Restart watcher if relevant paths changed
     if (
       oldSettings.importDir !== newSettings.importDir ||
@@ -594,6 +635,12 @@ ipcMain.handle('set-settings', async (event, settings) => {
 ipcMain.handle('reset-settings', async () => {
   try {
     const newSettings = await import('./settingsService').then(m => m.resetSettings());
+
+    // Refresh the IPC path allowlist and the storage module's cached dataDir
+    // for the restored default paths (otherwise both keep the old values
+    // until restart).
+    updateAllowedPaths(newSettings);
+    await initializeStorage();
 
     // Restart watcher with default paths
     console.log('Settings reset, restarting watcher...');
@@ -643,9 +690,11 @@ ipcMain.handle('clear-all-data', async () => {
       await fs.rm(dbPath, { force: true });
     }
 
-    // 5. Re-initialize
-    console.log('[Main] Re-initializing system...');
-    initializeDatabase(dbPath);
+    // 5. Re-initialize.
+    // MUST be awaited: initializeStorage() -> getSettings() -> getDb() throws
+    // if the connection isn't established yet, which left the app without
+    // storage/watchers until restart.
+    await initializeDatabase(dbPath);
     await initializeStorage();
     initializeWatcher(settings.importDir, settings.unmatchedDir, settings.dataPath);
     if (settings.intraopImportDir) {
@@ -671,6 +720,9 @@ ipcMain.handle('get-pdf-data', async (event, filePath) => {
     return data;
   } catch (error) {
     console.error('[get-pdf-data] Failed to read PDF file:', error);
+    // Rethrow so the renderer can distinguish an error from an empty file
+    // (previously this silently returned undefined).
+    throw error;
   }
 });
 
@@ -713,23 +765,28 @@ ipcMain.handle('reprocess-unmatched', async () => {
 
     const files = await fs.readdir(unmatchedDir);
     let movedCount = 0;
+    const failures: { file: string; error: string }[] = [];
 
     for (const file of files) {
       const srcPath = path.join(unmatchedDir, file);
-      const destPath = path.join(importDir, file);
 
       try {
         const stats = await fs.stat(srcPath);
         if (stats.isFile()) {
-          await fs.rename(srcPath, destPath);
+          // Collision-safe destination (never silently overwrite a same-named
+          // file already sitting in the import dir) + EXDEV-safe move, since
+          // importDir and unmatchedDir can live on different volumes.
+          const destPath = await uniqueDestPath(path.join(importDir, file));
+          await moveFileSafe(srcPath, destPath);
           movedCount++;
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error(`Failed to move file ${file}:`, err);
+        failures.push({ file, error: String(err?.message || err) });
       }
     }
 
-    return { count: movedCount, success: true };
+    return { count: movedCount, success: failures.length === 0, failures };
   } catch (error) {
     console.error('Failed to reprocess unmatched:', error);
     throw error;
@@ -1220,6 +1277,10 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
           // patient+date (issue #140). Reuse it instead of creating a second
           // instance of the same visit, mirroring the auto-PDF path in
           // watcher.ts. Only a new visit is created when none exists yet.
+          // NOTE (TOCTOU): this check deliberately runs HERE — after every
+          // await in this iteration (patient resolution, parseFile) — so it is
+          // immediately adjacent to the createReport below with no intervening
+          // awaits, keeping the double-visit race window as narrow as possible.
           const datePrefix = (date || '').split('T')[0];
           const existingReport = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
 
@@ -1290,7 +1351,13 @@ ipcMain.handle('get-import-session-events', async (event, sessionId) => {
 
 ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, targetVisitId?: string, newVisitDate?: string, confirmedFilePath?: string) => {
   try {
-    const { getImportEvent, updateImportEvent, getPatientById, getReportById, createReport, updateReportPatient } = await import('./database');
+    // confirmedFilePath comes from the renderer — validate it like every other
+    // renderer-supplied path before it is handed to storeFile (which MOVES it).
+    if (confirmedFilePath && !isPathAllowed(confirmedFilePath)) {
+      throw new Error('Access denied: path is outside allowed directories');
+    }
+
+    const { getImportEvent, updateImportEvent, getPatientById, getReportById, createReport, deleteReport, updateReportPatient } = await import('./database');
     const { moveReport, storeFile } = await import('./storage');
     const { v4: uuidv4 } = await import('uuid');
 
@@ -1336,6 +1403,14 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
       const filePath = confirmedFilePath || importEvent.file_path;
       if (!filePath) throw new Error('File path missing');
 
+      // Verify the source file exists BEFORE creating any Report row —
+      // otherwise a failed move leaves a phantom empty visit in the timeline.
+      try {
+        await fs.access(filePath);
+      } catch {
+        throw new Error(`Source file not found: ${filePath}`);
+      }
+
       let parsedReport = null;
       let date = 'Unknown';
 
@@ -1364,7 +1439,16 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
 
       // Store file
       // If we created a new report, passing targetReport.reportObj allows storeFile to create visit.xml
-      await storeFile(filePath, targetReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetReport.date, targetPatient, targetReport.reportObj || parsedReport || undefined);
+      try {
+        await storeFile(filePath, targetReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetReport.date, targetPatient, targetReport.reportObj || parsedReport || undefined);
+      } catch (storeErr) {
+        // Roll back the freshly created report row so a failed move doesn't
+        // leave a phantom empty visit behind.
+        if (targetReport.isNew) {
+          await deleteReport(targetReport.id).catch(e => console.warn('[move-imported-file] Failed to roll back new report:', e));
+        }
+        throw storeErr;
+      }
 
       // Update Import Event
       await updateImportEvent(eventId, {
@@ -1402,25 +1486,21 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
 
         const safeName = `${oldPatient.last_name}_${oldPatient.first_name}`.replace(/[^a-zA-Z0-9]/g, '_');
 
-        // Date formatting for folder
-        let dateString = 'Unknown';
-        if (oldReport.interrogation_date) {
-          const d = new Date(oldReport.interrogation_date);
-          if (!isNaN(d.getTime())) {
-            const y = d.getFullYear();
-            const m = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            dateString = `${y}_${m}_${day}`;
-          }
-        }
+        // Date formatting for folder — same textual slicing storage.ts uses,
+        // so the reconstructed path matches the folder storeFile created
+        // (Date-based local getters shifted a day in timezones west of UTC).
+        const { visitDirDateString } = await import('./storage');
+        const dateString = visitDirDateString(oldReport.interrogation_date);
 
         const visitDir = path.join(dataDir, 'Reports', `${oldPatient.id}_${safeName}`, `${dateString}_${oldReport.id}`);
         const filename = path.basename(importEvent.file_path); // Assume this is correct filename
         const currentPath = path.join(visitDir, filename);
 
-        if (!require('fs').existsSync(currentPath)) {
-          console.warn(`File not found at ${currentPath}, trying broad search in visit dir`);
-          // Fallback: search for file with same name?
+        // Verify the source file exists BEFORE creating any Report row —
+        // proceeding used to create the new visit row and then fail in
+        // storeFile, leaving a phantom empty visit.
+        if (!await fs.access(currentPath).then(() => true).catch(() => false)) {
+          throw new Error(`Source file not found at ${currentPath}`);
         }
 
         // 2. Determine Target Report/Visit (Use oldReport as template)
@@ -1429,7 +1509,14 @@ ipcMain.handle('move-imported-file', async (event, eventId, newPatientId, target
         // 3. Move File using storeFile
         // storeFile will move it from currentPath -> New Path
         // We pass 'undefined' for reportObj to avoid overwriting visit metadata unless necessary
-        await storeFile(currentPath, targetReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetReport.date, targetPatient, targetReport.reportObj);
+        try {
+          await storeFile(currentPath, targetReport.id, targetPatient.id, `${targetPatient.last_name}_${targetPatient.first_name}`, targetReport.date, targetPatient, targetReport.reportObj);
+        } catch (storeErr) {
+          if (targetReport.isNew) {
+            await deleteReport(targetReport.id).catch(e => console.warn('[move-imported-file] Failed to roll back new report:', e));
+          }
+          throw storeErr;
+        }
 
         // 4. Update Import Event
         await updateImportEvent(eventId, {
@@ -1518,15 +1605,21 @@ ipcMain.handle('select-file', async (event, filters?: { name: string; extensions
 
   if (process.platform === 'linux') {
     const result = await dialog.showOpenDialog(options);
+    // Whitelist the user-chosen file for subsequent read IPC (isPathAllowed)
+    if (result.filePaths[0]) dialogApprovedPaths.add(path.resolve(result.filePaths[0]));
     return result.filePaths[0];
   }
 
   if (!mainWindow) return;
   const result = await dialog.showOpenDialog(mainWindow, options);
+  if (result.filePaths[0]) dialogApprovedPaths.add(path.resolve(result.filePaths[0]));
   return result.filePaths[0];
 });
 
 ipcMain.handle('analyze-biotronik-xml', async (event, filePath: string) => {
+  if (!isPathAllowed(filePath)) {
+    throw new Error('Access denied: path is outside allowed directories');
+  }
   const fs = await import('fs/promises');
   const { Worker } = await import('worker_threads');
   const xmlData = await fs.readFile(filePath, 'utf-8');
@@ -1562,6 +1655,9 @@ ipcMain.handle('analyze-biotronik-xml', async (event, filePath: string) => {
 });
 
 ipcMain.handle('analyze-abbott-log', async (_event, filePath: string) => {
+  if (!isPathAllowed(filePath)) {
+    throw new Error('Access denied: path is outside allowed directories');
+  }
   const fsAsync = await import('fs/promises');
   const buffer = await fsAsync.readFile(filePath);
   const { analyzeAbbottLog } = require('./parsers/abbott-analyzer');
@@ -1570,7 +1666,14 @@ ipcMain.handle('analyze-abbott-log', async (_event, filePath: string) => {
 
 ipcMain.handle('open-external', async (event, url) => {
   try {
-    await shell.openExternal(url);
+    // Only allow web URLs — the renderer feeds this handler links that
+    // originate from scraped manufacturer data, so file:/smb:/etc. must not
+    // reach shell.openExternal (same policy as the window-open handler).
+    const parsed = new URL(String(url));
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`Blocked non-web URL scheme: ${parsed.protocol}`);
+    }
+    await shell.openExternal(parsed.toString());
     return { success: true };
   } catch (error) {
     console.error('Failed to open external URL:', error);
@@ -1655,6 +1758,13 @@ ipcMain.handle('web-panel-assign-download', async (_event, info: {
   sourceManufacturer: string;
 }) => {
   try {
+    // The renderer supplies the path — storeFile MOVES it into the data store,
+    // so an unvalidated path would let a compromised renderer exfiltrate (or
+    // relocate) any file on disk into the patient directory.
+    if (!isPathAllowed(info.filePath)) {
+      throw new Error('Access denied: path is outside allowed directories');
+    }
+
     const { getPatientById, findOrCreatePatient, createReport } = await import('./database');
     const { storeFile } = await import('./storage');
     const { v4: uuidv4 } = await import('uuid');
@@ -1752,6 +1862,9 @@ ipcMain.handle('web-panel-assign-download', async (_event, info: {
 
 ipcMain.handle('web-panel-dismiss-download', async (_event, filePath: string) => {
   try {
+    if (!isPathAllowed(filePath)) {
+      throw new Error('Access denied: path is outside allowed directories');
+    }
     const fsAsync = await import('fs/promises');
     const downloadsDir = app.getPath('downloads');
     const dest = path.join(downloadsDir, path.basename(filePath));
