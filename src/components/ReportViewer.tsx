@@ -13,6 +13,10 @@ interface ReportViewerProps {
 const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) => {
     const [contentBlobUrl, setContentBlobUrl] = React.useState<string | null>(null);
     const [loading, setLoading] = React.useState(false);
+    const [loadError, setLoadError] = React.useState<string | null>(null);
+    // Monotonic token: a slow read for a previously selected file must not
+    // overwrite the content of the file selected afterwards.
+    const loadRequestRef = React.useRef(0);
 
     React.useEffect(() => {
         // Cleanup function to revoke Blob URLs
@@ -23,13 +27,16 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
 
     React.useEffect(() => {
         if ((type === 'xml' || type === 'text') && filePath) {
+            const requestId = ++loadRequestRef.current;
             const loadContent = async () => {
                 setLoading(true);
+                setLoadError(null);
                 try {
                     if (!window.electronAPI) throw new Error('Electron API not available');
 
                     // Fetch as text to display nicely in browser's native viewer
                     const text = await window.electronAPI.readFileText(filePath);
+                    if (requestId !== loadRequestRef.current) return; // stale — another file was selected
 
                     // Determine MIME type based on current 'type' prop or file extension if needed
                     // For now, strict: xml -> text/xml, text -> text/plain
@@ -39,15 +46,19 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
                     const url = URL.createObjectURL(blob);
                     setContentBlobUrl(url);
                 } catch (error) {
+                    if (requestId !== loadRequestRef.current) return;
                     console.error(`Failed to load ${type} data:`, error);
                     setContentBlobUrl(null);
+                    setLoadError(filePath.split(/[/\\]/).pop() || filePath);
                 } finally {
-                    setLoading(false);
+                    if (requestId === loadRequestRef.current) setLoading(false);
                 }
             };
             loadContent();
         } else {
+            loadRequestRef.current++; // invalidate any in-flight load
             setContentBlobUrl(null);
+            setLoadError(null);
         }
     }, [type, filePath]);
 
@@ -55,6 +66,18 @@ const ReportViewer: React.FC<ReportViewerProps> = ({ report, type, filePath }) =
         return (
             <div className="flex items-center justify-center h-full text-muted-foreground">
                 Loading data...
+            </div>
+        );
+    }
+
+    if ((type === 'xml' || type === 'text') && loadError) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-3 p-8" role="alert">
+                <FileText className="h-12 w-12 opacity-20" />
+                <p className="text-sm font-medium text-destructive">Failed to load file</p>
+                <p className="text-xs text-center max-w-sm">
+                    <span className="font-mono">{loadError}</span> could not be read. The file may have been moved or deleted.
+                </p>
             </div>
         );
     }
@@ -180,6 +203,11 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
     const [searchQuery, setSearchQuery] = React.useState('');
 
     React.useEffect(() => {
+        // `cancelled` guards against a slow read resolving after the file
+        // changed or the viewer unmounted: without it the stale PDF would
+        // overwrite the newer one and its blob URL would leak (created after
+        // the cleanup already ran).
+        let cancelled = false;
         let url: string | null = null;
         const loadPdf = async () => {
             if (!filePath) return;
@@ -187,14 +215,17 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
             setError(null);
             try {
                 const data = await window.electronAPI.getPdfData(filePath);
+                if (cancelled) return;
+                if (!data) throw new Error('No PDF data returned');
                 const blob = new Blob([new Uint8Array(data)], { type: 'application/pdf' });
                 url = URL.createObjectURL(blob);
                 setPdfUrl(url);
             } catch (err) {
+                if (cancelled) return;
                 console.error('Failed to load PDF data:', err);
-                setError('Failed to load PDF file.');
+                setError(`Failed to load PDF file: ${filePath.split(/[/\\]/).pop() || filePath}`);
             } finally {
-                setLoading(false);
+                if (!cancelled) setLoading(false);
             }
         };
 
@@ -202,6 +233,7 @@ const PDFViewer: React.FC<{ filePath: string }> = ({ filePath }) => {
         setScale(1.0);
 
         return () => {
+            cancelled = true;
             if (url) {
                 URL.revokeObjectURL(url);
             }

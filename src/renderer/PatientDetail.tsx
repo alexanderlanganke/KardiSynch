@@ -10,6 +10,7 @@ import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DataMergeModal from '@/components/DataMergeModal';
 import { calculateAge } from './utils/trendDelta';
 import { hasActiveWarning, daysSinceLastVisit } from './utils/clinicalPriority';
+import { getMriCheckUrl } from './utils/mriCheckUrls';
 import { cn, formatDate } from '@/lib/utils';
 import { useAppDialog } from './components/AppDialogProvider';
 
@@ -23,6 +24,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const [patient, setPatient] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null]);
   const [activePaneId, setActivePaneId] = useState(0);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -41,17 +43,24 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const loadPatientData = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
       const patientData = await window.electronAPI.getPatientById(patientId);
       const visitsData = await window.electronAPI.getVisitDirectories(patientId);
 
       setPatient(patientData);
       setReports(visitsData);
 
-      if (visitsData.length > 0 && !selectedReports[0]) {
-        setSelectedReports([visitsData[0], null]);
-      }
+      // Functional updater: loadPatientData is re-invoked after edits/moves, so
+      // reading `selectedReports` from the closure would see a stale snapshot.
+      setSelectedReports(prev => {
+        if (visitsData.length > 0 && !prev[0]) {
+          return [visitsData[0], prev[1]];
+        }
+        return prev;
+      });
     } catch (error) {
       console.error('Failed to load patient data:', error);
+      setLoadError(error instanceof Error ? error.message : 'Failed to load patient data');
     } finally {
       setLoading(false);
     }
@@ -131,6 +140,10 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       }
       await window.electronAPI.moveVisit(visitToMove.id, targetPatientId);
       setIsAssignmentOpen(false);
+      // The visit's files now live under another patient's directory — clear it
+      // from any viewer pane so a stale document isn't shown for this patient.
+      const movedVisitId = visitToMove.id;
+      setSelectedReports(prev => prev.map(r => (r && r.id === movedVisitId ? null : r)));
       setVisitToMove(null);
       await loadPatientData();
     } catch (error) {
@@ -168,9 +181,23 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   }
 
   if (!patient && !loading) {
+    // Distinguish a genuinely missing record from a transient load failure so
+    // an IPC/disk error isn't misreported as "Patient not found".
+    const isNotFound = (loadError || '').toLowerCase().includes('not found');
     return (
-      <div className="flex flex-col items-center justify-center h-screen gap-4">
-        <div className="text-muted-foreground">Patient not found</div>
+      <div className="flex flex-col items-center justify-center h-screen gap-4" role="alert">
+        {isNotFound || !loadError ? (
+          <div className="text-muted-foreground">Patient not found</div>
+        ) : (
+          <>
+            <AlertTriangle className="h-8 w-8 text-red-500/60" />
+            <div className="text-center">
+              <div className="font-medium text-red-600 dark:text-red-400">Failed to load patient data</div>
+              <div className="text-xs text-muted-foreground mt-1 max-w-md">{loadError}</div>
+            </div>
+            <Button variant="outline" onClick={() => loadPatientData()}>Retry</Button>
+          </>
+        )}
         <Button onClick={onBack}><ArrowLeft className="mr-2 h-4 w-4" /> Back to Dashboard</Button>
       </div>
     );
@@ -223,7 +250,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             aria-expanded={isExpanded}
             aria-label="Toggle patient details"
             tabIndex={0}
-            onKeyDown={(e) => { if (e.key === 'Enter') setIsExpanded(!isExpanded); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsExpanded(!isExpanded); } }}
           >
             {/* Patient name, DOB, age */}
             <div className="flex items-baseline gap-2 shrink-0">
@@ -318,7 +345,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                           <div className="flex items-center gap-3 mt-1 text-muted-foreground">
                             <span>SN: {device.serial || 'Unknown'}</span>
                             {device.manufacturer && <span>{device.manufacturer}</span>}
-                            {device.implant_date && <span>Implanted: {device.implant_date}</span>}
+                            {device.implant_date && <span>Implanted: {formatDate(device.implant_date)}</span>}
                           </div>
                           <div className="mt-1">
                             <MriCompactBadge manufacturer={device.manufacturer} />
@@ -350,7 +377,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                           <div className="flex items-center gap-3 mt-1 text-muted-foreground">
                             <span>SN: {lead.serial || 'Unknown'}</span>
                             {lead.connector && <span>{lead.connector}</span>}
-                            {lead.implant_date && <span>Implanted: {lead.implant_date}</span>}
+                            {lead.implant_date && <span>Implanted: {formatDate(lead.implant_date)}</span>}
                           </div>
                         </div>
                       </div>
@@ -467,39 +494,30 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   );
 };
 
-// MRI check URLs — links to manufacturer's own MRI compatibility tool
-const MRI_CHECK_URLS: Record<string, string> = {
-  'medtronic': 'https://www.medtronic.com/en-us/healthcare-professionals/mri-resources/mr-conditional-search-tool.html',
-  'biotronik': 'https://www.promricheck.com',
-  'abbott': 'https://mri.merlin.net/',
-  'st. jude': 'https://mri.merlin.net/',
-  'sjm': 'https://mri.merlin.net/',
-  'boston scientific': 'https://www.bostonscientific.com/imageready/en-US/model-lookup.html',
-  'guidant': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
-  'microport': 'https://www.crm.microport.com/automri/en/cardiologist/tool',
-  'sorin': 'https://www.crm.microport.com/automri/en/cardiologist/tool',
-};
-
-function getMriCheckUrl(manufacturer: string): string | null {
-  const manu = (manufacturer || '').toLowerCase();
-  for (const [key, url] of Object.entries(MRI_CHECK_URLS)) {
-    if (manu.includes(key)) return url;
-  }
-  return null;
-}
-
 // Compact MRI link badge — opens manufacturer's MRI check page
 const MriCompactBadge: React.FC<{ manufacturer?: string }> = ({ manufacturer }) => {
-  const url = getMriCheckUrl(manufacturer || '');
+  const url = getMriCheckUrl(manufacturer);
   if (!url) return null;
+
+  const openCheck = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    window.electronAPI.openExternal(url);
+  };
 
   return (
     <span
       className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded text-foreground/70 bg-muted border border-border font-medium cursor-pointer hover:bg-accent transition-colors"
       aria-label="Check MRI compatibility"
       title={`Open ${manufacturer} MRI compatibility check`}
-      onClick={(e) => { e.stopPropagation(); window.electronAPI.openExternal(url); }}
+      onClick={openCheck}
       role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openCheck(e);
+        }
+      }}
     >
       <ExternalLink className="h-3 w-3" /> Check MRI
     </span>

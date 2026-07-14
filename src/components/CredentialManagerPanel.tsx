@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Trash2, ShieldAlert, Key } from 'lucide-react';
+import { useAppDialog } from '@/renderer/components/AppDialogProvider';
 
 interface Credential {
   domain: string;
@@ -10,6 +11,7 @@ interface Credential {
 }
 
 const CredentialManagerPanel: React.FC = () => {
+  const { showConfirm } = useAppDialog();
   const [credentials, setCredentials] = useState<Credential[]>([]);
   const [available, setAvailable] = useState(true);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,8 @@ const CredentialManagerPanel: React.FC = () => {
   useEffect(() => { load(); }, []);
 
   const handleDelete = async (domain: string, username: string) => {
+    const ok = await showConfirm(`Delete the saved password for ${username} on ${domain}? This cannot be undone.`, 'Delete credential');
+    if (!ok) return;
     await window.electronAPI.credentialDelete(domain, username);
     load();
   };

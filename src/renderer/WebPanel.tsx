@@ -27,20 +27,20 @@ const WebPanel: React.FC = () => {
     window.electronAPI.getWebBookmarks().then(setBookmarks);
 
     // Listen for URL updates from BrowserView navigation
-    window.electronAPI.onWebPanelUrlUpdated((newUrl) => {
+    const unsubscribeUrl = window.electronAPI.onWebPanelUrlUpdated((newUrl) => {
       setUrl(newUrl);
       setInputValue(newUrl);
     });
 
-    window.electronAPI.onWebPanelLoading((isLoading) => {
+    const unsubscribeLoading = window.electronAPI.onWebPanelLoading((isLoading) => {
       setLoading(isLoading);
     });
 
     return () => {
       // Hide BrowserView when panel unmounts
       window.electronAPI.webPanelHide();
-      window.electronAPI.removeListener('web-panel-url-updated', () => {});
-      window.electronAPI.removeListener('web-panel-loading', () => {});
+      unsubscribeUrl();
+      unsubscribeLoading();
     };
   }, []);
 

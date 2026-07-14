@@ -90,11 +90,13 @@ const ImportHistory: React.FC = () => {
             }
 
             if (finalPatientId) {
-                fileToMove.id,
+                await window.electronAPI.moveImportedFile(
+                    fileToMove.id,
                     finalPatientId,
                     decision.visitId, // might be undefined if creating new visit
                     decision.visitDate, // defined if new visit or new patient
                     previewPath || undefined // Pass the active preview path as confirmed source
+                );
 
                 setMoveFileModalOpen(false);
                 setFileToMove(null);
@@ -234,10 +236,10 @@ const ImportHistory: React.FC = () => {
                                                 </TableCell>
                                                 <TableCell>
                                                     <Badge variant="outline" className={`
-                                                        ${event.status === 'imported' ? 'text-green-600 border-green-200 bg-green-50' : ''}
-                                                        ${event.status === 'manually_sorted' ? 'text-blue-600 border-blue-200 bg-blue-50' : ''}
-                                                        ${event.status === 'unmatched' ? 'text-yellow-600 border-yellow-200 bg-yellow-50' : ''}
-                                                        ${event.status === 'error' ? 'text-red-600 border-red-200 bg-red-50' : ''}
+                                                        ${event.status === 'imported' ? 'text-green-600 border-green-200 bg-green-50 dark:text-green-300 dark:border-green-500/30 dark:bg-green-500/10' : ''}
+                                                        ${event.status === 'manually_sorted' ? 'text-blue-600 border-blue-200 bg-blue-50 dark:text-blue-300 dark:border-blue-500/30 dark:bg-blue-500/10' : ''}
+                                                        ${event.status === 'unmatched' ? 'text-yellow-600 border-yellow-200 bg-yellow-50 dark:text-yellow-300 dark:border-yellow-500/30 dark:bg-yellow-500/10' : ''}
+                                                        ${event.status === 'error' ? 'text-red-600 border-red-200 bg-red-50 dark:text-red-300 dark:border-red-500/30 dark:bg-red-500/10' : ''}
                                                     `}>
                                                         {event.status}
                                                     </Badge>

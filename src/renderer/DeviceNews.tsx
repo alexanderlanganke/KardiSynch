@@ -3,7 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ExternalLink, Calendar, Loader2, Link } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, formatDate } from '@/lib/utils';
 
 // Fallback Images
 import warningSvg from './assets/news_fallbacks/warning.svg';
@@ -72,7 +72,7 @@ const NewsCard: React.FC<{ item: NewsItem; forwardRef?: React.Ref<HTMLDivElement
                 <div className="flex flex-col flex-1 p-4">
                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground mb-1">
                         <Calendar className="h-3 w-3" />
-                        {item.date}
+                        {formatDate(item.date)}
                         <span>•</span>
                         <span className="font-medium text-foreground/80 truncate max-w-[120px]" title={item.source}>{item.source}</span>
                     </div>
@@ -132,9 +132,10 @@ const DeviceNews: React.FC = () => {
 
     React.useEffect(() => {
         // Listen for status updates
+        let cleanupNewsStatus: (() => void) | undefined;
         try {
             if (window.electronAPI && window.electronAPI.onNewsStatus) {
-                window.electronAPI.onNewsStatus((msg: string) => {
+                cleanupNewsStatus = window.electronAPI.onNewsStatus((msg: string) => {
                     setStatusMessage(msg);
                 });
             }
@@ -159,6 +160,10 @@ const DeviceNews: React.FC = () => {
             }
         };
         loadNews();
+
+        return () => {
+            cleanupNewsStatus?.();
+        };
     }, []);
 
     return (

@@ -125,7 +125,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
         };
 
         const cleanup = window.electronAPI.onProcessStatus(handleStatus);
-        return () => window.electronAPI.removeListener('process-status', handleStatus);
+        return () => cleanup();
     }, []);
 
     // Load import history when opened
@@ -296,14 +296,14 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                             className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent h-10"
                         >
                             Sorting
-                            {pendingSortTasks.length > 0 && <span className="ml-2 text-xs bg-orange-100 text-orange-700 px-1.5 rounded-full">{pendingSortTasks.length}</span>}
+                            {pendingSortTasks.length > 0 && <span className="ml-2 text-xs bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300 px-1.5 rounded-full">{pendingSortTasks.length}</span>}
                         </TabsTrigger>
                         <TabsTrigger
                             value="activity"
                             className="flex-1 rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent h-10"
                         >
                             Activity
-                            {activeTasks.length > 0 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-1.5 rounded-full animate-pulse">{activeTasks.length}</span>}
+                            {activeTasks.length > 0 && <span className="ml-2 text-xs bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300 px-1.5 rounded-full animate-pulse">{activeTasks.length}</span>}
                         </TabsTrigger>
                         <TabsTrigger
                             value="imports"
@@ -341,8 +341,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                                 </div>
                                                 <Button
                                                     variant="ghost" size="icon"
-                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2"
+                                                    className="h-6 w-6 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity absolute top-2 right-2"
                                                     onClick={(e) => { e.stopPropagation(); removeNotification(notification.id); }}
+                                                    aria-label="Dismiss notification"
                                                 >
                                                     <X className="h-3 w-3" />
                                                 </Button>
@@ -418,7 +419,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                                             {preview.manufacturer ? ` · ${preview.manufacturer}` : ''}
                                                         </p>
                                                         {task.isIntraop && (
-                                                            <Badge variant="outline" className="text-[9px] h-4 px-1 mt-1 text-purple-600 border-purple-200 bg-purple-50">intraop</Badge>
+                                                            <Badge variant="outline" className="text-[9px] h-4 px-1 mt-1 text-purple-600 border-purple-200 bg-purple-50 dark:text-purple-300 dark:border-purple-500/30 dark:bg-purple-500/10">intraop</Badge>
                                                         )}
                                                     </div>
                                                 </div>
@@ -453,9 +454,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                             <div className="flex items-center justify-between">
                                                 <span className="text-sm font-medium">{task.title}</span>
                                                 <span className={cn("text-xs px-2 py-0.5 rounded-full",
-                                                    task.status === 'completed' ? "bg-green-100 text-green-700" :
-                                                        task.status === 'error' ? "bg-red-100 text-red-700" :
-                                                            "bg-blue-100 text-blue-700"
+                                                    task.status === 'completed' ? "bg-green-100 text-green-700 dark:bg-green-500/20 dark:text-green-300" :
+                                                        task.status === 'error' ? "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300" :
+                                                            "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300"
                                                 )}>
                                                     {task.status}
                                                 </span>
@@ -496,10 +497,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                                             {event.file_path ? event.file_path.split(/[\\/]/).pop() : 'Unknown'}
                                                         </span>
                                                         <Badge variant="outline" className={cn("text-[9px] h-4 px-1 shrink-0",
-                                                            event.status === 'imported' && "text-green-600 border-green-200 bg-green-50",
-                                                            event.status === 'manually_sorted' && "text-blue-600 border-blue-200 bg-blue-50",
-                                                            event.status === 'unmatched' && "text-yellow-600 border-yellow-200 bg-yellow-50",
-                                                            event.status === 'error' && "text-red-600 border-red-200 bg-red-50",
+                                                            event.status === 'imported' && "text-green-600 border-green-200 bg-green-50 dark:text-green-300 dark:border-green-500/30 dark:bg-green-500/10",
+                                                            event.status === 'manually_sorted' && "text-blue-600 border-blue-200 bg-blue-50 dark:text-blue-300 dark:border-blue-500/30 dark:bg-blue-500/10",
+                                                            event.status === 'unmatched' && "text-yellow-600 border-yellow-200 bg-yellow-50 dark:text-yellow-300 dark:border-yellow-500/30 dark:bg-yellow-500/10",
+                                                            event.status === 'error' && "text-red-600 border-red-200 bg-red-50 dark:text-red-300 dark:border-red-500/30 dark:bg-red-500/10",
                                                         )}>
                                                             {event.status}
                                                         </Badge>
@@ -539,7 +540,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                                         onClick={() => handleSessionClick(session.id)}
                                                         role="button"
                                                         tabIndex={0}
-                                                        onKeyDown={(e) => { if (e.key === 'Enter') handleSessionClick(session.id); }}
+                                                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSessionClick(session.id); } }}
                                                     >
                                                         <div className="flex items-center justify-between mb-1">
                                                             <Badge variant={session.status === 'completed' ? 'outline' : 'secondary'} className="text-[10px]">

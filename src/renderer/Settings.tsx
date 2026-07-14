@@ -144,6 +144,8 @@ const Settings: React.FC = () => {
   const [updateStatus, setUpdateStatus] = useState<string>('Idle');
   const [appVersion, setAppVersion] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  // Which manufacturer data-update check is currently running (null = none)
+  const [checkingUpdatesFor, setCheckingUpdatesFor] = useState<string | null>(null);
 
   // Debug analyzer state (Biotronik)
   const [debugFilePath, setDebugFilePath] = useState('');
@@ -184,6 +186,7 @@ const Settings: React.FC = () => {
     setLoading(true);
     try {
       await window.electronAPI.setSettings(settings);
+      await showAlert('Settings saved.');
     } catch (error) {
       console.error('Error saving settings:', error);
       showAlert('Failed to save settings.');
@@ -375,34 +378,30 @@ const Settings: React.FC = () => {
                           )}
                           {!enabled && <span className="text-[10px] text-muted-foreground">Disabled</span>}
                           {isMedtronic && enabled && (
-                            <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 mt-1" onClick={async (e) => {
+                            <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2 mt-1" disabled={checkingUpdatesFor !== null} onClick={async (e) => {
                               e.stopPropagation();
-                              const btn = e.currentTarget;
-                              btn.innerText = 'Checking...';
-                              btn.disabled = true;
+                              setCheckingUpdatesFor('Medtronic');
                               try {
                                 const res = await window.electronAPI.checkMedtronicUpdates();
                                 if (res.updated) await showAlert(`Medtronic Data Updated! ${res.count} items.`);
                                 else if (res.error) await showAlert(`Update Failed: ${res.error}`);
                                 else await showAlert(`Up to date. (${res.count} items)`);
                               } catch { await showAlert('Error checking updates'); }
-                              finally { btn.innerText = 'Check Updates'; btn.disabled = false; }
-                            }}>Check Updates</Button>
+                              finally { setCheckingUpdatesFor(null); }
+                            }}>{checkingUpdatesFor === 'Medtronic' ? 'Checking...' : 'Check Updates'}</Button>
                           )}
                           {name === 'Boston Scientific' && enabled && (
-                            <Button variant="outline" size="sm" className="h-6 text-[10px] px-2 mt-1" onClick={async (e) => {
+                            <Button type="button" variant="outline" size="sm" className="h-6 text-[10px] px-2 mt-1" disabled={checkingUpdatesFor !== null} onClick={async (e) => {
                               e.stopPropagation();
-                              const btn = e.currentTarget;
-                              btn.innerText = 'Checking...';
-                              btn.disabled = true;
+                              setCheckingUpdatesFor('Boston Scientific');
                               try {
                                 const res = await window.electronAPI.checkBostonUpdates();
                                 if (res.updated) await showAlert(`Boston Data Updated! ${res.count} items.`);
                                 else if (res.error) await showAlert(`Update Failed: ${res.error}`);
                                 else await showAlert(`Up to date. (${res.count} items)`);
                               } catch { await showAlert('Error checking updates'); }
-                              finally { btn.innerText = 'Check Updates'; btn.disabled = false; }
-                            }}>Check Updates</Button>
+                              finally { setCheckingUpdatesFor(null); }
+                            }}>{checkingUpdatesFor === 'Boston Scientific' ? 'Checking...' : 'Check Updates'}</Button>
                           )}
                         </div>
                       );

@@ -112,7 +112,9 @@ const DeviceSelectionModal: React.FC<DeviceSelectionModalProps> = ({ open, fileI
     const isPdf = fileInfo.filename?.toLowerCase().endsWith('.pdf');
 
     return (
-        <Dialog open={open} onOpenChange={() => { }}>
+        // Closing via ESC / the injected X must not leave the watcher waiting for
+        // a response — treat any dismiss as the explicit "Skip" action.
+        <Dialog open={open} onOpenChange={(val) => { if (!val) handleSkip(); }}>
             <DialogContent className="max-w-[90vw] w-[1200px] h-[85vh] flex flex-col bg-background border-border p-0 overflow-hidden">
                 <div className="flex flex-col h-full">
                     {/* Header */}

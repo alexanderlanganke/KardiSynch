@@ -150,7 +150,7 @@ const FormattedReport: React.FC<FormattedReportProps> = ({ report, previousRepor
                   <span className="font-medium">{episode.type || 'Unknown'}</span>
                   <div className="flex items-center gap-3 text-muted-foreground">
                     {episode.count && <span>{episode.count} episodes</span>}
-                    {episode.date && <span>{episode.date}</span>}
+                    {episode.date && <span>{formatDate(episode.date)}</span>}
                     {episode.therapy && <Badge variant="outline" className="text-[9px] h-4">{episode.therapy}</Badge>}
                   </div>
                 </div>

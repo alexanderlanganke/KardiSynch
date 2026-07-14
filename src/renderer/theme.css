@@ -153,14 +153,16 @@ body {
   color: white;
 }
 
+/* Amber/green backgrounds are too light for white text (< 3:1) — use dark
+   text on these so the badges meet the 4.5:1 contrast ratio. */
 .status-attention {
   background-color: hsl(var(--status-attention));
-  color: white;
+  color: hsl(26 83% 14%);
 }
 
 .status-normal {
   background-color: hsl(var(--status-normal));
-  color: white;
+  color: hsl(144 61% 12%);
 }
 
 .status-inactive {

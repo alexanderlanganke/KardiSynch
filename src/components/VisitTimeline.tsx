@@ -67,8 +67,8 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                 className={`min-w-[150px] cursor-pointer hover:border-primary transition-all hover:shadow-sm p-3 group relative ${accentClass}`}
                                 title={tooltip}
                             >
-                                {/* Hover Actions Overlay */}
-                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity bg-background rounded-md border p-0.5 shadow-sm">
+                                {/* Hover Actions Overlay (also shown while any action has keyboard focus) */}
+                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity bg-background rounded-md border p-0.5 shadow-sm">
                                     <Button
                                         variant="ghost"
                                         size="icon"

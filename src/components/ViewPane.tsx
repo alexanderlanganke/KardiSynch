@@ -34,13 +34,19 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
     // Fetch files when selected report changes
     const prevReportIdRef = React.useRef<string | null>(null);
+    // Monotonic token so a slow getVisitFiles response for a previous visit
+    // can't overwrite the files of the visit that was selected afterwards
+    // (rapid drag-drops onto the same pane race otherwise).
+    const loadRequestRef = React.useRef(0);
     React.useEffect(() => {
         const loadFiles = async () => {
             if (selectedReport && selectedReport.directoryName) {
+                const requestId = ++loadRequestRef.current;
                 const reportChanged = prevReportIdRef.current !== selectedReport.id;
                 prevReportIdRef.current = selectedReport.id;
                 try {
                     const files = await window.electronAPI.getVisitFiles(patientId, selectedReport.directoryName);
+                    if (requestId !== loadRequestRef.current) return; // stale response — a newer visit was selected
                     const safeFiles = Array.isArray(files) ? files : [];
                     setAvailableFiles(safeFiles);
 
@@ -58,10 +64,12 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                         setSelectedFile(getBestFile(pdfs));
                     }
                 } catch (error) {
+                    if (requestId !== loadRequestRef.current) return;
                     console.error('Failed to load visit files:', error);
                     setAvailableFiles([]);
                 }
             } else {
+                loadRequestRef.current++; // invalidate any in-flight load
                 prevReportIdRef.current = null;
                 setAvailableFiles([]);
                 setSelectedFile(null);
@@ -106,6 +114,13 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if (!isActive || !displayFiles.length) return;
+
+            // Don't hijack arrow keys while the user is typing in a form control
+            // or interacting with an open dialog above this pane.
+            const target = e.target as HTMLElement | null;
+            if (target && target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) {
+                return;
+            }
 
             if (e.key === 'ArrowLeft') {
                 cycleFile('prev');
@@ -259,7 +274,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                     <div className="w-px h-3 bg-border mx-1" />
                                 </>
                             )}
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0">
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0" aria-label="Expand pane controls">
                                 <ChevronDown className="h-3 w-3" />
                             </Button>
                         </div>
@@ -323,10 +338,10 @@ const ViewPane: React.FC<ViewPaneProps> = ({
 
                             {selectedReport && (
                                 <>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={handleClear} title="Clear Selection">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={handleClear} title="Clear Selection" aria-label="Clear selection">
                                         <X className="h-4 w-4" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setIsControlsExpanded(false)} title="Collapse Controls">
+                                    <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0" onClick={() => setIsControlsExpanded(false)} title="Collapse Controls" aria-label="Collapse pane controls">
                                         <ChevronUp className="h-4 w-4" />
                                     </Button>
                                 </>

@@ -4,11 +4,13 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, ExternalLink, Info } from 'lucide-react';
+import { Search, Filter, X, Check, ArrowUpDown, ArrowUp, ArrowDown, ShieldCheck, ShieldAlert, ShieldQuestion, ExternalLink, Info, AlertCircle, RotateCcw } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { usePatientStore, Patient } from './store/PatientStore';
 import { getPatientFlags, daysSinceLastVisit } from './utils/clinicalPriority';
+import { getMriCheckUrl } from './utils/mriCheckUrls';
 import { cn, formatDate } from '@/lib/utils';
+import { useAppDialog } from './components/AppDialogProvider';
 
 // Manufacturer Logos
 import medtronicLogo from './assets/logos/medtronic.svg';
@@ -36,8 +38,24 @@ interface FilterState {
   deviceManufacturer: string;
 }
 
-type SortField = 'name' | 'dob' | 'hospitalPatientId' | 'deviceManufacturer' | 'deviceModel' | 'lastReportDate';
+type SortField = 'name' | 'dob' | 'hospitalPatientId' | 'deviceManufacturer' | 'deviceModel' | 'lastReportDate' | 'warningStatus';
 type SortDirection = 'asc' | 'desc';
+
+// Rank warning statuses so sorting by the warning column surfaces recalls first.
+const WARNING_SORT_ORDER: Record<string, number> = {
+  'recall': 0,
+  'advisory': 1,
+  'manual_check': 2,
+  'safe': 3,
+};
+
+const getSortValue = (patient: Patient, field: SortField): string => {
+  if (field === 'warningStatus') {
+    const status = patient.manufacturerWarningStatus?.status || 'unknown';
+    return String(WARNING_SORT_ORDER[status] ?? 4);
+  }
+  return (patient[field] || '').toString().toLowerCase();
+};
 
 const EMPTY_FILTERS: FilterState = {
   dob: '',
@@ -70,7 +88,8 @@ const loadDashboardState = (): Partial<DashboardState> => {
 };
 
 const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void }> = ({ onPatientSelect }) => {
-  const { patients, loading, dispatch, fetchPatients } = usePatientStore();
+  const { patients, loading, error, dispatch, fetchPatients } = usePatientStore();
+  const { showAlert } = useAppDialog();
 
   // Seed from any persisted state once, so the dashboard restores the previous
   // search/filter/sort when the user returns from a patient profile.
@@ -109,12 +128,8 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
   // Listen for patient list updates
   useEffect(() => {
-    const handleUpdate = () => fetchPatients();
-    window.electronAPI.onPatientListUpdate(handleUpdate);
-
-    return () => {
-      window.electronAPI.removeListener('patient-list-update', handleUpdate);
-    };
+    const unsubscribe = window.electronAPI.onPatientListUpdate(() => fetchPatients());
+    return () => unsubscribe();
   }, [fetchPatients]);
 
   // Filter patients
@@ -132,8 +147,10 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     }
 
     if (filters.dob) filtered = filtered.filter(p => p.dob === filters.dob);
-    if (filters.patientId) filtered = filtered.filter(p => p.patientId.includes(filters.patientId));
-    if (filters.hospitalPatientId) filtered = filtered.filter(p => p.hospitalPatientId && p.hospitalPatientId.includes(filters.hospitalPatientId));
+    // XML-sourced IDs can arrive as numbers (fast-xml-parser coerces numeric
+    // text), so String() them before calling string methods.
+    if (filters.patientId) filtered = filtered.filter(p => String(p.patientId || '').includes(filters.patientId));
+    if (filters.hospitalPatientId) filtered = filtered.filter(p => p.hospitalPatientId && String(p.hospitalPatientId).includes(filters.hospitalPatientId));
     if (filters.deviceManufacturer) filtered = filtered.filter(p => p.deviceManufacturer === filters.deviceManufacturer);
 
     return filtered;
@@ -142,8 +159,8 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   // Sort patients
   const sortedPatients = useMemo(() => {
     return [...filteredPatients].sort((a, b) => {
-      const fieldA = (a[sortField] || '').toString().toLowerCase();
-      const fieldB = (b[sortField] || '').toString().toLowerCase();
+      const fieldA = getSortValue(a, sortField);
+      const fieldB = getSortValue(b, sortField);
       if (fieldA < fieldB) return sortDirection === 'asc' ? -1 : 1;
       if (fieldA > fieldB) return sortDirection === 'asc' ? 1 : -1;
       return 0;
@@ -189,6 +206,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       fetchPatients();
     } catch (error) {
       console.error('Failed to update patient:', error);
+      showAlert('Failed to save patient changes. Please try again.');
     }
   };
 
@@ -210,6 +228,19 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       setSortDirection('asc');
     }
   };
+
+  // Shared props so the column headers are keyboard-sortable, not click-only.
+  const sortHeaderProps = (field: SortField) => ({
+    role: 'button' as const,
+    tabIndex: 0,
+    onClick: () => handleSort(field),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        handleSort(field);
+      }
+    },
+  });
 
   const clearFilters = () => {
     setFilters({ ...EMPTY_FILTERS });
@@ -249,7 +280,12 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
         role="button"
         tabIndex={0}
         aria-label={`View patient ${patient.name}`}
-        onKeyDown={(e) => { if (e.key === 'Enter' && !editingPatientId) onPatientSelect(patient.id); }}
+        onKeyDown={(e) => {
+          if ((e.key === 'Enter' || e.key === ' ') && !editingPatientId && e.target === e.currentTarget) {
+            e.preventDefault();
+            onPatientSelect(patient.id);
+          }
+        }}
       >
         {isEditing ? (
           <>
@@ -369,7 +405,7 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             </div>
 
             {/* Actions */}
-            <div className="w-[8%] flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="w-[8%] flex justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
               <Button
                 variant="ghost" size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
@@ -481,24 +517,25 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
       <div className="flex flex-col flex-1 min-h-0 gap-1 rounded-xl bg-background border border-transparent overflow-hidden">
         {/* Header Row */}
         <div className="flex items-center px-6 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider bg-muted rounded-lg mb-0 select-none shrink-0 z-10">
-          <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('name')}>
+          <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" {...sortHeaderProps('name')}>
             Patient <SortIcon field="name" />
           </div>
-          <div className="w-[10%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('dob')}>
+          <div className="w-[10%] flex items-center cursor-pointer hover:text-foreground transition-colors" {...sortHeaderProps('dob')}>
             DOB <SortIcon field="dob" />
           </div>
-          <div className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors justify-center" onClick={() => handleSort('deviceManufacturer')}>
+          <div className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors justify-center" {...sortHeaderProps('deviceManufacturer')}>
             <SortIcon field="deviceManufacturer" />
             <span className="sr-only">Manufacturer</span>
           </div>
-          <div className="w-[8%] flex justify-center cursor-pointer group" onClick={() => handleSort('deviceManufacturer')}>
+          <div className="w-[8%] flex justify-center cursor-pointer group" {...sortHeaderProps('warningStatus')}>
             <ShieldAlert className="h-4 w-4 opacity-50 group-hover:opacity-100" />
+            <SortIcon field="warningStatus" />
             <span className="sr-only">Warning Status</span>
           </div>
-          <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('deviceModel')}>
+          <div className="w-[25%] flex items-center cursor-pointer hover:text-foreground transition-colors" {...sortHeaderProps('deviceModel')}>
             Model <SortIcon field="deviceModel" />
           </div>
-          <div className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors" onClick={() => handleSort('lastReportDate')}>
+          <div className="w-[12%] flex items-center cursor-pointer hover:text-foreground transition-colors" {...sortHeaderProps('lastReportDate')}>
             Last Report <SortIcon field="lastReportDate" />
           </div>
           <div className="w-[8%] text-right"></div>
@@ -509,6 +546,15 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
             <div className="flex flex-col items-center justify-center py-20 space-y-3 text-muted-foreground/50">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary/30"></div>
               <p className="text-sm">Loading patients...</p>
+            </div>
+          ) : error && patients.length === 0 ? (
+            <div className="text-center py-20 border-2 border-dashed border-red-500/30 rounded-xl bg-red-500/5" role="alert">
+              <AlertCircle className="h-8 w-8 mx-auto mb-2 text-red-500/60" />
+              <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>
+              <p className="text-xs text-muted-foreground mt-1">The patient list could not be loaded from the data directory.</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => fetchPatients()}>
+                <RotateCcw className="mr-2 h-3.5 w-3.5" /> Retry
+              </Button>
             </div>
           ) : sortedPatients.length === 0 ? (
             <div className="text-center py-20 text-muted-foreground/60 border-2 border-dashed border-muted rounded-xl bg-muted">
@@ -533,12 +579,24 @@ const WarningBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
   const details = patient.manufacturerWarningStatus?.details || 'Status Unknown';
   const link = patient.manufacturerWarningStatus?.link;
 
-  const openLink = (e: React.MouseEvent) => {
+  const openLink = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
     if (link && window.electronAPI.openExternal) {
       window.electronAPI.openExternal(link);
     }
   };
+
+  const keyboardProps = link
+    ? {
+      tabIndex: 0,
+      onKeyDown: (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openLink(e);
+        }
+      },
+    }
+    : {};
 
   if (status === 'safe') {
     return (
@@ -549,14 +607,14 @@ const WarningBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
   }
   if (status === 'advisory' || status === 'recall') {
     return (
-      <div className="text-red-500 cursor-pointer animate-pulse" title={`WARNING: ${details}`} onClick={openLink} role="button" aria-label="Warning active">
+      <div className="text-red-500 cursor-pointer animate-pulse" title={`WARNING: ${details}`} onClick={openLink} role="button" aria-label="Warning active" {...keyboardProps}>
         <ShieldAlert className="h-5 w-5" />
       </div>
     );
   }
   if (status === 'manual_check') {
     return (
-      <div className="text-gray-400 cursor-pointer hover:text-gray-600" title={`Manual Check Required: ${details}`} onClick={openLink} role="button" aria-label="Manual check required">
+      <div className="text-gray-400 cursor-pointer hover:text-gray-600" title={`Manual Check Required: ${details}`} onClick={openLink} role="button" aria-label="Manual check required" {...keyboardProps}>
         <ShieldQuestion className="h-5 w-5" />
       </div>
     );
@@ -568,32 +626,11 @@ const WarningBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
   );
 };
 
-// Manufacturer MRI check URLs — opens manufacturer's own MRI compatibility tool
-const MRI_CHECK_URLS: Record<string, string> = {
-  'medtronic': 'https://www.medtronic.com/mrisurescan',
-  'biotronik': 'https://www.promricheck.com',
-  'abbott': 'https://mri.merlin.net/',
-  'st. jude': 'https://mri.merlin.net/',
-  'sjm': 'https://mri.merlin.net/',
-  'boston scientific': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
-  'guidant': 'https://www.bostonscientific.com/en-US/medical-specialties/electrophysiology/mri-resources.html',
-  'microport': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
-  'sorin': 'https://www.crm.microport.com/en/healthcare-professionals/product-performance',
-};
-
-function getMriCheckUrl(manufacturer: string): string | null {
-  const manu = (manufacturer || '').toLowerCase();
-  for (const [key, url] of Object.entries(MRI_CHECK_URLS)) {
-    if (manu.includes(key)) return url;
-  }
-  return null;
-}
-
 const MriBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
   const manu = patient.deviceManufacturer || '';
   const url = getMriCheckUrl(manu);
 
-  const openMriCheck = (e: React.MouseEvent) => {
+  const openMriCheck = (e: React.MouseEvent | React.KeyboardEvent) => {
     e.stopPropagation();
     if (url && window.electronAPI.openExternal) {
       window.electronAPI.openExternal(url);
@@ -606,10 +643,20 @@ const MriBadge: React.FC<{ patient: Patient }> = ({ patient }) => {
 
   return (
     <div
-      className="inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium cursor-pointer transition-colors shadow-sm bg-muted hover:bg-accent text-foreground border-border"
+      className={cn(
+        "inline-flex items-center gap-1.5 text-[10px] px-2.5 py-0.5 rounded-md border font-medium transition-colors shadow-sm bg-muted text-foreground border-border",
+        url ? "cursor-pointer hover:bg-accent" : "opacity-60 cursor-default"
+      )}
       title={url ? `Open ${manu} MRI compatibility check in browser` : 'No MRI check resource available for this manufacturer'}
       onClick={url ? openMriCheck : undefined}
       role={url ? 'button' : undefined}
+      tabIndex={url ? 0 : undefined}
+      onKeyDown={url ? (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          openMriCheck(e);
+        }
+      } : undefined}
       aria-label="Check MRI compatibility"
     >
       <ExternalLink className="h-3 w-3" /> Check MRI

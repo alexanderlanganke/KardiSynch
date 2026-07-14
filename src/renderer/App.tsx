@@ -7,7 +7,7 @@ import { ThemeProvider, useTheme } from './ThemeProvider';
 import { PatientProvider } from './store/PatientStore';
 import { Button } from '@/components/ui/button';
 import NotificationCenter from '@/components/NotificationCenter';
-import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Newspaper, Globe } from 'lucide-react';
+import { LayoutDashboard, Moon, Settings as SettingsIcon, Sun, Newspaper, Globe, AlertCircle, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DeviceSelectionModal from './components/DeviceSelectionModal';
@@ -89,15 +89,18 @@ const App: React.FC = () => {
   // Credential Save Prompt State
   const [credentialPrompt, setCredentialPrompt] = React.useState<{ domain: string; username: string } | null>(null);
 
+  // Transient error toasts (errors also land in the NotificationCenter)
+  const [errorToasts, setErrorToasts] = React.useState<{ id: number; message: string }[]>([]);
+
   React.useEffect(() => {
     // Listen for manual sorting requests
-    window.electronAPI.onRequestManualSorting((fileInfo) => {
+    const cleanupManualSorting = window.electronAPI.onRequestManualSorting((fileInfo) => {
       setManualSortingFile(fileInfo);
       setManualSortingOpen(true);
     });
 
     // Listen for device selection requests
-    window.electronAPI.onDeviceSelectionRequest((fileInfo) => {
+    const cleanupDeviceSelection = window.electronAPI.onDeviceSelectionRequest((fileInfo) => {
       setDeviceSelectionFile(fileInfo);
       setDeviceSelectionOpen(true);
     });
@@ -111,7 +114,7 @@ const App: React.FC = () => {
     });
 
     // Listen for web panel download interceptions
-    window.electronAPI.onWebPanelDownloadIntercepted((info) => {
+    const cleanupDownloadIntercepted = window.electronAPI.onWebPanelDownloadIntercepted((info) => {
       setInterceptedDownload(info);
       setDownloadDialogOpen(true);
       // Hide the BrowserView so the dialog is visible above the web panel
@@ -119,10 +122,22 @@ const App: React.FC = () => {
     });
 
     // Listen for credential detection prompts
-    window.electronAPI.onWebPanelCredentialsDetected((info) => {
+    const cleanupCredentials = window.electronAPI.onWebPanelCredentialsDetected((info) => {
       setCredentialPrompt(info);
       // Hide BrowserView so the save prompt is visible above the web panel
       window.electronAPI.webPanelHide();
+    });
+
+    // Surface error notifications as a transient toast so failures are visible
+    // even when the NotificationCenter popover is closed.
+    const toastTimers: ReturnType<typeof setTimeout>[] = [];
+    const cleanupNotify = window.electronAPI.onNotify((type, message) => {
+      if (type !== 'error') return;
+      const id = Date.now() + Math.random();
+      setErrorToasts(prev => [...prev, { id, message }]);
+      toastTimers.push(setTimeout(() => {
+        setErrorToasts(prev => prev.filter(t => t.id !== id));
+      }, 6000));
     });
 
     // Check for first-run onboarding
@@ -139,7 +154,13 @@ const App: React.FC = () => {
     checkOnboarding();
 
     return () => {
-      cleanupPendingSort?.();
+      cleanupManualSorting();
+      cleanupDeviceSelection();
+      cleanupPendingSort();
+      cleanupDownloadIntercepted();
+      cleanupCredentials();
+      cleanupNotify();
+      toastTimers.forEach(clearTimeout);
     };
   }, []);
 
@@ -403,6 +424,29 @@ const App: React.FC = () => {
             fileInfo={deviceSelectionFile}
             onResolve={handleDeviceSelectionResolve}
           />
+
+          {/* Transient error toasts — errors are also kept in the NotificationCenter */}
+          {errorToasts.length > 0 && (
+            <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+              {errorToasts.map(toast => (
+                <div
+                  key={toast.id}
+                  className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-background p-3 shadow-lg animate-in slide-in-from-bottom-2"
+                  role="alert"
+                >
+                  <AlertCircle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                  <p className="text-xs flex-1 break-words">{toast.message}</p>
+                  <button
+                    className="text-muted-foreground hover:text-foreground shrink-0"
+                    onClick={() => setErrorToasts(prev => prev.filter(t => t.id !== toast.id))}
+                    aria-label="Dismiss error"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           {credentialPrompt && (
             <CredentialSavePrompt

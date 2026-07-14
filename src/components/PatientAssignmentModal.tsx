@@ -27,7 +27,7 @@ interface PatientAssignmentModalProps {
 }
 
 const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, mode, sourceItem, onResolve, onCancel }) => {
-    const { showAlert } = useAppDialog();
+    const { showAlert, showConfirm } = useAppDialog();
     const [activeTab, setActiveTab] = useState('existing');
     const [searchTerm, setSearchTerm] = useState('');
     const [patients, setPatients] = useState<Patient[]>([]);
@@ -54,6 +54,15 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
             const currentJson = JSON.stringify(sourceItem);
             if (currentJson === prevSourceItemJson) return; // Skip if content hasn't changed
             setPrevSourceItemJson(currentJson);
+
+            // A different source item means a fresh sorting decision — drop the
+            // previous file's selection so a reflexive confirm can't assign the
+            // new document to the previously chosen patient/visit.
+            setSelectedPatientId(null);
+            setSelectedVisitId(null);
+            setSearchTerm('');
+            setActiveTab('existing');
+            setVisitMode('existing');
 
             // Pre-fill form from preview data
             if (mode === 'import' && sourceItem.previewData) {
@@ -97,8 +106,13 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     // Fetch visits when patient selected (Only relevant for Import mode)
     useEffect(() => {
         if (selectedPatientId && mode === 'import') {
-            window.electronAPI.getVisitDirectories(selectedPatientId).then(setVisits);
-            setVisitMode('existing');
+            window.electronAPI.getVisitDirectories(selectedPatientId).then((visitsData) => {
+                const safeVisits = Array.isArray(visitsData) ? visitsData : [];
+                setVisits(safeVisits);
+                // No visits to pick from -> default straight to "Create New Visit"
+                // so Confirm isn't blocked on an impossible selection.
+                setVisitMode(safeVisits.length > 0 ? 'existing' : 'new');
+            });
             setSelectedVisitId(null);
         } else {
             setVisits([]);
@@ -115,6 +129,11 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
             // Validate "Create New Visit" date
             if (mode === 'import' && visitMode === 'new' && !newVisitDate) {
                 showAlert('Please specify a date for the new visit.');
+                return;
+            }
+            // Guard: assigning to an existing visit requires one to be selected.
+            if (mode === 'import' && visitMode === 'existing' && !selectedVisitId) {
+                showAlert('Please select a visit, or choose "Create New Visit".');
                 return;
             }
 
@@ -169,8 +188,22 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
     if (!sourceItem) return null;
 
+    // Dismissing via ESC / overlay / X must never silently file the document as
+    // unmatched: pending items just defer, everything else asks first. The
+    // explicit "Skip this file" button remains the intentional path.
+    const handleDismissAttempt = async () => {
+        if (mode === 'import' && sourceItem?.source !== 'pending') {
+            const ok = await showConfirm(
+                'Close without assigning this document? It will be filed as unmatched.\n\nChoose Cancel to keep sorting.',
+                'Discard sorting?'
+            );
+            if (!ok) return; // keep the dialog open
+        }
+        onCancel();
+    };
+
     return (
-        <Dialog open={open} onOpenChange={(val) => !val && onCancel()}>
+        <Dialog open={open} onOpenChange={(val) => !val && handleDismissAttempt()}>
             <DialogContent
                 className="max-w-[95vw] w-[1400px] h-[90vh] max-h-[90vh] flex flex-col bg-background border-border p-0 overflow-hidden shadow-2xl rounded-xl"
                 onOpenAutoFocus={(e) => e.preventDefault()}
@@ -271,7 +304,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                     {/* Action Area */}
                                     <div className="space-y-4">
                                         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-                                            <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-muted0">
+                                            <TabsList className="grid w-full grid-cols-2 h-11 p-1 bg-muted">
                                                 <TabsTrigger value="existing">Find Existing</TabsTrigger>
                                                 <TabsTrigger value="new">Create New</TabsTrigger>
                                             </TabsList>
@@ -291,13 +324,20 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                     {/* Patient List */}
                                                     <div className="border rounded-lg bg-card shadow-inner overflow-hidden flex flex-col h-[280px]">
                                                         <div className="flex-1 overflow-y-auto p-1 space-y-1">
+                                                            {filteredPatients.length === 0 && (
+                                                                <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground text-xs px-4">
+                                                                    <Search className="h-5 w-5 mb-2 opacity-30" />
+                                                                    <p>{searchTerm ? 'No matches for this search.' : 'No patients found.'}</p>
+                                                                    <p className="mt-1 opacity-70">Try the "Create New" tab to add this patient.</p>
+                                                                </div>
+                                                            )}
                                                             {filteredPatients.map(p => (
                                                                 <div
                                                                     key={p.id}
                                                                     onClick={() => setSelectedPatientId(p.id)}
                                                                     className={`flex items-center justify-between p-3 rounded-md cursor-pointer transition-all border ${selectedPatientId === p.id
                                                                         ? 'bg-primary/10 border-primary shadow-sm'
-                                                                        : 'hover:bg-muted0 border-transparent'
+                                                                        : 'hover:bg-muted/50 border-transparent'
                                                                         }`}
                                                                 >
                                                                     <div className="min-w-0 pr-2">
@@ -320,7 +360,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                             <div className="rounded-md border mt-2 overflow-hidden">
                                                                 {visits.length > 0 && (
                                                                     <div
-                                                                        className={`p-3 border-b cursor-pointer text-sm flex items-center justify-between ${visitMode === 'existing' ? 'bg-muted' : 'hover:bg-muted0'}`}
+                                                                        className={`p-3 border-b cursor-pointer text-sm flex items-center justify-between ${visitMode === 'existing' ? 'bg-muted' : 'hover:bg-muted/50'}`}
                                                                         onClick={() => setVisitMode('existing')}
                                                                     >
                                                                         <span>Existing Visit</span>
@@ -341,7 +381,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                     </div>
                                                                 )}
                                                                 <div
-                                                                    className={`p-3 cursor-pointer text-sm flex flex-col gap-2 ${visitMode === 'new' ? 'bg-muted' : 'hover:bg-muted0'}`}
+                                                                    className={`p-3 cursor-pointer text-sm flex flex-col gap-2 ${visitMode === 'new' ? 'bg-muted' : 'hover:bg-muted/50'}`}
                                                                     onClick={() => setVisitMode('new')}
                                                                 >
                                                                     <div className="flex justify-between">
@@ -405,7 +445,9 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                         size="lg"
                                         className="flex-1 font-medium shadow-lg"
                                         onClick={activeTab === 'existing' ? handleConfirm : handleCreate}
-                                        disabled={activeTab === 'existing' ? !selectedPatientId : (!newPatient.last_name || !newPatient.dob)}
+                                        disabled={activeTab === 'existing'
+                                            ? (!selectedPatientId || (mode === 'import' && visitMode === 'existing' && !selectedVisitId))
+                                            : (!newPatient.last_name || !newPatient.dob)}
                                     >
                                         {mode === 'move' ? 'Move Visit' : 'Confirm Assignment'}
                                     </Button>

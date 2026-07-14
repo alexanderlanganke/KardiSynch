@@ -29,28 +29,53 @@ interface DialogState {
   message: string;
 }
 
+interface QueuedDialog {
+  type: 'alert' | 'confirm';
+  title: string;
+  message: string;
+  resolve: (value: boolean) => void;
+}
+
 export const AppDialogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<DialogState>({ open: false, type: 'alert', title: '', message: '' });
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
+  // Dialogs requested while one is already open wait here. Overwriting the
+  // pending resolver instead would leave the first awaiting caller hanging
+  // forever.
+  const queueRef = useRef<QueuedDialog[]>([]);
+
+  const present = (dialog: QueuedDialog) => {
+    if (resolveRef.current) {
+      queueRef.current.push(dialog);
+      return;
+    }
+    resolveRef.current = dialog.resolve;
+    setState({ open: true, type: dialog.type, title: dialog.title, message: dialog.message });
+  };
 
   const showAlert = useCallback((message: string, title?: string): Promise<void> => {
     return new Promise((resolve) => {
-      resolveRef.current = () => resolve();
-      setState({ open: true, type: 'alert', title: title || '', message });
+      present({ type: 'alert', title: title || '', message, resolve: () => resolve() });
     });
   }, []);
 
   const showConfirm = useCallback((message: string, title?: string): Promise<boolean> => {
     return new Promise((resolve) => {
-      resolveRef.current = resolve;
-      setState({ open: true, type: 'confirm', title: title || 'Confirm', message });
+      present({ type: 'confirm', title: title || 'Confirm', message, resolve });
     });
   }, []);
 
   const handleClose = (result: boolean) => {
-    setState(prev => ({ ...prev, open: false }));
-    resolveRef.current?.(result);
-    resolveRef.current = null;
+    const resolve = resolveRef.current;
+    const next = queueRef.current.shift();
+    if (next) {
+      resolveRef.current = next.resolve;
+      setState({ open: true, type: next.type, title: next.title, message: next.message });
+    } else {
+      resolveRef.current = null;
+      setState(prev => ({ ...prev, open: false }));
+    }
+    resolve?.(result);
   };
 
   return (

@@ -57,9 +57,9 @@ export interface IElectronAPI {
   findInPage: (text: string, options?: { forward?: boolean; findNext?: boolean }) => void;
   stopFindInPage: (action: 'clearSelection' | 'keepSelection' | 'activateSelection') => void;
   onNotify: (callback: (type: 'info' | 'warning' | 'error', message: string) => void) => () => void;
-  onUnmatchedFiles: (callback: (files: string[]) => void) => void;
-  onProcessStatus: (callback: (status: any) => void) => void;
-  onPatientListUpdate: (callback: () => void) => void;
+  onUnmatchedFiles: (callback: (files: string[]) => void) => () => void;
+  onProcessStatus: (callback: (status: any) => void) => () => void;
+  onPatientListUpdate: (callback: () => void) => () => void;
   updatePatient: (patient: any) => Promise<any>;
   rebuildDatabase: () => Promise<any>;
   dedupReports: () => Promise<{ groupsFound: number; reportsRemoved: number; directoriesRemoved: number }>;
@@ -72,7 +72,7 @@ export interface IElectronAPI {
   checkMedtronicUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;
   checkBostonUpdates: () => Promise<{ updated: boolean; count: number; error?: string }>;
   getDeviceNews: () => Promise<any[]>;
-  onNewsStatus: (callback: (message: string) => void) => void;
+  onNewsStatus: (callback: (message: string) => void) => () => void;
   quitAndInstall: () => Promise<void>;
   getAppVersion: () => Promise<string>;
   onUpdateStatus: (callback: (status: any) => void) => () => void;
@@ -80,7 +80,6 @@ export interface IElectronAPI {
   getVisitDirectories: (patientId: string) => Promise<any[]>;
   getVisitFiles: (patientId: string, visitDirName: string) => Promise<string[]>;
   getParsedXml: (filePath: string) => Promise<any>;
-  removeListener: (channel: string, func: (...args: any[]) => void) => void;
   openPatientDirectory: (patientId: string) => Promise<void>;
   reprocessUnmatched: () => Promise<{ count: number; success: boolean; message?: string }>;
 
@@ -89,8 +88,8 @@ export interface IElectronAPI {
   getImportHistory: () => Promise<any[]>;
   getImportSessionEvents: (sessionId: string) => Promise<any[]>;
   moveImportedFile: (eventId: string, newPatientId: string, targetVisitId?: string, newVisitDate?: string, confirmedFilePath?: string) => Promise<void>;
-  onRequestManualSorting: (callback: (fileInfo: any) => void) => void;
-  onImportSessionUpdate: (callback: (session: any) => void) => void;
+  onRequestManualSorting: (callback: (fileInfo: any) => void) => () => void;
+  onImportSessionUpdate: (callback: (session: any) => void) => () => void;
 
   // Pending manual-sort queue (issue #136)
   getPendingSortTasks: () => Promise<any[]>;
@@ -101,7 +100,7 @@ export interface IElectronAPI {
 
   // Device Selection (Autodetection Fallback)
   sendDeviceSelectionResult: (result: any) => Promise<void>;
-  onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => void;
+  onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => () => void;
 
   // Remembered device-type aliases
   listDeviceTypeAliases: () => Promise<{ manufacturer: string; model: string; type: string; created_at: string }[]>;
@@ -129,9 +128,9 @@ export interface IElectronAPI {
   webPanelGoForward: () => Promise<void>;
   webPanelReload: () => Promise<void>;
   webPanelGetUrl: () => Promise<string>;
-  onWebPanelUrlUpdated: (callback: (url: string) => void) => void;
-  onWebPanelLoading: (callback: (loading: boolean) => void) => void;
-  onWebPanelDownloadIntercepted: (callback: (info: { filePath: string; filename: string; sourceDomain: string; sourceManufacturer: string }) => void) => void;
+  onWebPanelUrlUpdated: (callback: (url: string) => void) => () => void;
+  onWebPanelLoading: (callback: (loading: boolean) => void) => () => void;
+  onWebPanelDownloadIntercepted: (callback: (info: { filePath: string; filename: string; sourceDomain: string; sourceManufacturer: string }) => void) => () => void;
 
   // Web Panel — Bookmarks
   getWebBookmarks: () => Promise<any>;
@@ -146,7 +145,7 @@ export interface IElectronAPI {
   webPanelDismissDownload: (filePath: string) => Promise<void>;
 
   // Web Panel — Credential Prompt
-  onWebPanelCredentialsDetected: (callback: (info: { domain: string; username: string }) => void) => void;
+  onWebPanelCredentialsDetected: (callback: (info: { domain: string; username: string }) => void) => () => void;
   webPanelSavePendingCredential: () => Promise<void>;
   webPanelDismissPendingCredential: () => Promise<void>;
 

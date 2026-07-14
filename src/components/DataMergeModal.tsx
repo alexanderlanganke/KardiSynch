@@ -21,6 +21,15 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
     // 'leads': All leads
     const [selectedSections, setSelectedSections] = useState<Set<string>>(new Set());
 
+    // The modal stays mounted between rescans — reset the selection whenever a
+    // new merge is presented so stale checkboxes from the previous merge can't
+    // be applied to fresh scan data.
+    useEffect(() => {
+        if (open) {
+            setSelectedSections(new Set());
+        }
+    }, [open, scannedData]);
+
     // Helper to toggle
     const toggle = (key: string) => {
         const next = new Set(selectedSections);
@@ -127,7 +136,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                                 <TableCell>
                                     <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary focus:ring-primary"
                                         checked={selectedSections.has('demographics')}
                                         onChange={() => toggle('demographics')}
                                         disabled={!demoDiffers}
@@ -157,7 +166,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                                 <TableCell>
                                     <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary focus:ring-primary"
                                         checked={selectedSections.has('device')}
                                         onChange={() => toggle('device')}
                                         disabled={!scannedData.device}
@@ -191,7 +200,7 @@ const DataMergeModal: React.FC<DataMergeModalProps> = ({ open, currentPatient, s
                                 <TableCell>
                                     <input
                                         type="checkbox"
-                                        className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+                                        className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary focus:ring-primary"
                                         checked={selectedSections.has('leads')}
                                         onChange={() => toggle('leads')}
                                         disabled={!scannedData.leads?.length}

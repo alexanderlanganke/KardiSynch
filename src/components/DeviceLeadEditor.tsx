@@ -165,8 +165,9 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                                className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                                                 onClick={() => removeDevice(idx)}
+                                                aria-label="Remove device"
                                             >
                                                 <Trash2 className="h-3 w-3" />
                                             </Button>
@@ -220,8 +221,9 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
                                             <Button
                                                 variant="ghost"
                                                 size="icon"
-                                                className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                                className="absolute top-2 right-2 h-6 w-6 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                                                 onClick={() => removeLead(idx)}
+                                                aria-label="Remove lead"
                                             >
                                                 <Trash2 className="h-3 w-3" />
                                             </Button>
