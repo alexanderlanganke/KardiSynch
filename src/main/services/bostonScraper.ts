@@ -38,12 +38,16 @@ export async function checkForBostonUpdates(): Promise<{ updated: boolean; count
     try {
         await win.loadURL(BOSTON_URL);
 
-        // Wait for main content
+        // Wait for main content. The poll is capped so a changed page layout
+        // rejects instead of hanging forever (which would leak the hidden
+        // window because finally{} never runs and leave the caller pending).
         await win.webContents.executeJavaScript(`
-            new Promise((resolve) => {
+            new Promise((resolve, reject) => {
+                let attempts = 0;
                 const check = () => {
                     // Check for a known footer or main table
                     if (document.querySelector('footer') || document.querySelectorAll('table').length > 5) resolve();
+                    else if (++attempts >= 60) reject(new Error('Timed out waiting for Boston Scientific page content'));
                     else setTimeout(check, 500);
                 };
                 check();

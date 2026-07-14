@@ -226,21 +226,37 @@ export const handleSourceFile = async (filePath: string, sourceBase: string) => 
     try {
         const targetDir = path.dirname(targetPath);
         await withTimeout(fs.mkdir(targetDir, { recursive: true }), FS_TIMEOUT);
-        await withTimeout(fs.copyFile(filePath, targetPath), COPY_TIMEOUT);
 
-        const sourceStats = await withTimeout(fs.stat(filePath), FS_TIMEOUT);
-        const targetStats = await withTimeout(fs.stat(targetPath), FS_TIMEOUT);
+        // Copy to a temporary ".part" name first (unsupported extension, so the
+        // pollers skip it) and only rename to the final name after the copy is
+        // verified. An interrupted copy (USB unplugged, I/O error, timeout)
+        // must never leave a truncated file with an importable extension.
+        const partialPath = targetPath + '.part';
+        try {
+            await withTimeout(fs.copyFile(filePath, partialPath), COPY_TIMEOUT);
 
-        if (targetStats.size === sourceStats.size) {
-            await withTimeout(fs.unlink(filePath), FS_TIMEOUT);
-            // Clean up empty parent directories up to sourceBase
-            await removeEmptyParents(path.dirname(filePath), sourceBase);
-            console.log(`[UsbWatcher] Moved source file ${relativePath} to Target.`);
-            sendNotification(`Moved from USB to Target: ${path.basename(filePath)}`, 'info');
-        } else {
-            console.error(`[UsbWatcher] Copy verification failed for ${filePath}.`);
-            sendNotification(`Failed to move ${path.basename(filePath)}: Verification failed`, 'error');
+            const sourceStats = await withTimeout(fs.stat(filePath), FS_TIMEOUT);
+            const partialStats = await withTimeout(fs.stat(partialPath), FS_TIMEOUT);
+
+            if (partialStats.size !== sourceStats.size) {
+                console.error(`[UsbWatcher] Copy verification failed for ${filePath}.`);
+                sendNotification(`Failed to move ${path.basename(filePath)}: Verification failed`, 'error');
+                await fs.unlink(partialPath).catch(() => {});
+                return;
+            }
+
+            await withTimeout(fs.rename(partialPath, targetPath), FS_TIMEOUT);
+        } catch (copyError) {
+            // Remove the partial file so it is never mistaken for a complete report
+            await fs.unlink(partialPath).catch(() => {});
+            throw copyError;
         }
+
+        await withTimeout(fs.unlink(filePath), FS_TIMEOUT);
+        // Clean up empty parent directories up to sourceBase
+        await removeEmptyParents(path.dirname(filePath), sourceBase);
+        console.log(`[UsbWatcher] Moved source file ${relativePath} to Target.`);
+        sendNotification(`Moved from USB to Target: ${path.basename(filePath)}`, 'info');
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process source file ${filePath}:`, error);
         sendNotification(`Error moving from USB: ${(error as Error).message}`, 'error');
@@ -270,17 +286,30 @@ export const handleTargetFile = async (filePath: string, targetBase: string) => 
         const importDir = path.dirname(importPath);
 
         await withTimeout(fs.mkdir(importDir, { recursive: true }), FS_TIMEOUT);
-        await withTimeout(fs.copyFile(filePath, importPath), COPY_TIMEOUT);
 
-        const importStats = await withTimeout(fs.stat(importPath), FS_TIMEOUT);
-        if (importStats.size === stableStats.size) {
-            console.log(`[UsbWatcher] Copied target file ${relativePath} to Import.`);
-            markFileProcessed(relativePath, stableStats);
-            sendNotification(`Copied to Import: ${path.basename(filePath)}`, 'info');
-        } else {
-            console.error(`[UsbWatcher] Copy verification failed for target file ${filePath}.`);
-            sendNotification(`Failed to copy ${path.basename(filePath)}: Verification failed`, 'error');
+        // Copy to a temporary ".part" name and rename only after verification,
+        // so the import watcher never sees a truncated file.
+        const partialPath = importPath + '.part';
+        try {
+            await withTimeout(fs.copyFile(filePath, partialPath), COPY_TIMEOUT);
+
+            const importStats = await withTimeout(fs.stat(partialPath), FS_TIMEOUT);
+            if (importStats.size !== stableStats.size) {
+                console.error(`[UsbWatcher] Copy verification failed for target file ${filePath}.`);
+                sendNotification(`Failed to copy ${path.basename(filePath)}: Verification failed`, 'error');
+                await fs.unlink(partialPath).catch(() => {});
+                return;
+            }
+
+            await withTimeout(fs.rename(partialPath, importPath), FS_TIMEOUT);
+        } catch (copyError) {
+            await fs.unlink(partialPath).catch(() => {});
+            throw copyError;
         }
+
+        console.log(`[UsbWatcher] Copied target file ${relativePath} to Import.`);
+        markFileProcessed(relativePath, stableStats);
+        sendNotification(`Copied to Import: ${path.basename(filePath)}`, 'info');
     } catch (error) {
         console.error(`[UsbWatcher] Failed to process target file ${filePath}:`, error);
         sendNotification(`Error copying to Import: ${(error as Error).message}`, 'error');

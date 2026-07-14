@@ -39,6 +39,7 @@ describe('UsbWatcher Logic', () => {
         vi.mocked(fs.mkdir).mockResolvedValue(undefined);
         vi.mocked(fs.copyFile).mockResolvedValue(undefined);
         vi.mocked(fs.unlink).mockResolvedValue(undefined);
+        vi.mocked(fs.rename).mockResolvedValue(undefined);
 
         // Mock path methods simple implementation for logic strings
         vi.mocked(path.join).mockImplementation((...args) => args.join('/'));
@@ -60,14 +61,20 @@ describe('UsbWatcher Logic', () => {
 
             await handleSourceFile(filePath, sourceBase);
 
-            // Expect copy to target (preserving structure)
+            // Expect copy to a temporary .part name in target (preserving structure)
             expect(fs.copyFile).toHaveBeenCalledWith(
                 '/usb/source/subdir/test.txt',
-                '/app/target/subdir/test.txt'
+                '/app/target/subdir/test.txt.part'
             );
 
-            // Expect verification check (stat called on target)
-            expect(fs.stat).toHaveBeenCalledWith('/app/target/subdir/test.txt');
+            // Expect verification check (stat called on the partial file)
+            expect(fs.stat).toHaveBeenCalledWith('/app/target/subdir/test.txt.part');
+
+            // Expect rename to the final name after verification
+            expect(fs.rename).toHaveBeenCalledWith(
+                '/app/target/subdir/test.txt.part',
+                '/app/target/subdir/test.txt'
+            );
 
             // Expect deletion from source
             expect(fs.unlink).toHaveBeenCalledWith('/usb/source/subdir/test.txt');
@@ -88,14 +95,18 @@ describe('UsbWatcher Logic', () => {
 
             vi.mocked(fs.stat).mockImplementation(async (p) => {
                 if (p === filePath) return { size: 100 } as any;
-                if (p === '/app/target/fail.txt') return { size: 0 } as any; // Copy failed/corrupt
+                if (p === '/app/target/fail.txt.part') return { size: 0 } as any; // Copy failed/corrupt
                 return { size: 100 } as any;
             });
 
             await handleSourceFile(filePath, sourceBase);
 
             expect(fs.copyFile).toHaveBeenCalled();
-            expect(fs.unlink).not.toHaveBeenCalled();
+            // The truncated partial is cleaned up, the source is kept and the
+            // final target name is never created.
+            expect(fs.unlink).not.toHaveBeenCalledWith(filePath);
+            expect(fs.unlink).toHaveBeenCalledWith('/app/target/fail.txt.part');
+            expect(fs.rename).not.toHaveBeenCalled();
             expect(windowManager.sendNotification).toHaveBeenCalledWith(expect.stringContaining('Verification failed'), 'error');
         });
     });
@@ -110,9 +121,15 @@ describe('UsbWatcher Logic', () => {
 
             await handleTargetFile(filePath, targetBase);
 
-            // Expect copy to import preserving structure
+            // Expect copy to a temporary .part name in import preserving structure
             expect(fs.copyFile).toHaveBeenCalledWith(
                 '/app/target/subdir/doc.pdf',
+                '/app/import/subdir/doc.pdf.part'
+            );
+
+            // Expect rename to the final name after verification
+            expect(fs.rename).toHaveBeenCalledWith(
+                '/app/import/subdir/doc.pdf.part',
                 '/app/import/subdir/doc.pdf'
             );
 

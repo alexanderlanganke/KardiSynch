@@ -15,9 +15,12 @@ const CREDENTIAL_SIGNAL = '__KS_CRED_SUBMIT__';
 
 // JS injected into pages to detect login form submissions (AJAX/SPA logins
 // that don't trigger will-navigate).
-// Credentials are extracted inline and included in the signal so the main
-// process doesn't need to call executeJavaScript after navigation destroys
-// the page context.
+// Credentials are extracted inline at submit time and STASHED in the page
+// (window.__ks_pending_creds); only a bare marker goes through the console
+// channel. The plaintext password must never transit console.log — it would
+// be visible in the DevTools console history and to anything else observing
+// console messages. The main process pulls the stash via executeJavaScript
+// on receiving the marker.
 const CREDENTIAL_LISTENER_JS = `
 (function() {
   if (window.__ks_cred_listener) return;
@@ -50,7 +53,11 @@ const CREDENTIAL_LISTENER_JS = `
 
   function signal() {
     var creds = extractCreds();
-    if (creds) console.log('${CREDENTIAL_SIGNAL}' + creds);
+    if (creds) {
+      // Stash in-page and log only the bare marker — never the credentials.
+      window.__ks_pending_creds = creds;
+      console.log('${CREDENTIAL_SIGNAL}');
+    }
   }
 
   // Form submit (covers both AJAX and traditional)
@@ -277,25 +284,42 @@ class WebPanelManager {
       wc.executeJavaScript(CREDENTIAL_LISTENER_JS).catch(() => { /* noop */ });
     });
 
-    // 3. Listen for the console signal with inline credential data
+    // 3. Listen for the bare console marker and pull the stashed credentials
+    //    from the page (the payload itself never transits the console)
     wc.on('console-message', (_event, _level, message) => {
       if (message.startsWith(CREDENTIAL_SIGNAL)) {
-        const payload = message.substring(CREDENTIAL_SIGNAL.length);
-        dbg('console-message: credential signal received, payload length:', payload.length);
-        try {
-          const creds = JSON.parse(payload);
-          this.processExtractedCredentials(creds, wc);
-        } catch (e) {
-          dbg('console-message: failed to parse inline credential payload, falling back to extraction:', e);
-          setTimeout(() => this.tryExtractCredentials(wc), 300);
-        }
+        dbg('console-message: credential signal received');
+        this.pullStashedCredentials(wc);
       }
     });
   }
 
   /**
-   * Process already-extracted credentials (from inline console signal).
-   * Handles multi-step username fallback, dedup check, and prompting.
+   * Pull the credentials the in-page listener stashed at submit time
+   * (window.__ks_pending_creds) and process them. Falls back to full
+   * extraction if the stash is gone (e.g. the page already navigated).
+   */
+  private async pullStashedCredentials(wc: Electron.WebContents) {
+    try {
+      const payload: string | null = await wc.executeJavaScript(
+        '(function(){ var c = window.__ks_pending_creds; window.__ks_pending_creds = null; return c || null; })()'
+      );
+      if (!payload) {
+        dbg('pullStashedCredentials() stash empty, falling back to extraction');
+        setTimeout(() => this.tryExtractCredentials(wc), 300);
+        return;
+      }
+      const creds = JSON.parse(payload);
+      this.processExtractedCredentials(creds, wc);
+    } catch (e) {
+      dbg('pullStashedCredentials() failed (page may have navigated), falling back to extraction:', e);
+      setTimeout(() => this.tryExtractCredentials(wc), 300);
+    }
+  }
+
+  /**
+   * Process already-extracted credentials (from the in-page stash or fallback
+   * extraction). Handles multi-step username fallback, dedup check, and prompting.
    */
   private processExtractedCredentials(
     creds: { username: string; password: string; domain: string },
@@ -680,8 +704,14 @@ class WebPanelManager {
       childWindow.close();
     });
 
-    // Handle child window triggering a download
-    childWc.session.on('will-download', (_event, item) => {
+    // Handle child window triggering a download.
+    // The listener sits on the SHARED persistent session, so it MUST be
+    // removed when the child window goes away — otherwise every popup leaks a
+    // permanent listener that keeps intercepting all future downloads
+    // (multiple setSavePath calls and IPC events pointing at files that were
+    // never written).
+    const childSession = childWc.session;
+    const onChildWillDownload = (_event: Electron.Event, item: Electron.DownloadItem) => {
       const filename = item.getFilename();
       const lowerFilename = filename.toLowerCase();
       const isInterceptable = lowerFilename.endsWith('.pdf') || lowerFilename.endsWith('.zip');
@@ -717,6 +747,10 @@ class WebPanelManager {
           if (!childWindow.isDestroyed()) childWindow.close();
         });
       }
+    };
+    childSession.on('will-download', onChildWillDownload);
+    childWindow.on('closed', () => {
+      childSession.removeListener('will-download', onChildWillDownload);
     });
 
     setTimeout(() => {

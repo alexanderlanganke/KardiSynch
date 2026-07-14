@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import { findDuplicateReports, getReportById, deleteReport, getSettings } from '../database';
 import { app } from 'electron';
 
@@ -59,29 +60,58 @@ async function findVisitDir(patientDir: string, reportId: string): Promise<strin
 }
 
 /**
- * Move all non-metadata files from src directory into dest directory.
- * Handles filename collisions by appending a suffix.
- * Skips files that are identical (same name + same size).
+ * SHA-256 of a file's content, or null if it cannot be read.
  */
-async function mergeFiles(srcDir: string, destDir: string): Promise<number> {
-  let merged = 0;
+async function hashFile(p: string): Promise<string | null> {
   try {
-    const entries = await fs.readdir(srcDir);
-    for (const entry of entries) {
-      // Skip metadata XML files — the keeper's metadata is authoritative
-      if (entry === 'visit.xml' || entry === 'patient.xml') continue;
+    const data = await fs.readFile(p);
+    return crypto.createHash('sha256').update(data).digest('hex');
+  } catch {
+    return null;
+  }
+}
 
-      const srcPath = path.join(srcDir, entry);
-      let destPath = path.join(destDir, entry);
+/**
+ * Move all non-metadata files from src directory into dest directory.
+ * Name collisions are resolved by content hash: verified-identical files are
+ * dropped from src, different content is kept under a suffixed name.
+ * Returns per-file counts so callers can verify the merge fully succeeded
+ * before removing the source directory.
+ */
+async function mergeFiles(srcDir: string, destDir: string): Promise<{ merged: number; failed: number }> {
+  let merged = 0;
+  let failed = 0;
 
+  let entries: string[];
+  try {
+    entries = await fs.readdir(srcDir);
+  } catch (err) {
+    console.warn('[Dedup] Error reading directory to merge:', err);
+    return { merged: 0, failed: 1 };
+  }
+
+  for (const entry of entries) {
+    // Skip metadata XML files — the keeper's metadata is authoritative
+    if (entry === 'visit.xml' || entry === 'patient.xml') continue;
+
+    const srcPath = path.join(srcDir, entry);
+    let destPath = path.join(destDir, entry);
+
+    try {
       // Handle collision
       if (await fileExists(destPath)) {
-        // Check if same size — likely identical file, skip
-        const srcStat = await fs.stat(srcPath);
-        const destStat = await fs.stat(destPath);
-        if (srcStat.size === destStat.size) continue;
+        // Only treat the files as identical when their CONTENT matches —
+        // same name + same size is not enough (fixed-layout reports can
+        // differ while being byte-count equal).
+        const [srcHash, destHash] = await Promise.all([hashFile(srcPath), hashFile(destPath)]);
+        if (srcHash && srcHash === destHash) {
+          // Verified identical — drop the duplicate copy.
+          await fs.unlink(srcPath);
+          merged++;
+          continue;
+        }
 
-        // Different file, rename with suffix
+        // Different (or unreadable) content — keep both, suffix the incoming name
         const ext = path.extname(entry);
         const base = path.basename(entry, ext);
         let i = 2;
@@ -93,22 +123,36 @@ async function mergeFiles(srcDir: string, destDir: string): Promise<number> {
 
       try {
         await fs.rename(srcPath, destPath);
-        merged++;
       } catch (err: any) {
         // EXDEV: cross-device — fallback to copy+unlink
         if (err.code === 'EXDEV') {
           await fs.copyFile(srcPath, destPath);
           await fs.unlink(srcPath);
-          merged++;
         } else {
-          console.warn(`[Dedup] Failed to move ${entry}:`, err.message);
+          throw err;
         }
       }
+      merged++;
+    } catch (err: any) {
+      failed++;
+      console.warn(`[Dedup] Failed to move ${entry}:`, err.message);
     }
-  } catch (err) {
-    console.warn('[Dedup] Error merging files:', err);
   }
-  return merged;
+
+  return { merged, failed };
+}
+
+/**
+ * A merged-away visit directory may only be removed when nothing but metadata
+ * XML files (whose keeper copies are authoritative) is left inside it.
+ */
+async function isDirSafeToRemove(dir: string): Promise<boolean> {
+  try {
+    const entries = await fs.readdir(dir);
+    return entries.every(e => e === 'visit.xml' || e === 'patient.xml');
+  } catch (err: any) {
+    return err.code === 'ENOENT';
+  }
 }
 
 async function fileExists(p: string): Promise<boolean> {
@@ -157,13 +201,24 @@ function getVisitDatePrefix(dirName: string): string | null {
 }
 
 /**
+ * Resolve the report UUID a visit directory name refers to.
+ * Visit dirs are named {YYYY_MM_DD}_{reportId}, optionally with a numeric
+ * collision suffix ({...}_{reportId}_2). Returns null if no UUID is present.
+ */
+function getVisitReportId(dirName: string): string | null {
+  const match = dirName.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:_\d+)?$/i);
+  return match ? match[1] : null;
+}
+
+/**
  * Find the patient directory matching a patient ID.
- * Patient dirs are named: "LastName_FirstName_DOB_ID" or just the ID.
+ * Patient dirs are named "{patientId}_{safeName}" (see storage.ts) or, in
+ * legacy/corrupted states, just the ID.
  */
 async function findPatientDir(reportsDir: string, patientId: string): Promise<string | null> {
   try {
     const entries = await fs.readdir(reportsDir);
-    const match = entries.find(d => d.endsWith(`_${patientId}`) || d === patientId);
+    const match = entries.find(d => d === patientId || d.startsWith(`${patientId}_`));
     return match ? path.join(reportsDir, match) : null;
   } catch {
     return null;
@@ -206,40 +261,71 @@ async function dedupDatabaseReports(
 
     if (reports.length < 2) continue;
 
-    // Sort: highest score first, then most files as tiebreaker
-    reports.sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      return b.fileCount - a.fileCount;
-    });
+    // Same patient + same date is not enough on its own: a patient can have
+    // several legitimate interrogations on one day (e.g. a pacemaker and an
+    // ICM, or a multi-visit day — see storage's multi-visit invariant). Only
+    // rows that also share the same device serial number (or that both lack
+    // one) are treated as duplicates of each other.
+    const bySerial = new Map<string, typeof reports>();
+    for (const r of reports) {
+      const serialKey = String(r.row.device_serial_number || '').trim().toLowerCase();
+      const arr = bySerial.get(serialKey) || [];
+      arr.push(r);
+      bySerial.set(serialKey, arr);
+    }
 
-    const keeper = reports[0];
-    const duplicates = reports.slice(1);
+    for (const subgroup of bySerial.values()) {
+      if (subgroup.length < 2) continue;
 
-    console.log(`[Dedup] Keeping report ${keeper.id} (score=${keeper.score}, files=${keeper.fileCount}) for patient ${group.patient_id} on ${group.date}`);
+      // Sort: highest score first, then most files as tiebreaker
+      subgroup.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return b.fileCount - a.fileCount;
+      });
 
-    for (const dup of duplicates) {
-      if (dup.visitDir && keeper.visitDir) {
-        await mergeFiles(dup.visitDir, keeper.visitDir);
+      const keeper = subgroup[0];
+      const duplicates = subgroup.slice(1);
+
+      console.log(`[Dedup] Keeping report ${keeper.id} (score=${keeper.score}, files=${keeper.fileCount}) for patient ${group.patient_id} on ${group.date}`);
+
+      for (const dup of duplicates) {
+        // Only delete the duplicate's DB row once its files verifiably live in
+        // the keeper's directory (or it never had any on disk). A row whose
+        // directory exists but could not be fully merged is left untouched.
+        let filesCleared = false;
+        if (!dup.visitDir) {
+          filesCleared = true;
+        } else if (keeper.visitDir) {
+          const { failed } = await mergeFiles(dup.visitDir, keeper.visitDir);
+          filesCleared = failed === 0 && (await isDirSafeToRemove(dup.visitDir));
+        }
+
+        if (!filesCleared) {
+          console.warn(`[Dedup] Skipping report ${dup.id} — its files could not be fully merged into ${keeper.id}`);
+          continue;
+        }
+
+        await deleteReport(dup.id);
+        result.reportsRemoved++;
+
+        if (dup.visitDir && await fileExists(dup.visitDir)) {
+          const removed = await removeDirectoryAndCleanup(dup.visitDir, reportsDir);
+          if (removed) result.directoriesRemoved++;
+        }
+
+        console.log(`[Dedup] Removed duplicate report ${dup.id} (score=${dup.score}, files=${dup.fileCount})`);
       }
-
-      await deleteReport(dup.id);
-      result.reportsRemoved++;
-
-      if (dup.visitDir && await fileExists(dup.visitDir)) {
-        const removed = await removeDirectoryAndCleanup(dup.visitDir, reportsDir);
-        if (removed) result.directoriesRemoved++;
-      }
-
-      console.log(`[Dedup] Removed duplicate report ${dup.id} (score=${dup.score}, files=${dup.fileCount})`);
     }
   }
 }
 
 /**
  * Phase 2: Filesystem-driven dedup.
- * Scans patient directories for visit dirs with the same date prefix,
- * merges files into the one with the most content, and removes the rest.
- * Catches orphaned duplicate directories that have no DB entry.
+ * Scans patient directories for same-date visit dirs that resolve to the same
+ * report identity (several dirs for one report, or orphan dirs without a DB
+ * row next to a single live visit) and merges those into the authoritative
+ * directory. Same-date dirs with distinct live DB rows are legitimate
+ * multi-visit days and are left alone.
  */
 async function dedupFilesystemDirectories(
   reportsDir: string,
@@ -291,67 +377,127 @@ async function dedupFilesystemDirectories(
 
       onProgress?.({ message: `Directory dedup: ${patientDirNames[pi]} date ${datePrefix} (${dirs.length} dirs)`, progress });
 
-      // Score each directory: most non-xml files wins, then largest total size
-      const scored: { name: string; fullPath: string; fileCount: number; totalSize: number }[] = [];
+      // Resolve each directory's report identity. Two same-date directories
+      // are only duplicates when they refer to the SAME report, or when one of
+      // them is an orphan (its report has no DB row) next to exactly one live
+      // visit. Same-date directories with distinct live DB rows are legitimate
+      // multi-visit days (e.g. two devices interrogated the same day) and must
+      // be left alone.
+      const resolved: { name: string; reportId: string | null; hasRow: boolean }[] = [];
       for (const d of dirs) {
-        const fullPath = path.join(patientDir, d);
-        let entries: string[];
-        try {
-          entries = await fs.readdir(fullPath);
-        } catch { continue; }
-
-        const dataFiles = entries.filter(e => !e.endsWith('.xml'));
-        let totalSize = 0;
-        for (const f of dataFiles) {
-          try {
-            const s = await fs.stat(path.join(fullPath, f));
-            totalSize += s.size;
-          } catch { /* skip */ }
-        }
-
-        scored.push({ name: d, fullPath, fileCount: dataFiles.length, totalSize });
+        const reportId = getVisitReportId(d);
+        const row = reportId ? await getReportById(reportId).catch(() => null) : null;
+        resolved.push({ name: d, reportId, hasRow: !!row });
       }
 
-      if (scored.length < 2) continue;
+      const consumed = new Set<string>();
 
-      // Sort: most files first, then largest total size
-      scored.sort((a, b) => {
-        if (b.fileCount !== a.fileCount) return b.fileCount - a.fileCount;
-        return b.totalSize - a.totalSize;
-      });
+      // 1) Several directories for the same report — true duplicates.
+      const byReport = new Map<string, string[]>();
+      for (const r of resolved) {
+        if (!r.reportId) continue;
+        const arr = byReport.get(r.reportId) || [];
+        arr.push(r.name);
+        byReport.set(r.reportId, arr);
+      }
+      for (const sameReportDirs of byReport.values()) {
+        if (sameReportDirs.length < 2) continue;
+        await mergeVisitDirGroup(patientDir, reportsDir, sameReportDirs, result);
+        sameReportDirs.forEach(n => consumed.add(n));
+      }
 
-      const keeper = scored[0];
-      const dupes = scored.slice(1);
-
-      result.groupsFound++;
-
-      for (const dup of dupes) {
-        console.log(`[Dedup/FS] Merging ${dup.name} (${dup.fileCount} files) into ${keeper.name} (${keeper.fileCount} files)`);
-        await mergeFiles(dup.fullPath, keeper.fullPath);
-
-        const removed = await removeDirectoryAndCleanup(dup.fullPath, reportsDir);
-        if (removed) result.directoriesRemoved++;
-
-        // If there's an orphan DB row for this directory's report ID, clean it up
-        const uuidMatch = dup.name.match(/_([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
-        if (uuidMatch) {
-          const orphanId = uuidMatch[1];
-          const row = await getReportById(orphanId);
-          if (row) {
-            await deleteReport(orphanId);
-            result.reportsRemoved++;
-            console.log(`[Dedup/FS] Cleaned orphan DB row ${orphanId}`);
-          }
-        }
+      // 2) Orphan directories (report ID with no DB row) merged into the
+      //    single live visit of the same day. With several live visits it is
+      //    ambiguous which one an orphan belongs to — leave them alone.
+      const remaining = resolved.filter(r => !consumed.has(r.name) && r.reportId);
+      const live = remaining.filter(r => r.hasRow);
+      const orphans = remaining.filter(r => !r.hasRow);
+      if (live.length === 1 && orphans.length > 0) {
+        await mergeVisitDirGroup(
+          patientDir,
+          reportsDir,
+          [live[0].name, ...orphans.map(o => o.name)],
+          result,
+          live[0].name
+        );
       }
     }
   }
 }
 
 /**
+ * Merge a group of duplicate visit directories into a single keeper and remove
+ * the emptied duplicates. The keeper is `forcedKeeperName` when given (the
+ * directory a live DB row points at), otherwise the directory with the most
+ * data files (largest total size as tiebreaker). A duplicate is only removed
+ * when every one of its data files was verifiably merged away.
+ * Never deletes DB rows: the keeper's row must survive, and orphan directories
+ * have no row by definition.
+ */
+async function mergeVisitDirGroup(
+  patientDir: string,
+  reportsDir: string,
+  dirNames: string[],
+  result: DedupResult,
+  forcedKeeperName?: string
+): Promise<void> {
+  // Score each directory: most non-xml files wins, then largest total size
+  const scored: { name: string; fullPath: string; fileCount: number; totalSize: number }[] = [];
+  for (const d of dirNames) {
+    const fullPath = path.join(patientDir, d);
+    let entries: string[];
+    try {
+      entries = await fs.readdir(fullPath);
+    } catch { continue; }
+
+    const dataFiles = entries.filter(e => !e.endsWith('.xml'));
+    let totalSize = 0;
+    for (const f of dataFiles) {
+      try {
+        const s = await fs.stat(path.join(fullPath, f));
+        totalSize += s.size;
+      } catch { /* skip */ }
+    }
+
+    scored.push({ name: d, fullPath, fileCount: dataFiles.length, totalSize });
+  }
+
+  if (scored.length < 2) return;
+
+  // Sort: most files first, then largest total size
+  scored.sort((a, b) => {
+    if (b.fileCount !== a.fileCount) return b.fileCount - a.fileCount;
+    return b.totalSize - a.totalSize;
+  });
+
+  let keeper: typeof scored[0] | undefined;
+  if (forcedKeeperName) {
+    keeper = scored.find(s => s.name === forcedKeeperName);
+    if (!keeper) return; // the live directory is unreadable — do nothing
+  } else {
+    keeper = scored[0];
+  }
+  const dupes = scored.filter(s => s !== keeper);
+
+  result.groupsFound++;
+
+  for (const dup of dupes) {
+    console.log(`[Dedup/FS] Merging ${dup.name} (${dup.fileCount} files) into ${keeper.name} (${keeper.fileCount} files)`);
+    const { failed } = await mergeFiles(dup.fullPath, keeper.fullPath);
+    if (failed > 0 || !(await isDirSafeToRemove(dup.fullPath))) {
+      console.warn(`[Dedup/FS] Keeping ${dup.name} — not all files could be merged into ${keeper.name}`);
+      continue;
+    }
+
+    const removed = await removeDirectoryAndCleanup(dup.fullPath, reportsDir);
+    if (removed) result.directoriesRemoved++;
+  }
+}
+
+/**
  * Run the full dedup cleanup:
- * Phase 1: Database-driven — find duplicate report rows (same patient + date), merge and clean
- * Phase 2: Filesystem-driven — find duplicate visit directories (same date prefix), merge and clean
+ * Phase 1: Database-driven — find duplicate report rows (same patient + date + device serial), merge and clean
+ * Phase 2: Filesystem-driven — find duplicate visit directories (same report identity), merge and clean
  */
 export async function runDedupCleanup(
   onProgress?: (status: { message: string; progress: number }) => void

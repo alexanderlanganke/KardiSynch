@@ -40,7 +40,14 @@ const moveFile = async (src: string, dest: string): Promise<void> => {
   } catch (err: any) {
     if (err.code === 'EXDEV') {
       await fs.copyFile(src, dest);
-      await fs.unlink(src);
+      // The staged copy is complete at this point — a failed source unlink
+      // must not fail the enqueue, or the staged file would be stranded in an
+      // untracked task dir. Warn and leave the leftover source behind.
+      try {
+        await fs.unlink(src);
+      } catch (unlinkErr: any) {
+        console.warn(`[PendingSort] Staged ${src} but could not remove the source (leftover may be re-detected):`, unlinkErr.message);
+      }
     } else {
       throw err;
     }
@@ -123,21 +130,46 @@ export const enqueuePendingSort = async (
   await fs.mkdir(dir, { recursive: true });
 
   const files: string[] = [];
-  for (const src of sourcePaths) {
-    // Recover a clean, human-readable original name. Staged files are named
-    // `[INTRAOP__]<uuid>_<original>` by the watcher, so strip the INTRAOP__
-    // prefix and the leading UUID — otherwise the 36-char id dominates the name
-    // shown in the sorting queue and overflows the notification panel.
-    const baseName = path.basename(src)
-      .replace(/^INTRAOP__/, '')
-      .replace(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_/, '');
-    let dest = path.join(dir, baseName);
-    // Guard against collisions within the same task.
-    if (files.includes(baseName)) {
-      dest = path.join(dir, `${uuidv4().slice(0, 8)}_${baseName}`);
+  try {
+    for (const src of sourcePaths) {
+      // Recover a clean, human-readable original name. Staged files are named
+      // `[INTRAOP__]<uuid>_<original>` by the watcher, so strip the INTRAOP__
+      // prefix and the leading UUID — otherwise the 36-char id dominates the name
+      // shown in the sorting queue and overflows the notification panel.
+      const baseName = path.basename(src)
+        .replace(/^INTRAOP__/, '')
+        .replace(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_/, '');
+      let dest = path.join(dir, baseName);
+      // Guard against collisions within the same task.
+      if (files.includes(baseName)) {
+        dest = path.join(dir, `${uuidv4().slice(0, 8)}_${baseName}`);
+      }
+      await moveFile(src, dest);
+      files.push(path.basename(dest));
     }
-    await moveFile(src, dest);
-    files.push(path.basename(dest));
+  } catch (err) {
+    // Durability: never leave already-staged files untracked. If some files
+    // made it into the task dir before the failure, record them as a task so
+    // init/reconcile and the UI can still see them; otherwise clean up the
+    // empty dir. The error still propagates so the caller can handle the
+    // file(s) that were NOT staged.
+    if (files.length > 0) {
+      const partial: PendingSortTask = {
+        id,
+        createdAt: new Date().toISOString(),
+        dir,
+        files,
+        previewData: opts.previewData ?? {},
+        isIntraop: !!opts.isIntraop,
+        sessionId: opts.sessionId,
+      };
+      tasks.unshift(partial);
+      await persist();
+      console.error(`[PendingSort] Enqueue of task ${id} failed after staging ${files.length} file(s); recorded partial task.`, err);
+    } else {
+      await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+    }
+    throw err;
   }
 
   const task: PendingSortTask = {

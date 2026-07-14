@@ -40,48 +40,67 @@ class CredentialStore {
     return available;
   }
 
+  /**
+   * Load the credential file. A missing file is a legitimately empty store
+   * (returns []); a read or parse failure THROWS — callers that persist
+   * (save/delete) must never treat an unreadable store as empty, or a
+   * transient read error would silently wipe every stored credential on the
+   * next write.
+   */
   private load(): StoredCredential[] {
     dbg('load() reading file:', this.filePath);
+    let data: string;
     try {
-      const data = fs.readFileSync(this.filePath, 'utf-8');
-      dbg('load() file size:', data.length, 'bytes');
-      const parsed = JSON.parse(data) as Partial<CredentialFile>;
-
-      // Support legacy format (no version/checksum)
-      if (!parsed.version) {
-        dbg('load() legacy format detected (no version field)');
-        const legacy = parsed as any;
-        const creds = Array.isArray(legacy.credentials) ? legacy.credentials : [];
-        dbg('load() legacy credentials count:', creds.length);
-        return creds;
+      data = fs.readFileSync(this.filePath, 'utf-8');
+    } catch (err: any) {
+      if (err.code === 'ENOENT') {
+        dbg('load() no credential file yet');
+        return [];
       }
-
-      const credentials = Array.isArray(parsed.credentials) ? parsed.credentials : [];
-      dbg('load() version:', parsed.version, 'credentials count:', credentials.length,
-        'domains:', credentials.map(c => `${c.username}@${c.domain}`));
-
-      // Verify integrity checksum if present
-      if (parsed.checksum) {
-        const computed = this.computeChecksum(credentials);
-        const match = parsed.checksum === computed;
-        dbg('load() checksum verification:', match ? 'PASS' : 'FAIL',
-          '(stored:', parsed.checksum?.substring(0, 16) + '...',
-          'computed:', computed.substring(0, 16) + '...)');
-        if (!match) {
-          // The old HMAC-based checksum was non-deterministic and never verified.
-          // Re-persist now with a valid SHA-256 checksum so the warning doesn't repeat.
-          console.warn('[CredentialStore] Checksum mismatch (migrating from legacy HMAC) — re-checksumming now');
-          this.persist(credentials);
-        }
-      } else {
-        dbg('load() no checksum in file, skipping verification');
-      }
-
-      return credentials;
-    } catch (err) {
-      dbg('load() failed to read/parse file:', err);
-      return [];
+      dbg('load() failed to read file:', err);
+      throw new Error(`Failed to read credential store: ${err.message}`);
     }
+    dbg('load() file size:', data.length, 'bytes');
+
+    let parsed: Partial<CredentialFile>;
+    try {
+      parsed = JSON.parse(data) as Partial<CredentialFile>;
+    } catch (err: any) {
+      dbg('load() failed to parse file:', err);
+      throw new Error(`Credential store is corrupt: ${err.message}`);
+    }
+
+    // Support legacy format (no version/checksum)
+    if (!parsed.version) {
+      dbg('load() legacy format detected (no version field)');
+      const legacy = parsed as any;
+      const creds = Array.isArray(legacy.credentials) ? legacy.credentials : [];
+      dbg('load() legacy credentials count:', creds.length);
+      return creds;
+    }
+
+    const credentials = Array.isArray(parsed.credentials) ? parsed.credentials : [];
+    dbg('load() version:', parsed.version, 'credentials count:', credentials.length,
+      'domains:', credentials.map(c => `${c.username}@${c.domain}`));
+
+    // Verify integrity checksum if present
+    if (parsed.checksum) {
+      const computed = this.computeChecksum(credentials);
+      const match = parsed.checksum === computed;
+      dbg('load() checksum verification:', match ? 'PASS' : 'FAIL',
+        '(stored:', parsed.checksum?.substring(0, 16) + '...',
+        'computed:', computed.substring(0, 16) + '...)');
+      if (!match) {
+        // The old HMAC-based checksum was non-deterministic and never verified.
+        // Re-persist now with a valid SHA-256 checksum so the warning doesn't repeat.
+        console.warn('[CredentialStore] Checksum mismatch (migrating from legacy HMAC) — re-checksumming now');
+        this.persist(credentials);
+      }
+    } else {
+      dbg('load() no checksum in file, skipping verification');
+    }
+
+    return credentials;
   }
 
   private persist(credentials: StoredCredential[]): void {
@@ -188,7 +207,14 @@ class CredentialStore {
     if (!domain || typeof domain !== 'string') { dbg('get() ABORTED: invalid domain:', typeof domain, domain); return []; }
 
     const sanitizedDomain = domain.trim().toLowerCase();
-    const credentials = this.load();
+    // Read-only path: an unreadable store must not crash auto-fill flows.
+    let credentials: StoredCredential[];
+    try {
+      credentials = this.load();
+    } catch (err) {
+      console.error('[CredentialStore] get() could not read credential store:', err);
+      return [];
+    }
     dbg('get() searching', credentials.length, 'credentials for domain:', sanitizedDomain);
     const results: { username: string; password: string }[] = [];
 
@@ -233,7 +259,15 @@ class CredentialStore {
   }
 
   list(): { domain: string; username: string; updated_at: string }[] {
-    return this.load().map((c) => ({
+    // Read-only path: an unreadable store must not crash the settings UI.
+    let credentials: StoredCredential[];
+    try {
+      credentials = this.load();
+    } catch (err) {
+      console.error('[CredentialStore] list() could not read credential store:', err);
+      return [];
+    }
+    return credentials.map((c) => ({
       domain: c.domain,
       username: c.username,
       updated_at: c.updated_at,

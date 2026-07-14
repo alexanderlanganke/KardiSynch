@@ -25,12 +25,17 @@ export async function checkForMedtronicUpdates(): Promise<{ updated: boolean; co
         await win.loadURL(MEDTRONIC_URL);
 
         // Wait for list to load
-        // The list is in <ul class="list"> and has <li> elements
+        // The list is in <ul class="list"> and has <li> elements.
+        // The poll is capped so a changed page layout rejects instead of
+        // hanging forever (which would leak the hidden window because
+        // finally{} never runs and leave the caller pending).
         await win.webContents.executeJavaScript(`
-            new Promise((resolve) => {
+            new Promise((resolve, reject) => {
+                let attempts = 0;
                 const check = () => {
                     const list = document.querySelector('ul.list');
                     if (list && list.querySelectorAll('li').length > 50) resolve();
+                    else if (++attempts >= 60) reject(new Error('Timed out waiting for Medtronic page content'));
                     else setTimeout(check, 500);
                 };
                 check();

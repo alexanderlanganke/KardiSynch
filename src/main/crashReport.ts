@@ -1,6 +1,17 @@
 const REPO = 'alexanderlanganke/KardiSynch';
 const MAX_URL_LENGTH = 8000; // browsers truncate around 8k–10k
 
+/**
+ * Replace lone surrogate halves (e.g. produced by slicing through an emoji)
+ * with U+FFFD so encodeURIComponent cannot throw "URI malformed" — the crash
+ * reporter itself must never crash.
+ */
+function sanitizeSurrogates(s: string): string {
+  return s
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '�')
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�');
+}
+
 export function buildGitHubIssueUrl(opts: {
   errorMessage: string;
   stack?: string;
@@ -9,7 +20,7 @@ export function buildGitHubIssueUrl(opts: {
   electronVersion?: string;
   platform?: string;
 }): string {
-  const title = `Crash: ${opts.errorMessage.slice(0, 100)}`;
+  const title = `Crash: ${sanitizeSurrogates(opts.errorMessage.slice(0, 100))}`;
 
   let body = `## Crash Report
 
@@ -33,13 +44,20 @@ ${opts.stack ?? 'No stack trace available'}
 
 `;
 
-  // Truncate body if the resulting URL would be too long
+  // Truncate body if the resulting URL would be too long. The limit is
+  // enforced on the ENCODED length — non-ASCII content expands well beyond
+  // the old 3x assumption — by shrinking the raw slice until it fits.
   const baseUrl = `https://github.com/${REPO}/issues/new?labels=bug&title=${encodeURIComponent(title)}&body=`;
   const maxBodyLength = MAX_URL_LENGTH - baseUrl.length;
-  const encodedBody = encodeURIComponent(body);
-  const finalBody = encodedBody.length > maxBodyLength
-    ? encodeURIComponent(body.slice(0, maxBodyLength / 3) + '\n\n[truncated — full details in log file]')
-    : encodedBody;
+  let encodedBody = encodeURIComponent(sanitizeSurrogates(body));
+  if (encodedBody.length > maxBodyLength) {
+    const suffix = '\n\n[truncated — full details in log file]';
+    let keep = Math.floor(maxBodyLength / 3);
+    do {
+      encodedBody = encodeURIComponent(sanitizeSurrogates(body.slice(0, keep)) + suffix);
+      keep = Math.floor(keep / 2);
+    } while (encodedBody.length > maxBodyLength && keep > 0);
+  }
 
-  return baseUrl + finalBody;
+  return baseUrl + encodedBody;
 }

@@ -251,6 +251,12 @@ export async function mergePatients(
 
   const storage = await import('../storage');
 
+  // Losers with at least one failed/unverified visit move. Deleting such a
+  // patient would destroy the unmoved visits: deletePatient also removes any
+  // report rows still pointing at the patient, and removePatientDirectory
+  // recursively deletes the folder including the visits that never moved.
+  const losersWithMoveFailures = new Set<string>();
+
   // 1. Move every loser's reports to the keeper.
   for (let i = 0; i < uniqueLosers.length; i++) {
     const loserId = uniqueLosers[i];
@@ -262,6 +268,7 @@ export async function mergePatients(
       reportIds = await getReportIdsForPatient(loserId);
     } catch (e: any) {
       result.errors.push(`Failed to list reports for ${loserId}: ${e.message}`);
+      losersWithMoveFailures.add(loserId);
       continue;
     }
 
@@ -271,6 +278,7 @@ export async function mergePatients(
         result.reportsMoved++;
       } catch (e: any) {
         result.errors.push(`Failed to move report ${reportId} from ${loserId}: ${e.message}`);
+        losersWithMoveFailures.add(loserId);
       }
     }
   }
@@ -283,11 +291,18 @@ export async function mergePatients(
     result.errors.push(`Failed to merge device history: ${e.message}`);
   }
 
-  // 3. Delete the loser patients (DB row + directory).
+  // 3. Delete the loser patients (DB row + directory) — but ONLY those whose
+  //    every visit verifiably moved. A loser with a failed move keeps its DB
+  //    row and directory so no visit is ever deleted unmoved; the errors are
+  //    surfaced in the result for the user to retry.
   for (let i = 0; i < uniqueLosers.length; i++) {
     const loserId = uniqueLosers[i];
     const progress = 70 + Math.round(((i + 1) / uniqueLosers.length) * 20);
     onProgress?.({ message: `Removing merged patient ${loserId}`, progress });
+    if (losersWithMoveFailures.has(loserId)) {
+      result.errors.push(`Skipped deleting patient ${loserId}: one or more visits could not be moved to the keeper.`);
+      continue;
+    }
     try {
       await deletePatient(loserId);
       await storage.removePatientDirectory(loserId);

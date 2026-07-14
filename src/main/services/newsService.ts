@@ -111,7 +111,9 @@ async function fetchGoogleDeviceNews(onStatus?: StatusCallback): Promise<NewsIte
             id: `gn-${item.guid || item.link}`,
             type: 'news',
             title: item.title,
-            summary: item.description?.replace(/<[^>]*>/g, '').substring(0, 200) + '...' || 'No summary available',
+            summary: typeof item.description === 'string'
+                ? item.description.replace(/<[^>]*>/g, '').substring(0, 200) + '...'
+                : 'No summary available',
             source: 'Google News',
             date: item.pubDate ? new Date(item.pubDate).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
             url: item.link,
