@@ -201,7 +201,8 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
   if (reportDateMatch) {
     report.interrogation_date = normalizeDate(reportDateMatch[1]);
   } else {
-    const dateMatch = text.match(/(?:Interrogation Date|Session Date|Date|Letzte\s+Nachsorge)[:\s]*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i);
+    // Bare "Date" must not match implant/birth dates ("Implant Date: ...")
+    const dateMatch = text.match(/(?:Interrogation Date|Session Date|Letzte\s+Nachsorge|(?<!Implant\s)(?<!Implantation\s)(?<!Birth\s)(?<!Geburts)Date)[:\s]*(\d{1,2}\s+[A-Za-z]{3}\s+\d{4}|\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})/i);
     if (dateMatch) {
       report.interrogation_date = normalizeDate(dateMatch[1]);
     } else {
@@ -211,7 +212,9 @@ function parseStandardBostonPdf(text: string): UnifiedReport {
 
   // --- 2. Device Info ---
   // Model
-  const modelMatch = text.match(/(?:Model|Device Model|Aggregat)[:\s]*([A-Za-z0-9\s\-]+?)(?=\s{2,}|$|Serial)/i);
+  // Single-line capture: stops at a line break or 2+ whitespace so the model
+  // cannot swallow the following lines.
+  const modelMatch = text.match(/(?:Model|Device Model|Aggregat):?[ \t]*([A-Za-z0-9 \t\-]+?)(?=\s{2,}|\r|\n|$|Serial)/i);
   if (modelMatch) {
     report.device.model = modelMatch[1].trim();
   }

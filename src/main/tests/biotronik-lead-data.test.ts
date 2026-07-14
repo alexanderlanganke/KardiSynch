@@ -172,4 +172,38 @@ describe('Biotronik XML Parser (Lead Data)', () => {
         // Device type should detect pacemaker
         expect(result?.device.type).toBe('Pacemaker');
     });
+
+    it('preserves serial numbers verbatim (leading zeros, E-notation lookalikes)', () => {
+        const xmlMock = `
+        <InterfaceData>
+            <Examination>
+                <ExaminationDate>2023-10-27</ExaminationDate>
+                <Measurements>
+                    <Table>
+                        <TableName>TBU_HSM_DATEN</TableName>
+                        <TableEntry><AttributeName>MANUFACTURERDESCR</AttributeName><CharValue>Biotronik</CharValue></TableEntry>
+                        <TableEntry><AttributeName>CATAGGREGATDESCR</AttributeName><CharValue>Edora 8 DR-T</CharValue></TableEntry>
+                        <TableEntry><AttributeName>SERHSM</AttributeName><CharValue>008763967</CharValue></TableEntry>
+                    </Table>
+                    <Table>
+                        <TableName>9002</TableName>
+                        <TableEntry><AttributeName>Kanäle</AttributeName><CharValue>RA</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Hersteller</AttributeName><CharValue>Biotronik</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Elektrodenmodell</AttributeName><CharValue>Solia S 53</CharValue></TableEntry>
+                        <TableEntry><AttributeName>Seriennummer</AttributeName><CharValue>60E5</CharValue></TableEntry>
+                    </Table>
+                </Measurements>
+            </Examination>
+        </InterfaceData>
+        `;
+
+        const result = parseBiotronikXML(xmlMock);
+
+        expect(result).not.toBeNull();
+        // Leading zeros must survive (number coercion turned this into "8763967")
+        expect(result?.device.serial_number).toBe('008763967');
+        // E-notation lookalikes must survive (was expanded to "6000000")
+        expect(result?.leads?.[0]?.serial).toBe('60E5');
+        expect(result?.interrogation_date).toBe('2023-10-27');
+    });
 });

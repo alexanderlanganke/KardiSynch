@@ -18,7 +18,8 @@ describe('Parsers', () => {
             expect(result?.patient.first_name).toBe('Erika');
             expect(result?.patient.last_name).toBe('Mustermann');
             expect(result?.device.serial_number).toBe('12345678');
-            expect(result?.battery?.voltage?.value).toBe('3.1');
+            // parseTagValue: false preserves the source string verbatim ("3.10")
+            expect(result?.battery?.voltage?.value).toBe('3.10');
         });
     });
 

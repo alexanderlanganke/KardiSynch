@@ -14,7 +14,11 @@
  *   - `DD.MM.YYYY` (EU dotted)
  *   - `DD-MM-YYYY` / `DD/MM/YYYY` (EU dashed/slashed)
  *   - `MM/DD/YYYY` (US slashed)
- *   - `D MMM YYYY` and `MMM D, YYYY` (e.g. `25 Sep 1952`, `Sep 25, 1952`)
+ *   - `D MMM YYYY` and `MMM D, YYYY` (e.g. `25 Sep 1952`, `Sep 25, 1952`;
+ *     German month abbreviations like `Mär`, `Mai`, `Okt`, `Dez` are accepted)
+ *
+ * Two-digit years in numeric forms are windowed: `52` → `2052` would be in the
+ * future, so it becomes `1952`; `05` stays `2005`.
  *
  * Ambiguous numeric forms (both numbers ≤ 12) are resolved by `hint`:
  *   - 'us'   — first number is month (M/D/Y)
@@ -36,25 +40,34 @@ export function normalizeDate(input: string | null | undefined, hint: DateLocale
   const months: Record<string, number> = {
     jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6,
     jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12,
+    // German abbreviations that differ from English
+    'mär': 3, mrz: 3, mai: 5, okt: 10, dez: 12,
   };
-  const dmy = /^(\d{1,2})\s+([A-Za-z]{3,})\s+(\d{4})$/.exec(str);
+  const dmy = /^(\d{1,2})[\s\.]+([A-Za-zÄäÖöÜü]{3,})\.?[\s\.]+(\d{4})$/.exec(str);
   if (dmy) {
     const m = months[dmy[2].slice(0, 3).toLowerCase()];
     if (m) return canonicalize(dmy[3], String(m), dmy[1]);
   }
-  const mdy = /^([A-Za-z]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(str);
+  const mdy = /^([A-Za-zÄäÖöÜü]{3,})\.?\s+(\d{1,2}),?\s+(\d{4})$/.exec(str);
   if (mdy) {
     const m = months[mdy[1].slice(0, 3).toLowerCase()];
     if (m) return canonicalize(mdy[3], String(m), mdy[2]);
   }
 
-  // Numeric with separator
-  const num = /^(\d{1,2})([\/\.\-])(\d{1,2})\2(\d{4})$/.exec(str);
+  // Numeric with separator (4-digit year, or 2-digit year windowed below)
+  const num = /^(\d{1,2})([\/\.\-])(\d{1,2})\2(\d{4}|\d{2})$/.exec(str);
   if (num) {
     const a = parseInt(num[1], 10);
     const sep = num[2];
     const b = parseInt(num[3], 10);
-    const y = num[4];
+    let y = num[4];
+    if (y.length === 2) {
+      // Window 2-digit years: prefer 20xx, but a future year must be 19xx
+      // (a DOB of "52" means 1952, not 2052).
+      let yi = 2000 + parseInt(y, 10);
+      if (yi > new Date().getFullYear()) yi -= 100;
+      y = String(yi);
+    }
 
     let day: number, month: number;
     if (a > 12 && b <= 12) {

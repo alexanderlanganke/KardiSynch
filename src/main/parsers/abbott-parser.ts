@@ -144,13 +144,16 @@ function parseCodedLog(text: string): Map<string, string> {
 
 /**
  * Parse an MM/DD/YYYY date string (with optional time) into ISO format.
+ *
+ * Delegates to normalizeDate with a 'us' hint: ambiguous dates stay MM/DD
+ * (documented Abbott format), but a first number > 12 must be the day
+ * ("25/09/1952" -> 1952-09-25 instead of the invalid 1952-25-09), and the
+ * result is validated as a real calendar date.
  */
 function parseAbbottDate(dateStr: string): string {
     const parts = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
     if (!parts) return '';
-    const month = parts[1].padStart(2, '0');
-    const day = parts[2].padStart(2, '0');
-    return `${parts[3]}-${month}-${day}`;
+    return normalizeDate(`${parts[1]}/${parts[2]}/${parts[3]}`, 'us');
 }
 
 /**
@@ -165,11 +168,12 @@ function parseAbbottDate(dateStr: string): string {
 function parseAbbottDateTime(dateStr: string): string {
     const parts = dateStr.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})/);
     if (parts) {
-        const d = new Date(
-            parseInt(parts[3]), parseInt(parts[1]) - 1, parseInt(parts[2]),
-            parseInt(parts[4]), parseInt(parts[5]), parseInt(parts[6])
-        );
-        return d.toISOString();
+        // Build the ISO string from the parsed components directly. The old
+        // local Date -> toISOString() round trip converted to UTC, shifting
+        // early-morning interrogations onto the previous calendar day.
+        const date = parseAbbottDate(dateStr);
+        if (date) return `${date}T${parts[4].padStart(2, '0')}:${parts[5]}:${parts[6]}`;
+        return '';
     }
     // No full time component — fall back to the date alone (parseAbbottDate
     // matches the MM/DD/YYYY anywhere in the string, so this also recovers the
@@ -181,8 +185,10 @@ function parseAbbottDateTime(dateStr: string): string {
  * Extract a numeric value from a string like "375.0Ohm", "12.0mV", "3.008V"
  */
 function extractNumeric(str: string): number | null {
-    const m = str.match(/([0-9.]+)/);
-    return m ? parseFloat(m[1]) : null;
+    const m = str.match(/(\d+(?:\.\d+)?)/);
+    if (!m) return null;
+    const val = parseFloat(m[1]);
+    return Number.isNaN(val) ? null : val;
 }
 
 /**
@@ -309,7 +315,9 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
         patientName: /Patient Name\s+(.+)/i,
         sessionTimestamp: /Session Timestamp\s+(\d{1,2}\/\d{1,2}\/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/i,
         model: /Model Number:?\s*(.+)/i,
-        serial: /Serial Number\s+([A-Z0-9]+)/i,
+        // Anchored away from lead serial lines ("Atrial Lead Serial Number ...")
+        // and accepts an optional colon separator.
+        serial: /(?<!Lead\s)Serial Number(?::\s*|\s+)([A-Z0-9]+)/i,
         batteryVoltage: /Unloaded Battery Voltage\s+([0-9.]+)\s*V/i,
         atrialSerial: /Atrial Lead Serial Number\s+([A-Z0-9]+)/i,
         rvSerial: /RV Lead Serial Number\s+([A-Z0-9]+)/i,

@@ -22,7 +22,8 @@ describe('parseFile', () => {
     const filePath = 'BIOSTD_test.xml';
     const xmlData = '<xml></xml>';
 
-    (fs.readFile as vi.Mock).mockResolvedValue(xmlData);
+    // parseFile reads XML as a Buffer and decodes it (BOM / encoding declaration aware)
+    (fs.readFile as vi.Mock).mockResolvedValue(Buffer.from(xmlData, 'utf-8'));
 
     const spy = vi.spyOn(biotronikParser, 'parseBiotronikXML').mockReturnValue({
         manufacturer: "Biotronik",
@@ -43,7 +44,7 @@ describe('parseFile', () => {
 
     await parseFile(filePath);
 
-    expect(fs.readFile).toHaveBeenCalledWith(filePath, 'utf-8');
+    expect(fs.readFile).toHaveBeenCalledWith(filePath);
     expect(spy).toHaveBeenCalledWith(xmlData);
   });
 

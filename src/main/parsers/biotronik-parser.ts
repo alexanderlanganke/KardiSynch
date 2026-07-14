@@ -55,13 +55,16 @@ function findEntry(rawTableEntries: any[] | any | null, attributeName: string): 
     if (!rawTableEntries) return null;
     try {
         const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
-        const entry = tableEntries.find((e: any) => e['AttributeName']?.toLowerCase() === attributeName.toLowerCase());
+        const entry = tableEntries.find((e: any) => String(e['AttributeName'] ?? '').toLowerCase() === attributeName.toLowerCase());
         if (!entry) return null;
 
-        if (entry['CharValue']) return String(entry['CharValue']);
-        if (entry['DecimalValue']) return entry['DecimalValue'].toString();
-        if (entry['SmallIntValue']) return entry['SmallIntValue'].toString();
-        if (entry['DateValue']) return String(entry['DateValue']);
+        // Explicit null/empty checks so legitimate 0 values survive
+        // (a truthiness check dropped CharValue/DecimalValue of 0).
+        const hasValue = (v: any) => v !== undefined && v !== null && v !== '';
+        if (hasValue(entry['CharValue'])) return String(entry['CharValue']);
+        if (hasValue(entry['DecimalValue'])) return String(entry['DecimalValue']);
+        if (hasValue(entry['SmallIntValue'])) return String(entry['SmallIntValue']);
+        if (hasValue(entry['DateValue'])) return String(entry['DateValue']);
 
     } catch (e) {
         console.error(`Error finding attribute: ${attributeName}`, e);
@@ -78,13 +81,14 @@ function findAllEntries(rawTableEntries: any[] | any | null, attributeName: stri
     if (!rawTableEntries) return [];
     try {
         const tableEntries = Array.isArray(rawTableEntries) ? rawTableEntries : [rawTableEntries];
+        const hasValue = (v: any) => v !== undefined && v !== null && v !== '';
         return tableEntries
-            .filter((e: any) => e['AttributeName']?.toLowerCase() === attributeName.toLowerCase())
+            .filter((e: any) => String(e['AttributeName'] ?? '').toLowerCase() === attributeName.toLowerCase())
             .map((e: any) => {
-                if (e['CharValue']) return String(e['CharValue']);
-                if (e['DecimalValue']) return e['DecimalValue'].toString();
-                if (e['SmallIntValue']) return e['SmallIntValue'].toString();
-                if (e['DateValue']) return String(e['DateValue']);
+                if (hasValue(e['CharValue'])) return String(e['CharValue']);
+                if (hasValue(e['DecimalValue'])) return String(e['DecimalValue']);
+                if (hasValue(e['SmallIntValue'])) return String(e['SmallIntValue']);
+                if (hasValue(e['DateValue'])) return String(e['DateValue']);
                 return '';
             });
     } catch (e) {
@@ -164,7 +168,11 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
             transformTagName: (tagName) => {
                 const i = tagName.indexOf(':');
                 return i > -1 ? tagName.substring(i + 1) : tagName;
-            }
+            },
+            // Keep values as strings: number coercion stripped leading zeros
+            // from serials ("008763967" -> 8763967) and mangled values like
+            // "60E5" (scientific notation -> 6000000), breaking serial matching.
+            parseTagValue: false
         });
         const xml = parser.parse(xmlData);
 
@@ -373,7 +381,7 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
 
         const standardizedData: UnifiedReport = {
             manufacturer: findEntry(summaryTable, 'MANUFACTURERDESCR') || 'Biotronik',
-            interrogation_date: normalizeDate(xml['InterfaceData']['Examination']['ExaminationDate'], 'eu'),
+            interrogation_date: normalizeDate(xml['InterfaceData']?.['Examination']?.['ExaminationDate'], 'eu'),
             patient: {
                 first_name: personalData?.['FirstName'] || personalData?.['Vorname'] || '',
                 last_name: personalData?.['Name'] || personalData?.['LastName'] || personalData?.['Nachname'] || '',

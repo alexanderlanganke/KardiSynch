@@ -67,9 +67,9 @@ export interface AbbottAnalysis {
  */
 const PARSER_PATTERNS: Record<string, RegExp> = {
     patientName: /Patient Name\s+(.+)/i,
-    sessionTimestamp: /Session Timestamp\s+(\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2})/i,
+    sessionTimestamp: /Session Timestamp\s+(\d{1,2}\/\d{1,2}\/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/i,
     model: /Model Number:?\s*(.+)/i,
-    serial: /Serial Number\s+([A-Z0-9]+)/i,
+    serial: /(?<!Lead\s)Serial Number(?::\s*|\s+)([A-Z0-9]+)/i,
     batteryVoltage: /Unloaded Battery Voltage\s+([0-9.]+)\s*V/i,
     atrialSerial: /Atrial Lead Serial Number\s+([A-Z0-9]+)/i,
     rvSerial: /RV Lead Serial Number\s+([A-Z0-9]+)/i,

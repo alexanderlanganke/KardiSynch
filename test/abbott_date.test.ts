@@ -61,4 +61,28 @@ describe('Abbott date extraction (#127)', () => {
         expect(report).not.toBeNull();
         expect(report!.interrogation_date).toBe('2026-06-26');
     });
+
+    test('early-morning timestamps keep their calendar date (no UTC day shift)', async () => {
+        // The old local Date -> toISOString() round trip moved 00:30 CET
+        // sessions onto the previous UTC day.
+        const file = writeLog([...baseLines, '105Session Timestamp06/26/2026 00:30:15']);
+        const report = await parseAbbottLog(file);
+        expect(report).not.toBeNull();
+        expect(report!.interrogation_date).toBe('2026-06-26');
+    });
+
+    test('DD/MM dates with day > 12 are disambiguated instead of producing an invalid date', async () => {
+        // parseAbbottDate used to emit "1952-25-09" for this DOB
+        const file = writeLog([...baseLines.filter(l => !l.startsWith('2431')), '2431Patient Date of Birth25/09/1952']);
+        const report = await parseAbbottLog(file);
+        expect(report).not.toBeNull();
+        expect(report!.patient.dob).toBe('1952-09-25');
+    });
+
+    test('ambiguous dates stay MM/DD (documented Abbott format)', async () => {
+        const file = writeLog([...baseLines.filter(l => !l.startsWith('2431')), '2431Patient Date of Birth03/07/1950']);
+        const report = await parseAbbottLog(file);
+        expect(report).not.toBeNull();
+        expect(report!.patient.dob).toBe('1950-03-07');
+    });
 });

@@ -12,6 +12,42 @@ import { parseMicroportXML } from './parsers/microport-parser';
 import { parseAbbottLog } from './parsers/abbott-parser';
 
 /**
+ * Decodes an XML file buffer honoring its BOM / encoding declaration.
+ * Supports UTF-8 (default), UTF-16 LE/BE and ISO-8859-1 / Windows-1252 —
+ * reading everything as UTF-8 mangled umlauts in e.g. Latin-1 exports.
+ */
+const decodeXmlBuffer = (buffer: Buffer): string => {
+  // Byte Order Marks
+  if (buffer.length >= 2 && buffer[0] === 0xFF && buffer[1] === 0xFE) {
+    return buffer.toString('utf16le', 2);
+  }
+  if (buffer.length >= 2 && buffer[0] === 0xFE && buffer[1] === 0xFF) {
+    // UTF-16 BE: swap byte pairs, then decode as LE
+    const swapped = Buffer.from(buffer.subarray(2));
+    swapped.swap16();
+    return swapped.toString('utf16le');
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+    return buffer.toString('utf-8', 3);
+  }
+
+  // Sniff the encoding= declaration from the XML prolog (ASCII-compatible)
+  const prolog = buffer.toString('latin1', 0, Math.min(buffer.length, 200));
+  const encMatch = prolog.match(/encoding=["']([^"']+)["']/i);
+  if (encMatch) {
+    const enc = encMatch[1].toLowerCase();
+    if (enc === 'iso-8859-1' || enc === 'latin1' || enc === 'windows-1252' || enc === 'cp1252') {
+      return buffer.toString('latin1');
+    }
+    if (enc === 'utf-16' || enc === 'utf-16le' || enc === 'ucs-2') {
+      return buffer.toString('utf16le');
+    }
+  }
+
+  return buffer.toString('utf-8');
+};
+
+/**
  * Acts as a dispatcher, routing files to the appropriate parser based on their
  * file type and naming conventions. It handles PDFs (with OCR fallback),
  * Biotronik XML files, Boston Scientific .bnk files, Medtronic .pdd/.pkg files,
@@ -44,7 +80,7 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
 
     return extractStructuredData(rawText, filename);
   } else if (fileExtension === '.xml') {
-    const xmlData = await fs.readFile(filePath, 'utf-8');
+    const xmlData = decodeXmlBuffer(await fs.readFile(filePath));
 
     // Check for Microport/Paceart
     if (xmlData.includes('<Paceart>')) {
@@ -55,7 +91,9 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
       return parseBiotronikXML(xmlData);
     } else if (filename === 'visit.xml') {
       const { XMLParser } = require('fast-xml-parser');
-      const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '' });
+      // parseTagValue: false — keep all values as strings so serial numbers
+      // like "008763967" or "60E5" survive verbatim (no number coercion).
+      const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false });
       const parsed = parser.parse(xmlData);
       const visit = parsed.visit;
 
@@ -68,7 +106,7 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
         device: {
           type: visit.device_type,
           model: visit.device_model,
-          serial_number: visit.device_serial
+          serial_number: visit.device_serial != null ? String(visit.device_serial) : visit.device_serial
         },
         battery: {},
         leads: [],

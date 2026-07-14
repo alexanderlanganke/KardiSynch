@@ -3,6 +3,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 import { UnifiedReport } from '../reports';
+import { normalizeDate } from '../../lib/dates';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const pdfParse = require('pdf-parse');
 
@@ -93,24 +94,18 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         raw_text: text,
     };
 
-    console.log('Extracted PDF Text Preview (First 500 chars):', text.substring(0, 500));
-
-    // Helper to format date strings to YYYY-MM-DD
-    const formatDate = (month: string, day: string, year: string): string => {
-        const monthMap: { [key: string]: string } = {
-            'Jan': '01', 'Feb': '02', 'Mär': '03', 'Mar': '03', 'Apr': '04', 'Mai': '05', 'May': '05', 'Jun': '06',
-            'Jul': '07', 'Aug': '08', 'Sep': '09', 'Okt': '10', 'Oct': '10', 'Nov': '11', 'Dez': '12', 'Dec': '12'
-        };
-
-        let m = month;
-        // Check if month is a number (e.g. "05")
-        if (!isNaN(parseInt(month))) {
-            m = month.padStart(2, '0');
-        } else {
-            const shortM = month.substring(0, 3);
-            if (monthMap[shortM]) m = monthMap[shortM];
+    // Helper: pipe extracted day/month/year parts through normalizeDate so the
+    // result is validated and month>12 inputs are disambiguated ("10/27/2023"
+    // -> 2023-10-27). Alpha months (incl. German "Mär", "Okt", "Dez") are
+    // handled by normalizeDate's month-name branch. Returns '' when invalid.
+    const buildDate = (month: string, day: string, year: string): string => {
+        if (isNaN(parseInt(month))) {
+            // Month-name form, e.g. "06 Nov 2025"
+            return normalizeDate(`${day} ${month} ${year}`);
         }
-        return `${year.padStart(4, '20')}-${m}-${day.padStart(2, '0')}`;
+        // Numeric: default to day-first (German user base); normalizeDate swaps
+        // when the "month" part is > 12 and validates the final date.
+        return normalizeDate(`${day}.${month}.${year}`, 'eu');
     };
 
     // 1. Try to parse from Filename first (High confidence for Medtronic)
@@ -128,19 +123,19 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         }
 
         if (filenameMatch?.groups) {
-            console.log('Filename metadata match:', filenameMatch.groups);
+            console.log('Filename metadata matched (Medtronic format).');
             report.patient.last_name = filenameMatch.groups.last;
             report.patient.first_name = filenameMatch.groups.first;
             report.device.serial_number = filenameMatch.groups.serial;
             report.manufacturer = 'Medtronic'; // Safe assumption for this format
-            report.interrogation_date = formatDate(filenameMatch.groups.month, filenameMatch.groups.day, filenameMatch.groups.year);
+            report.interrogation_date = buildDate(filenameMatch.groups.month, filenameMatch.groups.day, filenameMatch.groups.year);
         } else {
             // Check for Biotronik Format: BIOSTD_YYYY-MM-DD_HH-MM-SS_Lastname_Firstname_Serial.PDF
             // Example: BIOSTD_2025-11-03_14-21-46_Doe_John_8763967
             const bioMatch = filename.match(/BIOSTD_(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})_(?<hour>\d{2})-(?<minute>\d{2})-(?<second>\d{2})_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<serial>[A-Z0-9]+)/);
 
             if (bioMatch?.groups) {
-                console.log('Biotronik filename metadata match:', bioMatch.groups);
+                console.log('Filename metadata matched (Biotronik format).');
                 report.patient.last_name = bioMatch.groups.last;
                 report.patient.first_name = bioMatch.groups.first;
                 report.device.serial_number = bioMatch.groups.serial;
@@ -184,29 +179,14 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
 
     // Regex for Date of Birth (e.g., "DOB: 01/23/1945" or "Geburtsdatum: 15.05.1950")
     // Support German format dd.mm.yyyy
-    const dobMatch = text.match(/(?:DOB|Date of Birth|Geburtsdatum|Born):?\s*(?<part1>\d{1,2})[\.\/-](?<part2>\d{1,2})[\.\/-](?<year>\d{2,4})/i);
+    const dobMatch = text.match(/(?:DOB|Date of Birth|Geburtsdatum|Born):?\s*(?<part1>\d{1,2})(?<sep>[\.\/-])(?<part2>\d{1,2})\k<sep>(?<year>\d{2,4})/i);
     if (dobMatch?.groups) {
-        // Heuristic to determine if dd.mm or mm.dd
-        // If separator is '.', assume dd.mm.yyyy (German)
-        // If separator is '/', assume mm/dd/yyyy (US) - though Medtronic might use dd/mm/yyyy in EU?
-        // Let's check the full match string to see the separator
-        const fullMatch = dobMatch[0];
-        if (fullMatch.includes('.')) {
-            // German: dd.mm.yyyy
-            report.patient.dob = formatDate(dobMatch.groups.part2, dobMatch.groups.part1, dobMatch.groups.year);
-        } else {
-            // US: mm/dd/yyyy (Default assumption for / or -)
-            // But wait, if part1 > 12, it MUST be day.
-            const p1 = parseInt(dobMatch.groups.part1);
-            const p2 = parseInt(dobMatch.groups.part2);
-            if (p1 > 12) {
-                // dd-mm-yyyy
-                report.patient.dob = formatDate(dobMatch.groups.part2, dobMatch.groups.part1, dobMatch.groups.year);
-            } else {
-                // mm-dd-yyyy (Standard US)
-                report.patient.dob = formatDate(dobMatch.groups.part1, dobMatch.groups.part2, dobMatch.groups.year);
-            }
-        }
+        // normalizeDate disambiguates (>12 must be the day), validates, and
+        // windows 2-digit years (52 -> 1952). Day-first default for ambiguous
+        // dotted/dashed dates; slashes default to US per its 'auto' hint.
+        report.patient.dob = normalizeDate(
+            `${dobMatch.groups.part1}${dobMatch.groups.sep}${dobMatch.groups.part2}${dobMatch.groups.sep}${dobMatch.groups.year}`
+        );
     }
 
     // Regex for Interrogation Date and Time
@@ -219,10 +199,10 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         const match = text.match(dateRegex);
 
         if (match?.groups) {
-            let dateStr = formatDate(match.groups.month, match.groups.day, match.groups.year);
+            let dateStr = buildDate(match.groups.month, match.groups.day, match.groups.year);
 
-            // Append time if found
-            if (match.groups.hour && match.groups.minute) {
+            // Append time if found (only when the date itself validated)
+            if (dateStr && match.groups.hour && match.groups.minute) {
                 let hour = parseInt(match.groups.hour);
                 const minute = match.groups.minute;
                 const second = match.groups.second || '00';
@@ -245,15 +225,18 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
     }
 
     // Regex for Serial Number
+    // "SN" needs a word boundary and at least one separator so words that merely
+    // contain "sn" (e.g. "Hausnummer") can never produce a bogus serial.
     if (report.device.serial_number === 'Unknown') {
-        const serialMatch = text.match(/(?:Serial Number|Seriennummer|SN|Serial No\.):?\s*(?<serial>[A-Z0-9]+)/i);
+        const serialMatch = text.match(/(?:Serial Number|Seriennummer|Serial No\.?|\bSN)(?::\s*|\s+)(?<serial>[A-Z0-9]+)/i);
         if (serialMatch?.groups) {
             report.device.serial_number = serialMatch.groups.serial;
         }
     }
 
-    // Regex for Device Model
-    const modelMatch = text.match(/(?:Device Model|Model|Gerät|Device):?\s*(?<model>[A-Za-z0-9\s\-\.]+?)(?=\s{2,}|$)/i);
+    // Regex for Device Model (single-line capture; stops at a line break or a
+    // run of 2+ whitespace so it cannot swallow the following lines)
+    const modelMatch = text.match(/(?:Device Model|Model|Gerät|Device):?[ \t]*(?<model>[A-Za-z0-9 \t\-\.]+?)(?=\s{2,}|\r|\n|$)/i);
     if (modelMatch?.groups) {
         report.device.model = modelMatch.groups.model.trim();
     }

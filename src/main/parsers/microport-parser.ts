@@ -7,7 +7,11 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
         const parser = new XMLParser({
             ignoreAttributes: false,
             attributeNamePrefix: '',
-            parseAttributeValue: true
+            // Keep tag and attribute values as strings: number coercion
+            // stripped leading zeros from serials and mixed string/number
+            // types broke strict-equality matching downstream.
+            parseAttributeValue: false,
+            parseTagValue: false
         });
         const parsed = parser.parse(xmlContent);
 
@@ -26,23 +30,26 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
         let firstName = '';
         let lastName = 'Unknown';
         if (demographics?.nameFirst) {
-            firstName = demographics.nameFirst;
+            firstName = String(demographics.nameFirst);
         }
         if (demographics?.nameLast) {
-            if (!firstName && demographics.nameLast.includes(',')) {
+            const nameLast = String(demographics.nameLast);
+            if (!firstName && nameLast.includes(',')) {
                 // Fallback: "Last, First" format stored in nameLast
-                const parts = demographics.nameLast.split(',');
+                const parts = nameLast.split(',');
                 lastName = parts[0].trim();
-                firstName = parts[1].trim();
+                firstName = (parts[1] || '').trim();
             } else {
-                lastName = demographics.nameLast;
+                lastName = nameLast;
             }
         }
         const dob = demographics?.BirthDate || '';
 
         // 2. Device Info
         const pacemaker = devices?.Pacemaker;
-        const serial = pacemaker?.SerialNumber || 'Unknown';
+        const serial = pacemaker?.SerialNumber != null && String(pacemaker.SerialNumber).trim() !== ''
+            ? String(pacemaker.SerialNumber).trim()
+            : 'Unknown';
 
         // Resolve Model from LookupTables
         let model = 'Unknown';
@@ -132,7 +139,7 @@ export const parseMicroportXML = async (xmlContent: string): Promise<UnifiedRepo
                 const leadData: any = {
                     name: measureChamber,
                     model: leadModel,
-                    serial: l.SerialNumber,
+                    serial: l.SerialNumber != null ? String(l.SerialNumber) : undefined,
                     anatomic_location: chamber
                 };
 

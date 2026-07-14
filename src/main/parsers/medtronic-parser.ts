@@ -48,21 +48,41 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
 
         // --- 1. Robust Header Extraction (Regex/String Analysis) ---
 
-        // Extract all ASCII strings >= 4 chars
+        // Extract all printable strings >= 4 chars. UTF-8 aware: multi-byte
+        // sequences (umlauts etc.) are kept, so "Müller, Hans" survives intact
+        // instead of being split at the non-ASCII byte.
         const strings: string[] = [];
-        let current = '';
-        for (let i = 0; i < buffer.length; i++) {
-            const charCode = buffer[i];
-            if (charCode >= 32 && charCode <= 126) {
-                current += String.fromCharCode(charCode);
-            } else {
-                if (current.length >= 4) {
-                    strings.push(current.trim());
+        const flushRun = (start: number, end: number) => {
+            if (end <= start) return;
+            const s = buffer.toString('utf8', start, end).trim();
+            if (s.length >= 4) strings.push(s);
+        };
+        let runStart = -1;
+        let i = 0;
+        while (i < buffer.length) {
+            const b = buffer[i];
+            // Determine length of a printable unit at this offset:
+            // ASCII printable, or a well-formed UTF-8 multi-byte sequence.
+            let seqLen = 0;
+            if (b >= 32 && b <= 126) seqLen = 1;
+            else if (b >= 0xC2 && b <= 0xDF) seqLen = 2;
+            else if (b >= 0xE0 && b <= 0xEF) seqLen = 3;
+            else if (b >= 0xF0 && b <= 0xF4) seqLen = 4;
+            if (seqLen > 1) {
+                for (let k = 1; k < seqLen; k++) {
+                    const cont = i + k < buffer.length ? buffer[i + k] : -1;
+                    if (cont < 0x80 || cont > 0xBF) { seqLen = 0; break; }
                 }
-                current = '';
+            }
+            if (seqLen > 0) {
+                if (runStart === -1) runStart = i;
+                i += seqLen;
+            } else {
+                if (runStart !== -1) { flushRun(runStart, i); runStart = -1; }
+                i++;
             }
         }
-        if (current.length >= 4) strings.push(current.trim());
+        if (runStart !== -1) flushRun(runStart, buffer.length);
 
         report.raw_text = strings.join('\n');
 
@@ -105,29 +125,21 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
             if (match) {
                 report.device.serial_number = match[1];
 
+                // Build the date directly from the YYYYMMDDHHMMSS components.
+                // (No local Date -> toISOString round trip: that shifted
+                // early-morning interrogations to the previous UTC day.)
+                const tsToDate = (ts: string): string =>
+                    normalizeDate(`${ts.substring(0, 4)}-${ts.substring(4, 6)}-${ts.substring(6, 8)}`);
+
                 if (match[2]) {
                     // We have the date suffix: YYYYMMDDHHMMSS
-                    const ts = match[2];
-                    const year = parseInt(ts.substring(0, 4));
-                    const month = parseInt(ts.substring(4, 6)) - 1;
-                    const day = parseInt(ts.substring(6, 8));
-                    const hour = parseInt(ts.substring(8, 10));
-                    const min = parseInt(ts.substring(10, 12));
-                    const sec = parseInt(ts.substring(12, 14));
-                    report.interrogation_date = normalizeDate(new Date(year, month, day, hour, min, sec).toISOString());
+                    report.interrogation_date = tsToDate(match[2]);
                 } else {
                     // Fallback: look for 14-digit timestamp in strings
                     const dateRegex = /^(20\d{12})$/;
                     const dateString = strings.find(s => dateRegex.test(s));
                     if (dateString) {
-                        const ts = dateString;
-                        const year = parseInt(ts.substring(0, 4));
-                        const month = parseInt(ts.substring(4, 6)) - 1;
-                        const day = parseInt(ts.substring(6, 8));
-                        const hour = parseInt(ts.substring(8, 10));
-                        const min = parseInt(ts.substring(10, 12));
-                        const sec = parseInt(ts.substring(12, 14));
-                        report.interrogation_date = normalizeDate(new Date(year, month, day, hour, min, sec).toISOString());
+                        report.interrogation_date = tsToDate(dateString);
                     }
                 }
             }
@@ -400,7 +412,10 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
   try {
     const parser = new XMLParser({
         ignoreAttributes: false,
-        attributeNamePrefix: "@_"
+        attributeNamePrefix: "@_",
+        // Keep values as strings: number coercion stripped leading zeros from
+        // serials and turned values like "60E5" into 6000000.
+        parseTagValue: false
     });
     const xml = parser.parse(xmlData);
 
@@ -514,7 +529,9 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
 
     if (deviceSerialParam) {
         const val = findValueInComposite(deviceSerialParam, 'Current');
-        if (val && typeof val === 'string') deviceSerial = val;
+        // Accept numeric serials too (String() coercion) — a digits-only
+        // serial must not be silently dropped.
+        if (val != null && (typeof val === 'string' || typeof val === 'number')) deviceSerial = String(val);
     }
 
     if (deviceTypeParam) {
@@ -581,11 +598,14 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
                     lastName = val;
                 }
             } else {
-                // Space separated: "DOE JOHN" -> Last First
+                // Space separated: "DOE JOHN" -> Last First (documented PKG format).
+                // First token is the last name; the remainder is the first
+                // name(s), so "DOE JOHN MICHAEL" -> last "DOE", first "JOHN MICHAEL"
+                // (previously this inverted to first "MICHAEL", last "DOE JOHN").
                 const parts = val.split(' ').map(s => s.trim()).filter(Boolean);
                 if (parts.length > 1) {
-                    firstName = parts.pop() || '';
-                    lastName = parts.join(' ');
+                    lastName = parts[0];
+                    firstName = parts.slice(1).join(' ');
                 } else {
                     lastName = val;
                 }
