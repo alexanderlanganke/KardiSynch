@@ -84,8 +84,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listDeviceTypeAliases: () => ipcRenderer.invoke('list-device-type-aliases'),
   setDeviceTypeAlias: (manufacturer: string, model: string, type: string) =>
     ipcRenderer.invoke('set-device-type-alias', manufacturer, model, type),
-  deleteDeviceTypeAlias: (manufacturer: string, model: string) =>
-    ipcRenderer.invoke('delete-device-type-alias', manufacturer, model),
+  setLeadTypeAlias: (manufacturer: string, model: string, attrs: { type?: string; connector?: string }) =>
+    ipcRenderer.invoke('set-lead-type-alias', manufacturer, model, attrs),
+  deleteDeviceTypeAlias: (manufacturer: string, model: string, kind?: 'device' | 'lead') =>
+    ipcRenderer.invoke('delete-device-type-alias', manufacturer, model, kind),
 
   // Updates
   checkMedtronicUpdates: () => ipcRenderer.invoke('check-medtronic-updates'),

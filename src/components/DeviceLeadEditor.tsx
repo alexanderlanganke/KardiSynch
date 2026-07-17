@@ -16,6 +16,8 @@ interface Device {
     serial: string;
     implant_date: string;
     type?: string;
+    /** 'current' (default) or 'explanted' — several devices can be current at once */
+    status?: string;
 }
 
 interface Lead {
@@ -101,10 +103,49 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
         }));
     };
 
+    // Persist manual type/connector corrections to the shared known-devices
+    // store (issue #142) so future imports of the same model auto-resolve.
+    // Only values the user actually changed in this session are learned —
+    // untouched parser output must not overwrite curated aliases.
+    const learnAliases = async (saved: PatientData) => {
+        const known = (v?: string) => v && v !== 'Unknown';
+        const deviceKey = (d: { manufacturer: string; model: string }) =>
+            `${(d.manufacturer || '').toLowerCase()}|${(d.model || '').toLowerCase()}`;
+
+        const originalDeviceTypes = new Map(patient.devices.map(d => [deviceKey(d), d.type]));
+        for (const d of saved.devices) {
+            if (!known(d.manufacturer) || !known(d.model) || !known(d.type)) continue;
+            if (originalDeviceTypes.get(deviceKey(d)) === d.type) continue; // unchanged
+            try {
+                await window.electronAPI.setDeviceTypeAlias(d.manufacturer, d.model, d.type!);
+            } catch (e) {
+                console.warn('Failed to remember device type:', e);
+            }
+        }
+
+        const originalLeads = new Map(patient.leads.map(l => [deviceKey(l), l]));
+        for (const l of saved.leads) {
+            if (!known(l.manufacturer) || !known(l.model)) continue;
+            const orig = originalLeads.get(deviceKey(l));
+            const typeChanged = known(l.type) && l.type !== orig?.type;
+            const connectorChanged = known(l.connector) && l.connector !== orig?.connector;
+            if (!typeChanged && !connectorChanged) continue;
+            try {
+                await window.electronAPI.setLeadTypeAlias(l.manufacturer, l.model, {
+                    ...(typeChanged ? { type: l.type } : {}),
+                    ...(connectorChanged ? { connector: l.connector } : {}),
+                });
+            } catch (e) {
+                console.warn('Failed to remember lead attributes:', e);
+            }
+        }
+    };
+
     const handleSave = async () => {
         setSaving(true);
         try {
             await onSave(formData);
+            await learnAliases(formData);
             onOpenChange(false);
         } catch (e) {
             console.error(e);
@@ -172,7 +213,7 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
                                                 <Trash2 className="h-3 w-3" />
                                             </Button>
 
-                                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                            <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
                                                 <div className="space-y-1">
                                                     <Label className="text-xs text-muted-foreground">Manufacturer</Label>
                                                     <Select value={device.manufacturer} onValueChange={(v) => handleDeviceChange(idx, 'manufacturer', v)}>
@@ -198,6 +239,16 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
                                                 <div className="space-y-1">
                                                     <Label className="text-xs text-muted-foreground">Type</Label>
                                                     <Input className="h-8" value={device.type} onChange={e => handleDeviceChange(idx, 'type', e.target.value)} placeholder="Pacemaker/ICD" />
+                                                </div>
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs text-muted-foreground">Status</Label>
+                                                    <Select value={device.status === 'explanted' ? 'explanted' : 'current'} onValueChange={(v) => handleDeviceChange(idx, 'status', v)}>
+                                                        <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="current">Current</SelectItem>
+                                                            <SelectItem value="explanted">Explanted</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                 </div>
                                             </div>
                                         </div>

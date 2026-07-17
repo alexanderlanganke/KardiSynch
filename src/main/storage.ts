@@ -85,6 +85,7 @@ export const generatePatientXML = (
       <manufacturer>${escapeXml(d.manufacturer || 'Unknown')}</manufacturer>
       <implant_date>${escapeXml(d.implant_date || 'Unknown')}</implant_date>
       <type>${escapeXml(d.type || 'Unknown')}</type>
+      <status>${escapeXml(d.status === 'explanted' ? 'explanted' : 'current')}</status>
     </device>`;
     });
     xml += `
@@ -253,11 +254,14 @@ const writeMergedPatientXML = async (
 
   // Append new device if from a report
   if (report && report.device && report.device.serial_number && report.manufacturer !== 'Unknown') {
-    const newDevice = {
+    const newDevice: any = {
       model: report.device.model,
       serial: report.device.serial_number,
       manufacturer: report.manufacturer,
-      implant_date: report.device.implant_date || 'Unknown'
+      implant_date: report.device.implant_date || 'Unknown',
+      // Only carry the type key when the report actually knows it — an
+      // undefined key in the merge spread below would wipe a curated type.
+      ...(report.device.type && report.device.type !== 'Unknown' ? { type: report.device.type } : {})
     };
 
     // Sanity check: Don't add if THIS device is Unknown
@@ -278,9 +282,9 @@ const writeMergedPatientXML = async (
 
   // Append new leads if from a report
   if (report && report.leads) {
-    report.leads.forEach(l => {
+    for (const l of report.leads) {
       if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
-        const newLead = {
+        const newLead: any = {
           model: l.model,
           serial: l.serial,
           manufacturer: l.manufacturer || report.manufacturer,
@@ -297,8 +301,26 @@ const writeMergedPatientXML = async (
         } else {
           existingLeads.push(newLead);
         }
+
+        // 3. ENRICH: parsers don't emit lead type/connector, so fill them from
+        //    the shared alias store — a correction made once on any patient's
+        //    editor (issue #142) then applies to every future import of the
+        //    same lead model.
+        const merged = index !== -1 ? existingLeads[index] : existingLeads[existingLeads.length - 1];
+        if ((!merged.type || merged.type === 'Unknown') || (!merged.connector || merged.connector === 'Unknown')) {
+          try {
+            const { lookupLeadAlias } = await import('./deviceTypeAliases');
+            const alias = await lookupLeadAlias(merged.manufacturer, merged.model);
+            if (alias) {
+              if (alias.type && (!merged.type || merged.type === 'Unknown')) merged.type = alias.type;
+              if (alias.connector && (!merged.connector || merged.connector === 'Unknown')) merged.connector = alias.connector;
+            }
+          } catch (e) {
+            console.warn('[Storage] Lead alias lookup failed:', e);
+          }
+        }
       }
-    });
+    }
   }
 
   await writeFileAtomic(

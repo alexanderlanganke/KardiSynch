@@ -406,8 +406,10 @@ ipcMain.handle('update-patient', async (event, patient) => {
     let device_serial = null;
 
     if (patient.devices && patient.devices.length > 0) {
-      // Assume first device is primary/active
-      const d = patient.devices[0];
+      // Primary device for the DB cache: the first non-explanted one (several
+      // can be current at once, e.g. pacemaker + ICM); fall back to the first
+      // entry when everything is explanted.
+      const d = patient.devices.find((dev: any) => dev.status !== 'explanted') || patient.devices[0];
       device_manufacturer = d.manufacturer;
       device_model = d.model;
       device_serial = d.serial;
@@ -853,9 +855,11 @@ ipcMain.handle('get-patient-directories', async () => {
             : [patientData.devices.device];
 
           if (devices.length > 0) {
-            const latest = devices[devices.length - 1];
-            deviceManufacturer = latest.manufacturer;
-            deviceModel = latest.model;
+            // Latest non-explanted device (several can be current at once);
+            // fall back to the latest entry when everything is explanted.
+            const current = [...devices].reverse().find((d: any) => d.status !== 'explanted') || devices[devices.length - 1];
+            deviceManufacturer = current.manufacturer;
+            deviceModel = current.model;
           }
         }
 
@@ -1132,9 +1136,14 @@ ipcMain.handle('set-device-type-alias', async (_event, manufacturer: string, mod
   await setAlias(manufacturer, model, type);
 });
 
-ipcMain.handle('delete-device-type-alias', async (_event, manufacturer: string, model: string) => {
+ipcMain.handle('set-lead-type-alias', async (_event, manufacturer: string, model: string, attrs: { type?: string; connector?: string }) => {
+  const { setLeadAlias } = await import('./deviceTypeAliases');
+  await setLeadAlias(manufacturer, model, attrs || {});
+});
+
+ipcMain.handle('delete-device-type-alias', async (_event, manufacturer: string, model: string, kind?: 'device' | 'lead') => {
   const { deleteAlias } = await import('./deviceTypeAliases');
-  await deleteAlias(manufacturer, model);
+  await deleteAlias(manufacturer, model, kind || 'device');
 });
 
 

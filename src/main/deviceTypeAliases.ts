@@ -14,8 +14,10 @@ import { logInfo, logError } from './logger';
  * File format:
  *   <device_types>
  *     <alias manufacturer="..." model="..." type="..." created_at="..." />
+ *     <alias manufacturer="..." model="..." type="..." kind="lead" connector="..." created_at="..." />
  *     ...
  *   </device_types>
+ * Entries without a `kind` attribute are device aliases (legacy files).
  *
  * Read-on-demand (file is tiny). Writes go through write-tmp + rename for
  * atomicity. Concurrent writes are last-write-wins, which is acceptable for
@@ -27,6 +29,10 @@ export interface DeviceTypeAlias {
   model: string;
   type: string;
   created_at: string;
+  /** 'device' (default, also for legacy entries without the attribute) or 'lead' */
+  kind?: 'device' | 'lead';
+  /** Lead entries only: IS-1 / DF-1 / DF-4 / IS-4 */
+  connector?: string;
 }
 
 const FILE_NAME = 'device_types.xml';
@@ -67,12 +73,14 @@ export async function listAliases(): Promise<DeviceTypeAlias[]> {
     if (!root || !root.alias) return [];
     const rows = Array.isArray(root.alias) ? root.alias : [root.alias];
     return rows
-      .filter((r: any) => r && r.manufacturer && r.model && r.type)
+      .filter((r: any) => r && r.manufacturer && r.model && (r.type || r.connector))
       .map((r: any) => ({
         manufacturer: String(r.manufacturer),
         model: String(r.model),
-        type: String(r.type),
+        type: String(r.type || ''),
         created_at: String(r.created_at || ''),
+        kind: (r.kind === 'lead' ? 'lead' : 'device') as 'device' | 'lead',
+        ...(r.connector ? { connector: String(r.connector) } : {}),
       }));
   } catch (e) {
     console.warn('[deviceTypeAliases] Malformed device_types.xml — treating as empty:', e);
@@ -84,8 +92,25 @@ export async function lookupAlias(manufacturer: string, model: string): Promise<
   if (!manufacturer || !model) return null;
   const aliases = await listAliases();
   const key = normalizeKey(manufacturer, model);
-  const hit = aliases.find(a => normalizeKey(a.manufacturer, a.model) === key);
-  return hit ? hit.type : null;
+  const hit = aliases.find(a => (a.kind ?? 'device') === 'device' && normalizeKey(a.manufacturer, a.model) === key);
+  return hit && hit.type ? hit.type : null;
+}
+
+export interface LeadAliasAttrs {
+  type?: string;
+  connector?: string;
+}
+
+export async function lookupLeadAlias(manufacturer: string, model: string): Promise<LeadAliasAttrs | null> {
+  if (!manufacturer || !model) return null;
+  const aliases = await listAliases();
+  const key = normalizeKey(manufacturer, model);
+  const hit = aliases.find(a => a.kind === 'lead' && normalizeKey(a.manufacturer, a.model) === key);
+  if (!hit) return null;
+  return {
+    ...(hit.type ? { type: hit.type } : {}),
+    ...(hit.connector ? { connector: hit.connector } : {}),
+  };
 }
 
 async function writeAll(aliases: DeviceTypeAlias[]): Promise<void> {
@@ -93,9 +118,11 @@ async function writeAll(aliases: DeviceTypeAlias[]): Promise<void> {
   const lines = [
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<device_types>',
-    ...aliases.map(a =>
-      `  <alias manufacturer="${escapeXml(a.manufacturer)}" model="${escapeXml(a.model)}" type="${escapeXml(a.type)}" created_at="${escapeXml(a.created_at)}" />`
-    ),
+    ...aliases.map(a => {
+      const kindAttr = a.kind === 'lead' ? ' kind="lead"' : '';
+      const connectorAttr = a.connector ? ` connector="${escapeXml(a.connector)}"` : '';
+      return `  <alias manufacturer="${escapeXml(a.manufacturer)}" model="${escapeXml(a.model)}" type="${escapeXml(a.type)}"${kindAttr}${connectorAttr} created_at="${escapeXml(a.created_at)}" />`;
+    }),
     '</device_types>',
     '',
   ];
@@ -118,22 +145,49 @@ export async function setAlias(manufacturer: string, model: string, type: string
   logInfo('deviceTypeAliases', `setAlias("${manufacturer}", "${model}", "${type}")`);
   const aliases = await listAliases();
   const key = normalizeKey(manufacturer, model);
-  const idx = aliases.findIndex(a => normalizeKey(a.manufacturer, a.model) === key);
+  const idx = aliases.findIndex(a => (a.kind ?? 'device') === 'device' && normalizeKey(a.manufacturer, a.model) === key);
   const entry: DeviceTypeAlias = {
     manufacturer: manufacturer.trim(),
     model: model.trim(),
     type: type.trim(),
     created_at: new Date().toISOString(),
+    kind: 'device',
   };
   if (idx >= 0) aliases[idx] = entry;
   else aliases.push(entry);
   await writeAll(aliases);
 }
 
-export async function deleteAlias(manufacturer: string, model: string): Promise<void> {
+export async function setLeadAlias(manufacturer: string, model: string, attrs: LeadAliasAttrs): Promise<void> {
+  const type = (attrs.type || '').trim();
+  const connector = (attrs.connector || '').trim();
+  if (!manufacturer || !model || (!type && !connector)) {
+    throw new Error(`setLeadAlias requires manufacturer, model, and at least one of type/connector — got manufacturer="${manufacturer}" model="${model}"`);
+  }
+  logInfo('deviceTypeAliases', `setLeadAlias("${manufacturer}", "${model}", type="${type}", connector="${connector}")`);
   const aliases = await listAliases();
   const key = normalizeKey(manufacturer, model);
-  const next = aliases.filter(a => normalizeKey(a.manufacturer, a.model) !== key);
+  const idx = aliases.findIndex(a => a.kind === 'lead' && normalizeKey(a.manufacturer, a.model) === key);
+  const existing = idx >= 0 ? aliases[idx] : null;
+  const entry: DeviceTypeAlias = {
+    manufacturer: manufacturer.trim(),
+    model: model.trim(),
+    // Merge with the stored entry so setting only the connector doesn't drop
+    // a previously learned type (and vice versa).
+    type: type || existing?.type || '',
+    created_at: new Date().toISOString(),
+    kind: 'lead',
+    ...((connector || existing?.connector) ? { connector: connector || existing?.connector } : {}),
+  };
+  if (idx >= 0) aliases[idx] = entry;
+  else aliases.push(entry);
+  await writeAll(aliases);
+}
+
+export async function deleteAlias(manufacturer: string, model: string, kind: 'device' | 'lead' = 'device'): Promise<void> {
+  const aliases = await listAliases();
+  const key = normalizeKey(manufacturer, model);
+  const next = aliases.filter(a => !((a.kind ?? 'device') === kind && normalizeKey(a.manufacturer, a.model) === key));
   if (next.length === aliases.length) return;
   await writeAll(next);
 }

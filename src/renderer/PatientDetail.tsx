@@ -218,12 +218,15 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
     bannerItems.push({ type: 'attention', message: `Last interrogation ${days} days ago` });
   }
 
+  // The primary device for summaries: first non-explanted entry (several can
+  // be current at once), falling back to the first entry.
+  const primaryDevice = patient?.devices?.find((d: any) => d.status !== 'explanted') || patient?.devices?.[0];
+
   // Build device summary string for compact view
   const deviceSummary = (() => {
     const parts: string[] = [];
     if (deviceCount > 0) {
-      const firstDevice = patient?.devices?.[0];
-      parts.push(firstDevice?.model || 'Unknown Device');
+      parts.push(primaryDevice?.model || 'Unknown Device');
     }
     if (leadCount > 0) {
       parts.push(`${leadCount} lead${leadCount !== 1 ? 's' : ''}`);
@@ -269,7 +272,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
             </span>
 
             {/* MRI Check Link */}
-            <MriCompactBadge manufacturer={patient?.devices?.[0]?.manufacturer || patient?.deviceManufacturer} />
+            <MriCompactBadge manufacturer={primaryDevice?.manufacturer || patient?.deviceManufacturer} />
 
             {/* Warning Badge */}
             {warnings && (
@@ -336,11 +339,14 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                 {patient?.devices && patient.devices.length > 0 ? (
                   <div className="space-y-2">
                     {patient.devices.map((device: any, idx: number) => (
-                      <div key={`dev-${idx}`} className="flex items-start gap-3 p-2.5 bg-muted border border-border rounded-lg text-xs">
+                      <div key={`dev-${idx}`} className={`flex items-start gap-3 p-2.5 bg-muted border border-border rounded-lg text-xs ${device.status === 'explanted' ? 'opacity-60' : ''}`}>
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
                             <span className="font-semibold text-foreground">{device.model || 'Unknown'}</span>
                             {device.type && <Badge variant="outline" className="text-[9px] h-4 px-1">{device.type}</Badge>}
+                            {device.status === 'explanted' && (
+                              <Badge variant="secondary" className="text-[9px] h-4 px-1 uppercase tracking-wide">Explanted</Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-muted-foreground">
                             <span>SN: {device.serial || 'Unknown'}</span>

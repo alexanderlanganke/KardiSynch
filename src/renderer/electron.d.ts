@@ -103,9 +103,10 @@ export interface IElectronAPI {
   onDeviceSelectionRequest: (callback: (fileInfo: any) => void) => () => void;
 
   // Remembered device-type aliases
-  listDeviceTypeAliases: () => Promise<{ manufacturer: string; model: string; type: string; created_at: string }[]>;
+  listDeviceTypeAliases: () => Promise<{ manufacturer: string; model: string; type: string; created_at: string; kind?: 'device' | 'lead'; connector?: string }[]>;
   setDeviceTypeAlias: (manufacturer: string, model: string, type: string) => Promise<void>;
-  deleteDeviceTypeAlias: (manufacturer: string, model: string) => Promise<void>;
+  setLeadTypeAlias: (manufacturer: string, model: string, attrs: { type?: string; connector?: string }) => Promise<void>;
+  deleteDeviceTypeAlias: (manufacturer: string, model: string, kind?: 'device' | 'lead') => Promise<void>;
 
   // External links
   openExternal: (url: string) => Promise<void>;

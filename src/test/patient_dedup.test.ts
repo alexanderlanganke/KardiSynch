@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import path from 'path';
 import fs from 'fs';
-import { initializeDatabase, closeDatabase, setSettings, findOrCreatePatient, findPatient, getAllPatients } from '../main/database';
+import { initializeDatabase, closeDatabase, setSettings, findOrCreatePatient, findPatient, findNearMatchPatients, getAllPatients } from '../main/database';
 
 // Mock electron (database.ts imports `app`)
 vi.mock('electron', () => ({
@@ -83,6 +83,28 @@ describe('Patient dedup (issue #139: double patients)', () => {
         const match = await findPatient('SMITH ', '1950-01-15');
         expect(match).toBeTruthy();
         expect(match.last_name).toBe('Smith');
+    });
+
+    it('findNearMatchPatients flags identity variants without matching exact duplicates (issue #143)', async () => {
+        await findOrCreatePatient(base);
+
+        // Same DOB, different last name (generator change with a name variant
+        // from the new programmer) → near match
+        const byDob = await findNearMatchPatients('Smyth', '1950-01-15');
+        expect(byDob.length).toBe(1);
+        expect(byDob[0].last_name).toBe('Smith');
+
+        // Same last name, different DOB (mis-parsed birth date) → near match
+        const byName = await findNearMatchPatients('smith', '1950-02-15');
+        expect(byName.length).toBe(1);
+
+        // Exact match on both components is findPatient's job, not a near match
+        const exact = await findNearMatchPatients('Smith', '1950-01-15');
+        expect(exact.length).toBe(0);
+
+        // Entirely different person → no near match
+        const unrelated = await findNearMatchPatients('Weber', '1961-07-04');
+        expect(unrelated.length).toBe(0);
     });
 
     it('does not duplicate under concurrent find-or-create for the same person', async () => {

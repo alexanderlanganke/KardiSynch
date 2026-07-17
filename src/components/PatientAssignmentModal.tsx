@@ -5,7 +5,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Search, UserPlus, FileText, AlertCircle, ArrowRight, FolderInput } from 'lucide-react';
+import { Search, UserPlus, FileText, AlertCircle, AlertTriangle, ArrowRight, FolderInput } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDate } from '@/lib/utils';
 import ReportViewer from './ReportViewer';
@@ -57,8 +57,10 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
 
             // A different source item means a fresh sorting decision — drop the
             // previous file's selection so a reflexive confirm can't assign the
-            // new document to the previously chosen patient/visit.
-            setSelectedPatientId(null);
+            // new document to the previously chosen patient/visit. When the
+            // import gate flagged a likely existing patient (generator change /
+            // spelling variant, issue #143), preselect that candidate.
+            setSelectedPatientId((mode === 'import' && sourceItem.previewData?.suggestedPatientId) || null);
             setSelectedVisitId(null);
             setSearchTerm('');
             setActiveTab('existing');
@@ -249,6 +251,12 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                                 Bulk sort: <strong>{sourceItem.bulkCount}</strong> items
                                                                 {sourceItem.bulkFileCount ? ` (${sourceItem.bulkFileCount} files)` : ''} will be assigned to the same patient &amp; visit.
                                                             </span>
+                                                        </div>
+                                                    )}
+                                                    {sourceItem.previewData?.note && (
+                                                        <div className="flex items-start gap-2 rounded-md bg-amber-100 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+                                                            <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                                                            <span>{sourceItem.previewData.note}</span>
                                                         </div>
                                                     )}
                                                     <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted -mx-4 -mb-4 p-4 border-t">

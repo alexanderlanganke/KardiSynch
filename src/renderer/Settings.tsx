@@ -14,12 +14,15 @@ import PatientMergeModal from '@/components/PatientMergeModal';
 import OrphanVisitsModal from '@/components/OrphanVisitsModal';
 
 const DEVICE_TYPE_OPTIONS = ['Pacemaker', 'ICD', 'CRT-P', 'CRT-D', 'ICM'];
+const LEAD_TYPE_OPTIONS = ['Unipolar', 'Bipolar', 'Quadripolar'];
 
 interface DeviceTypeAliasRow {
   manufacturer: string;
   model: string;
   type: string;
   created_at: string;
+  kind?: 'device' | 'lead';
+  connector?: string;
 }
 
 const DeviceTypeAliasesPanel: React.FC = () => {
@@ -41,14 +44,19 @@ const DeviceTypeAliasesPanel: React.FC = () => {
 
   const handleTypeChange = async (row: DeviceTypeAliasRow, newType: string) => {
     if (newType === row.type) return;
-    await window.electronAPI.setDeviceTypeAlias(row.manufacturer, row.model, newType);
+    if (row.kind === 'lead') {
+      await window.electronAPI.setLeadTypeAlias(row.manufacturer, row.model, { type: newType });
+    } else {
+      await window.electronAPI.setDeviceTypeAlias(row.manufacturer, row.model, newType);
+    }
     await load();
   };
 
   const handleDelete = async (row: DeviceTypeAliasRow) => {
-    const ok = await showConfirm(`Forget remembered type for ${row.manufacturer} ${row.model}? The next import of this model will prompt for the device type again.`);
+    const what = row.kind === 'lead' ? 'lead attributes' : 'type';
+    const ok = await showConfirm(`Forget remembered ${what} for ${row.manufacturer} ${row.model}? The next import of this model will no longer auto-resolve them.`);
     if (!ok) return;
-    await window.electronAPI.deleteDeviceTypeAlias(row.manufacturer, row.model);
+    await window.electronAPI.deleteDeviceTypeAlias(row.manufacturer, row.model, row.kind || 'device');
     await load();
   };
 
@@ -63,30 +71,34 @@ const DeviceTypeAliasesPanel: React.FC = () => {
   return (
     <div className="border rounded-md overflow-hidden">
       <div className="grid grid-cols-12 gap-2 px-3 py-2 bg-muted text-[10px] uppercase font-semibold text-muted-foreground">
-        <div className="col-span-3">Manufacturer</div>
-        <div className="col-span-5">Model</div>
+        <div className="col-span-1">Kind</div>
+        <div className="col-span-2">Manufacturer</div>
+        <div className="col-span-4">Model</div>
         <div className="col-span-3">Type</div>
+        <div className="col-span-1">Conn.</div>
         <div className="col-span-1 text-right"></div>
       </div>
       <div className="divide-y">
         {rows.map(r => (
-          <div key={`${r.manufacturer}|${r.model}`} className="grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm">
-            <div className="col-span-3 truncate">{r.manufacturer}</div>
-            <div className="col-span-5 truncate font-mono text-xs">{r.model}</div>
+          <div key={`${r.kind || 'device'}|${r.manufacturer}|${r.model}`} className="grid grid-cols-12 gap-2 px-3 py-2 items-center text-sm">
+            <div className="col-span-1 text-xs text-muted-foreground capitalize">{r.kind === 'lead' ? 'Lead' : 'Device'}</div>
+            <div className="col-span-2 truncate">{r.manufacturer}</div>
+            <div className="col-span-4 truncate font-mono text-xs">{r.model}</div>
             <div className="col-span-3">
-              <Select value={r.type} onValueChange={(v) => handleTypeChange(r, v)}>
+              <Select value={r.type || undefined} onValueChange={(v) => handleTypeChange(r, v)}>
                 <SelectTrigger className="h-8 text-xs">
-                  <SelectValue />
+                  <SelectValue placeholder="—" />
                 </SelectTrigger>
                 <SelectContent>
-                  {DEVICE_TYPE_OPTIONS.map(opt => (
+                  {(r.kind === 'lead' ? LEAD_TYPE_OPTIONS : DEVICE_TYPE_OPTIONS).map(opt => (
                     <SelectItem key={opt} value={opt}>{opt}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            <div className="col-span-1 text-xs text-muted-foreground">{r.kind === 'lead' ? (r.connector || '—') : ''}</div>
             <div className="col-span-1 flex justify-end">
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(r)}>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(r)} aria-label={`Forget ${r.manufacturer} ${r.model}`}>
                 <Trash2 className="h-3.5 w-3.5 text-destructive" />
               </Button>
             </div>

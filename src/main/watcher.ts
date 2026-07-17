@@ -696,6 +696,85 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
 
         } else {
           // New Visit Case
+          //
+          // Before storeReport can auto-create a patient, resolve identity
+          // conservatively (issue #143): a generator change hands us an
+          // unknown serial, often together with a name/DOB spelling variant
+          // from the new programmer — auto-creating then silently duplicates
+          // the patient. Ladder:
+          //   1. exact last-name+DOB match → proceed (storeReport reuses it)
+          //   2. serial+manufacturer match that shares DOB or last name →
+          //      adopt the stored identity (this is what lets autoimport
+          //      proceed after the new generator was sorted manually once)
+          //   3. any near-match (same DOB or same last name) → manual sort
+          //      with the candidate suggested, instead of creating a double
+          //   4. no similar patient at all → genuinely new, create as before
+          const exactMatch = await findPatient(report.patient.last_name, report.patient.dob, report.patient.first_name);
+          if (!exactMatch) {
+            const serial = report.device?.serial_number;
+            const serialKnown = serial && serial !== 'Unknown';
+            let suggested: any = null;
+            let identityAdopted = false;
+
+            if (serialKnown) {
+              const bySerial = await findPatientBySerial(
+                serial,
+                report.manufacturer && report.manufacturer !== 'Unknown' ? report.manufacturer : undefined
+              );
+              if (bySerial) {
+                const sharesDob = bySerial.dob === report.patient.dob;
+                const sharesName = normalizeNameKey(bySerial.last_name) === normalizeNameKey(report.patient.last_name);
+                if (sharesDob || sharesName) {
+                  console.log(`[Watcher] Adopting identity of ${bySerial.last_name}, ${bySerial.first_name} (${bySerial.id}) for ${path.basename(file)} — known device serial ${serial} with matching ${sharesDob ? 'DOB' : 'last name'}.`);
+                  report.patient.first_name = bySerial.first_name;
+                  report.patient.last_name = bySerial.last_name;
+                  report.patient.dob = bySerial.dob;
+                  report.patient.hospitalPatientId = bySerial.hospitalPatientId;
+                  identityAdopted = true;
+                } else {
+                  // Serial says patient X, demographics say someone else
+                  // entirely — never guess; let the user decide.
+                  suggested = bySerial;
+                }
+              }
+            }
+
+            if (!suggested && !identityAdopted) {
+              const { findNearMatchPatients } = await import('./database');
+              const near = await findNearMatchPatients(report.patient.last_name, report.patient.dob);
+              if (near.length > 0) suggested = near[0];
+            }
+
+            if (suggested) {
+              const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
+              const queued = await enqueueManualSort(file, {
+                patientName: `${report.patient.first_name} ${report.patient.last_name}`,
+                dob: report.patient.dob,
+                date: report.interrogation_date,
+                serial: report.device?.serial_number || 'Unknown',
+                manufacturer: report.manufacturer,
+                deviceModel: report.device?.model,
+                leads: report.leads,
+                note: `Similar patient on file: ${suggested.last_name}, ${suggested.first_name} (DOB ${suggested.dob}). Possible generator change or spelling variant — assign to the existing patient or confirm this is a new one.`,
+                suggestedPatientId: suggested.id
+              }, isIntraopFile, sessionId);
+              if (queued) {
+                sessionSummary.pendingSort++;
+              } else {
+                unmatchedFiles.push(file);
+                logEvent({
+                  id: uuidv4(),
+                  session_id: sessionId,
+                  file_path: file,
+                  status: 'unmatched',
+                  message: 'Near-match patient found; could not queue for manual sorting'
+                });
+                sessionSummary.unmatched++;
+              }
+              continue; // handled — the user decides, nothing is stored now
+            }
+          }
+
           // Store the report (creates patient/visit if needed)
           const result = await storeReport(report);
           reportId = result.reportId;

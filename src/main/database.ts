@@ -362,6 +362,28 @@ export const findPatient = (lastName: string, dob: string, firstName?: string): 
 };
 
 
+/**
+ * Patients that share exactly ONE identity component with the incoming report
+ * — same DOB with a different last name, or same last name with a different
+ * DOB. Used by the import gate (issue #143): a generator change often comes
+ * with a name/DOB spelling variant from the new programmer, and silently
+ * creating a patient next to such a near-match produces duplicates. Exact
+ * matches on both components are found by findPatient and are not returned.
+ */
+export const findNearMatchPatients = (lastName: string, dob: string): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    const key = normalizeNameKey(lastName);
+    db.all(
+      `SELECT * FROM Patients
+       WHERE (dob = ? AND last_name_key != ?)
+          OR (last_name_key = ? AND dob != ?)`,
+      [dob, key, key, dob],
+      (err, rows: any[]) => err ? reject(err) : resolve(rows || [])
+    );
+  });
+};
+
 export const findPatientBySerial = (serial: string, manufacturer?: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
