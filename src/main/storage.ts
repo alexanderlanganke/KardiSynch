@@ -381,6 +381,30 @@ export const storeReport = async (report: UnifiedReport): Promise<{ reportId: st
  * @param patientName Patient name to include in the directory name for readability.
  * @param interrogationDate The interrogation date to use in the visit subdirectory name.
  */
+/**
+ * Pick a destination path in the visit dir that doesn't overwrite an existing
+ * file. Returns null when the incoming file is byte-identical to the one
+ * already stored under the same name (or a suffixed variant) — the caller
+ * should then discard the source instead of storing a duplicate.
+ */
+const collisionFreeDestPath = async (visitDir: string, baseName: string, sourcePath: string): Promise<string | null> => {
+  const ext = path.extname(baseName);
+  const stem = baseName.slice(0, baseName.length - ext.length);
+  for (let i = 0; ; i++) {
+    const candidate = path.join(visitDir, i === 0 ? baseName : `${stem}_${i + 1}${ext}`);
+    let existingStat;
+    try {
+      existingStat = await fs.stat(candidate);
+    } catch {
+      return candidate;
+    }
+    if (existingStat.size === (await fs.stat(sourcePath)).size) {
+      const [a, b] = await Promise.all([fs.readFile(candidate), fs.readFile(sourcePath)]);
+      if (a.equals(b)) return null;
+    }
+  }
+};
+
 export const storeFile = async (
   sourcePath: string,
   reportId: string,
@@ -420,20 +444,27 @@ export const storeFile = async (
    * origin through the parse/match pipeline) so it doesn't appear in stored filenames.
    */
   const destBaseName = path.basename(sourcePath).replace(/^INTRAOP__/, '');
-  const destPath = path.join(visitDir, destBaseName);
-  try {
-    await fs.rename(sourcePath, destPath);
-  } catch (error: any) {
-    if (error.code === 'EXDEV') {
-      await fs.copyFile(sourcePath, destPath);
-      // Verify copy before deleting source
-      const [srcStat, destStat] = await Promise.all([fs.stat(sourcePath), fs.stat(destPath)]);
-      if (destStat.size !== srcStat.size) {
-        throw new Error(`Cross-device copy verification failed: ${srcStat.size} vs ${destStat.size} bytes`);
+  // Never clobber a file already stored in the visit dir: two same-day reports
+  // can carry identical basenames (issue #145). An identical file is deduped
+  // (source dropped); a different one gets a numbered suffix.
+  const destPath = await collisionFreeDestPath(visitDir, destBaseName, sourcePath);
+  if (destPath === null) {
+    await fs.unlink(sourcePath);
+  } else {
+    try {
+      await fs.rename(sourcePath, destPath);
+    } catch (error: any) {
+      if (error.code === 'EXDEV') {
+        await fs.copyFile(sourcePath, destPath);
+        // Verify copy before deleting source
+        const [srcStat, destStat] = await Promise.all([fs.stat(sourcePath), fs.stat(destPath)]);
+        if (destStat.size !== srcStat.size) {
+          throw new Error(`Cross-device copy verification failed: ${srcStat.size} vs ${destStat.size} bytes`);
+        }
+        await fs.unlink(sourcePath);
+      } else {
+        throw error;
       }
-      await fs.unlink(sourcePath);
-    } else {
-      throw error;
     }
   }
 

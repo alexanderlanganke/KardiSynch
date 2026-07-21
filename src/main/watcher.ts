@@ -5,7 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import { sendUnmatchedFiles, sendNotification, sendProcessStatus, sendImportSessionUpdate, sendPatientListUpdate, sendPendingSortUpdate } from './windowManager';
 import { parseFile } from './parser';
 import { UnifiedReport } from './reports';
-import { getDb, findPatient, findReportByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
+import { getDb, findPatient, findReportsByDate, findPatientBySerial, createImportSession, updateImportSessionStatus, logImportEvent, getPatientById, createPatient, getReportById } from './database';
+import { pickSameDayReport } from './services/visitMatch';
 import { storeReport, storeFile } from './storage';
 import { lookupAlias, setAlias } from './deviceTypeAliases';
 import { logInfo, logError } from './logger';
@@ -977,9 +978,13 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
         if (patient) {
           console.log(`Found existing patient for PDF ${path.basename(file)}.`);
 
-          // AUTO MATCHED
+          // AUTO MATCHED. A same-day report is only reused when its device
+          // serial and interrogation timestamp don't contradict this PDF —
+          // a patient can have several distinct visits on one day (issue
+          // #145); ambiguous files fall through to the manual-sort queue.
           const datePrefix = (report.interrogation_date || '').split('T')[0];
-          const existingReport = datePrefix ? await findReportByDate(patient.id, datePrefix) : null;
+          const sameDayReports = datePrefix ? await findReportsByDate(patient.id, datePrefix) : [];
+          const existingReport = pickSameDayReport(sameDayReports, report, false);
 
           if (existingReport) {
             await storeFile(file, existingReport.id, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, undefined);

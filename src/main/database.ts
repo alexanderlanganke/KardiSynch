@@ -879,6 +879,25 @@ export const getPatientReports = async (patientId: string): Promise<any[]> => {
 };
 
 
+// All of a patient's reports on one calendar day. A patient can legitimately
+// have several same-day visits (e.g. pre- and post-MRI interrogations), so
+// callers that dedup against "the" existing report must inspect every
+// candidate instead of grabbing the first row (issue #145).
+export const findReportsByDate = (patientId: string, date: string): Promise<any[]> => {
+  return new Promise((resolve, reject) => {
+    const db = getDb();
+    const datePrefix = date.split('T')[0];
+    db.all(
+      'SELECT * FROM Reports WHERE patient_id = ? AND interrogation_date LIKE ? ORDER BY interrogation_date',
+      [patientId, `${datePrefix}%`],
+      (err, rows) => {
+        if (err) reject(err);
+        else resolve(rows || []);
+      }
+    );
+  });
+};
+
 export const findReportByDate = (patientId: string, date: string): Promise<any> => {
   return new Promise((resolve, reject) => {
     const db = getDb();

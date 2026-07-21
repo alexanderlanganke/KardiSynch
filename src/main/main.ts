@@ -1239,7 +1239,8 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
       return { success: true, movedToUnmatched: true };
     }
 
-    const { getPatientById, findOrCreatePatient, getReportById, createReport, findReportByDate } = await import('./database');
+    const { getPatientById, findOrCreatePatient, getReportById, createReport, findReportsByDate } = await import('./database');
+    const { pickSameDayReport } = await import('./services/visitMatch');
     const { storeFile } = await import('./storage');
     const { parseFile } = await import('./parser');
     const { v4: uuidv4 } = await import('uuid');
@@ -1284,14 +1285,19 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
           // Dedup: while this task sat in the non-blocking sort queue, the
           // auto-import path may have already created a visit for this
           // patient+date (issue #140). Reuse it instead of creating a second
-          // instance of the same visit, mirroring the auto-PDF path in
-          // watcher.ts. Only a new visit is created when none exists yet.
+          // instance of the same visit. But a patient can genuinely have
+          // several visits on one day (pre-/post-MRI, issue #145), so a
+          // same-day report is only reused when its device serial and
+          // interrogation timestamp don't contradict the incoming file — and
+          // when the user explicitly chose "Create New Visit", only an exact
+          // same-interrogation match still dedups.
           // NOTE (TOCTOU): this check deliberately runs HERE — after every
           // await in this iteration (patient resolution, parseFile) — so it is
           // immediately adjacent to the createReport below with no intervening
           // awaits, keeping the double-visit race window as narrow as possible.
           const datePrefix = (date || '').split('T')[0];
-          const existingReport = datePrefix ? await findReportByDate(targetPatient.id, datePrefix) : null;
+          const sameDayReports = datePrefix ? await findReportsByDate(targetPatient.id, datePrefix) : [];
+          const existingReport = pickSameDayReport(sameDayReports, parsed, decision.visitMode === 'new');
 
           if (existingReport) {
             const existingId: string = existingReport.id;
