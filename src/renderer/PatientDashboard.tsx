@@ -10,7 +10,6 @@ import { usePatientStore, Patient } from './store/PatientStore';
 import { getPatientFlags, daysSinceLastVisit } from './utils/clinicalPriority';
 import { getMriCheckUrl } from './utils/mriCheckUrls';
 import { cn, formatDate } from '@/lib/utils';
-import { useAppDialog } from './components/AppDialogProvider';
 
 // Manufacturer Logos
 import medtronicLogo from './assets/logos/medtronic.svg';
@@ -89,7 +88,6 @@ const loadDashboardState = (): Partial<DashboardState> => {
 
 const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void }> = ({ onPatientSelect }) => {
   const { patients, loading, error, dispatch, fetchPatients } = usePatientStore();
-  const { showAlert } = useAppDialog();
 
   // Seed from any persisted state once, so the dashboard restores the previous
   // search/filter/sort when the user returns from a patient profile.
@@ -168,58 +166,6 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
   }, [filteredPatients, sortField, sortDirection]);
 
 
-  const [editingPatientId, setEditingPatientId] = useState<string | null>(null);
-  const [editFormData, setEditFormData] = useState<any>({});
-
-  const handleEditClick = (e: React.MouseEvent, patient: Patient) => {
-    e.stopPropagation();
-    setEditingPatientId(patient.id);
-
-    let firstName = patient.first_name || '';
-    let lastName = patient.last_name || '';
-
-    if (!firstName && !lastName) {
-      const nameParts = patient.name.split(' ');
-      lastName = nameParts.pop() || '';
-      firstName = nameParts.join(' ');
-    }
-
-    setEditFormData({
-      id: patient.id,
-      first_name: firstName,
-      last_name: lastName,
-      dob: patient.dob,
-      hospitalPatientId: patient.hospitalPatientId || '',
-      deviceManufacturer: patient.deviceManufacturer || '',
-      deviceModel: patient.deviceModel || ''
-    });
-  };
-
-  const handleSaveClick = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    try {
-      await window.electronAPI.updatePatient({
-        ...editFormData,
-        hospitalPatientId: editFormData.hospitalPatientId || null
-      });
-      setEditingPatientId(null);
-      fetchPatients();
-    } catch (error) {
-      console.error('Failed to update patient:', error);
-      showAlert('Failed to save patient changes. Please try again.');
-    }
-  };
-
-  const handleCancelClick = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingPatientId(null);
-    setEditFormData({});
-  };
-
-  const handleInputChange = (field: string, value: string) => {
-    setEditFormData((prev: any) => ({ ...prev, [field]: value }));
-  };
-
   const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
@@ -267,56 +213,23 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
     const logo = getManufacturerLogo(patient.deviceManufacturer) || unknownLogo;
     const days = daysSinceLastVisit(patient);
     const flags = getPatientFlags(patient);
-    const isEditing = editingPatientId === patient.id;
 
     return (
       <div
         key={patient.id}
-        className={cn(
-          "group flex items-center px-5 py-3 bg-card hover:bg-muted border border-transparent hover:border-border rounded-lg transition-all duration-200 cursor-pointer text-sm",
-          isEditing && 'bg-muted ring-1 ring-primary'
-        )}
-        onClick={() => !editingPatientId && onPatientSelect(patient.id)}
+        className="group flex items-center px-5 py-3 bg-card hover:bg-muted border border-transparent hover:border-border rounded-lg transition-all duration-200 cursor-pointer text-sm"
+        onClick={() => onPatientSelect(patient.id)}
         role="button"
         tabIndex={0}
         aria-label={`View patient ${patient.name}`}
         onKeyDown={(e) => {
-          if ((e.key === 'Enter' || e.key === ' ') && !editingPatientId && e.target === e.currentTarget) {
+          if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) {
             e.preventDefault();
             onPatientSelect(patient.id);
           }
         }}
       >
-        {isEditing ? (
-          <>
-            <div className="w-[25%] flex flex-col gap-1 pr-4">
-              <div className="flex gap-2">
-                <Input className="h-8 text-sm font-medium bg-background" placeholder="First Name" value={editFormData.first_name} onChange={(e) => handleInputChange('first_name', e.target.value)} onClick={(e) => e.stopPropagation()} />
-                <Input className="h-8 text-sm font-medium bg-background" placeholder="Last Name" value={editFormData.last_name} onChange={(e) => handleInputChange('last_name', e.target.value)} onClick={(e) => e.stopPropagation()} />
-              </div>
-              <div className="flex gap-2 items-center">
-                <Input className="h-7 text-xs bg-background w-32" placeholder="MRN" value={editFormData.hospitalPatientId} onChange={(e) => handleInputChange('hospitalPatientId', e.target.value)} onClick={(e) => e.stopPropagation()} />
-                <span className="text-[10px] font-mono text-muted-foreground opacity-50 select-all">{patient.patientId}</span>
-              </div>
-            </div>
-            <div className="w-[10%] pr-2">
-              <Input className="h-8 text-sm bg-background" placeholder="YYYY-MM-DD" value={editFormData.dob} onChange={(e) => handleInputChange('dob', e.target.value)} onClick={(e) => e.stopPropagation()} />
-            </div>
-            <div className="w-[12%] pr-2 flex justify-center">
-              <Input className="h-6 text-xs bg-background text-center px-0" placeholder="Mfg" value={editFormData.deviceManufacturer} onChange={(e) => handleInputChange('deviceManufacturer', e.target.value)} onClick={(e) => e.stopPropagation()} />
-            </div>
-            <div className="w-[8%] flex justify-center opacity-30"><ShieldQuestion className="h-4 w-4" /></div>
-            <div className="w-[25%] pr-2">
-              <Input className="h-7 text-xs bg-background" placeholder="Model" value={editFormData.deviceModel} onChange={(e) => handleInputChange('deviceModel', e.target.value)} onClick={(e) => e.stopPropagation()} />
-            </div>
-            <div className="w-[12%] text-muted-foreground text-xs pl-1 opacity-50">{patient.lastReportDate ? formatDate(patient.lastReportDate) : 'Never'}</div>
-            <div className="w-[8%] flex justify-end gap-1">
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50 rounded-full" onClick={handleSaveClick} title="Save"><Check className="h-4 w-4" /></Button>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-full" onClick={handleCancelClick} title="Cancel"><X className="h-4 w-4" /></Button>
-            </div>
-          </>
-        ) : (
-          <>
+        <>
             {/* Patient Column */}
             <div className="w-[25%] flex flex-col justify-center pr-4">
               <span className="font-semibold text-foreground text-[15px] leading-tight group-hover:text-primary transition-colors">
@@ -409,22 +322,13 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
               <Button
                 variant="ghost" size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
-                onClick={(e) => handleEditClick(e, patient)}
-                title="Edit Details"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>
-              </Button>
-              <Button
-                variant="ghost" size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"
                 onClick={(e) => { e.stopPropagation(); window.electronAPI.openPatientDirectory(patient.id); }}
                 title="Open Folder"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" /></svg>
               </Button>
             </div>
-          </>
-        )}
+        </>
       </div>
     );
   };
