@@ -4,7 +4,7 @@ import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 import { normalizeDate } from '../../lib/dates';
-import { DiagnosticsCollector, safeExtract, deriveParseStatus } from './parseDiagnostics';
+import { DiagnosticsCollector, safeExtract, deriveParseStatus, detectVariant } from './parseDiagnostics';
 
 /**
  * Extracts raw text from a DOCX (ZIP) file by reading word/document.xml
@@ -65,13 +65,45 @@ const ABBOTT_CODES: Record<string, string> = {
     '2441': 'IndicationsForImplant',
     '1611': 'AtrialCapturePulseWidth',
     '1607': 'RVCapturePulseWidth',
+    '2464': 'LVLeadManufacturer',
+    '2465': 'LVLeadModel',
+    '2467': 'LVLeadImplantDate',
+    '2471': 'LVLeadSerial',
+    '2720': 'LVLeadImpedance',
+    '1616': 'LVCaptureThreshold',
+    '1617': 'LVCapturePulseWidth',
 };
 
 /**
- * Detect whether text is in the Abbott coded log format.
+ * Detect whether text is in the Abbott coded log format (either the real
+ * 0x1C-delimited variant or the plain concatenated variant — see below).
  * Coded logs have most lines starting with a numeric code.
  */
 function isCodedFormat(text: string): boolean {
+    return isDelimitedCodedFormat(text) || isConcatenatedCodedFormat(text);
+}
+
+/**
+ * Every real Abbott coded-log export seen so far (Merlin.net "Detailed Log"
+ * exports) delimits each line's fields with an 0x1C (ASCII File Separator)
+ * control character: `{code}\x1c{Label}\x1c{Value}\x1c{Unit}\x1c`. This is
+ * invisible in a plain text viewer/editor, which is why the original parser
+ * assumed the fields were simply concatenated with no separator at all and
+ * never actually matched a real file (#146).
+ */
+function isDelimitedCodedFormat(text: string): boolean {
+    const lines = text.split('\n').filter(l => l.trim().length > 0);
+    if (lines.length < 10) return false;
+    const codedLines = lines.filter(l => /^\d{2,5}\x1c/.test(l));
+    return codedLines.length / lines.length > 0.7;
+}
+
+/**
+ * Fallback for a concatenated variant (`{code}{Label}{Value}`, e.g.
+ * "301Mode DDDR") with no delimiter at all, kept in case some Abbott
+ * revision genuinely emits logs this way.
+ */
+function isConcatenatedCodedFormat(text: string): boolean {
     const lines = text.split('\n').filter(l => l.trim().length > 0);
     if (lines.length < 10) return false;
     const codedLines = lines.filter(l => /^\d{2,5}[A-Z]/.test(l));
@@ -79,11 +111,43 @@ function isCodedFormat(text: string): boolean {
 }
 
 /**
- * Parse coded Abbott log into a field map.
+ * Parse an 0x1C-delimited coded log into a field map. Each line is
+ * `{code}\x1c{Label}\x1c{Value}\x1c{Unit}\x1c` — the code alone is enough to
+ * identify the field, so (unlike the concatenated fallback) this doesn't
+ * need to match label text at all, which makes it immune to label wording
+ * changing across code/label revisions (e.g. code 2430 is labeled "Patient
+ * Name" on most devices but "Patient Last Name" on ICM/loop-recorder
+ * exports — both still resolve correctly here).
+ */
+function parseDelimitedCodedLog(text: string): Map<string, string> {
+    const fields = new Map<string, string>();
+    const lines = text.split('\n');
+
+    for (const line of lines) {
+        if (!line.includes('\x1c')) continue;
+        const parts = line.split('\x1c');
+        const code = parts[0].trim();
+        const fieldName = ABBOTT_CODES[code];
+        if (!fieldName || fields.has(fieldName)) continue;
+
+        // Recombine value + unit into one string (e.g. "0.4" + "mV" ->
+        // "0.4mV") so downstream extraction (extractNumeric, date parsing)
+        // — written against the old concatenated-string assumption — keeps
+        // working unchanged regardless of which variant matched.
+        const value = (parts[2] || '').trim();
+        const unit = (parts[3] || '').trim();
+        fields.set(fieldName, unit ? `${value}${unit}` : value);
+    }
+
+    return fields;
+}
+
+/**
+ * Parse a concatenated-variant coded Abbott log into a field map.
  * Each line: {code}{LabelText}{Value}
  * We match known codes and extract the value after the known label.
  */
-function parseCodedLog(text: string): Map<string, string> {
+function parseConcatenatedCodedLog(text: string): Map<string, string> {
     const fields = new Map<string, string>();
     const lines = text.split('\n');
 
@@ -122,6 +186,13 @@ function parseCodedLog(text: string): Map<string, string> {
         '2441': 'Indications for Implant: List',
         '1611': 'A. Capture Test Pulse Width',
         '1607': 'RV. Capture Test Pulse Width',
+        '2464': 'Manufacturer: LV Lead',
+        '2465': 'Model Number: SJM LV Lead',
+        '2467': 'Implant Date: LV Lead',
+        '2471': 'LV Lead Serial Number',
+        '2720': 'LV Pacing Lead Impedance',
+        '1616': 'LV. Capture Test Threshold Amplitude',
+        '1617': 'LV. Capture Test Pulse Width',
     };
 
     for (const line of lines) {
@@ -217,7 +288,11 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
     // Infer device type
     let deviceType: string = 'Pacemaker';
     const modelUpper = deviceModel.toUpperCase();
-    if (modelUpper.includes('CRT-D') || modelUpper.includes('QUADRA')) {
+    if (modelUpper.includes('ICM') || modelUpper.includes('ASSERT')) {
+        // Insertable Cardiac Monitor (e.g. "Assert-IQ") — leadless, so this
+        // must be checked before the lead-derived CRT-D/CRT-P bump below.
+        deviceType = 'ICM';
+    } else if (modelUpper.includes('CRT-D') || modelUpper.includes('QUADRA')) {
         deviceType = 'CRT-D';
     } else if (modelUpper.includes('CRT-P')) {
         deviceType = 'CRT-P';
@@ -273,6 +348,32 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
         };
     }, null);
     if (atrialLead && hasLeadData(atrialLead)) leads.push(atrialLead);
+
+    // LV Lead (CRT devices only — most Abbott reports won't have one)
+    const lvLead: LeadData | null = safeExtract(collector, 'leads.LV', () => {
+        const lvSerial = fields.get('LVLeadSerial') || '';
+        const lvImp = extractNumeric(fields.get('LVLeadImpedance') || '');
+        const lvThresh = extractNumeric(fields.get('LVCaptureThreshold') || '');
+        const lvPw = extractNumeric(fields.get('LVCapturePulseWidth') || '');
+
+        return {
+            name: 'LV',
+            serial: lvSerial || undefined,
+            model: fields.get('LVLeadModel') || undefined,
+            manufacturer: fields.get('LVLeadManufacturer') || undefined,
+            implant_date: parseAbbottDate(fields.get('LVLeadImplantDate') || '') || undefined,
+            impedance: lvImp != null ? { value: lvImp, unit: 'Ohm' } : undefined,
+            pacing_threshold: lvThresh != null ? { value: lvPw != null ? `${lvThresh} @ ${lvPw}` : lvThresh, unit: lvPw != null ? 'V @ ms' : 'V' } : undefined,
+        };
+    }, null);
+    if (lvLead && hasLeadData(lvLead)) leads.push(lvLead);
+
+    // An LV lead means this is a CRT device even when the model name/number
+    // doesn't spell that out (e.g. Abbott's "Entrant HF" CRT-P family
+    // matches none of the CRT-D/CRT-P/ICD keywords above).
+    if (leads.some(l => l.name === 'LV')) {
+        deviceType = deviceType === 'ICD' ? 'CRT-D' : 'CRT-P';
+    }
 
     // Session ID from filename
     const filename = path.basename(filePath);
@@ -452,11 +553,18 @@ export async function parseAbbottLog(filePath: string): Promise<UnifiedReport | 
             rawText = buffer.toString('utf-8');
         }
 
-        // Try coded format first (numeric code per line)
+        // Try coded format first (numeric code per line). isCodedFormat()
+        // already confirmed one of these two sub-variants matches, so
+        // detectVariant is only choosing between them here — not deciding
+        // "coded vs. freeform" (that's a real, expected branch, not a
+        // fallback failure, so it shouldn't itself produce a diagnostic).
         if (isCodedFormat(rawText)) {
-            console.log('[Abbott] Parsing as coded log format.');
-            const fields = parseCodedLog(rawText);
-            console.log(`[Abbott] Extracted ${fields.size} fields from coded log.`);
+            const variantResult = detectVariant(collector, 'coded-log-format', [
+                { name: 'coded-delimited', test: () => isDelimitedCodedFormat(rawText) ? parseDelimitedCodedLog(rawText) : null },
+                { name: 'coded-concatenated', test: () => isConcatenatedCodedFormat(rawText) ? parseConcatenatedCodedLog(rawText) : null },
+            ])!;
+            const { value: fields, variant } = variantResult;
+            console.log(`[Abbott] Parsed as coded log format (${variant}). Extracted ${fields.size} fields.`);
 
             // Lines look coded (most start with a numeric code) but almost none
             // of the known codes/labels matched — the signature of an
@@ -468,7 +576,7 @@ export async function parseAbbottLog(filePath: string): Promise<UnifiedReport | 
             }
 
             const report = buildReportFromCodedLog(fields, filePath, rawText, collector);
-            report.formatVariant = `abbott:${sourceVariant};${report.formatVariant}`;
+            report.formatVariant = `abbott:${sourceVariant};${variant};${report.formatVariant}`;
             return report;
         }
 

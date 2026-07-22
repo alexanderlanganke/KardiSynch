@@ -45,6 +45,10 @@ debug_*.json
 *.log
 debug_data/
 
+# Real (anonymized) Abbott sample logs used to validate the Abbott parser —
+# never commit real patient/device exports, even anonymized ones.
+test/abbott_logfiles/
+
 # IDE & System
 .DS_Store
 .idea/
