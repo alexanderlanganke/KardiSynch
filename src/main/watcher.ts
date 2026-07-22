@@ -226,6 +226,22 @@ const logEvent = (event: Parameters<typeof logImportEvent>[0]): void => {
 };
 
 /**
+ * Serializes a parsed report's diagnostics (format variant, warnings, status)
+ * into the ImportEvents.details column, so Import History can show *why* a
+ * file needed manual sorting or came back partial instead of just that it
+ * did. Returns undefined when the report carries no diagnostics worth
+ * persisting (the common, fully-clean-parse case).
+ */
+const buildEventDetails = (report: UnifiedReport | null | undefined): string | undefined => {
+  if (!report) return undefined;
+  const { formatVariant, parseWarnings, parseStatus } = report;
+  if (!formatVariant && (!parseWarnings || parseWarnings.length === 0) && (!parseStatus || parseStatus === 'ok')) {
+    return undefined;
+  }
+  return JSON.stringify({ formatVariant, parseStatus, warnings: parseWarnings });
+};
+
+/**
  * Recursively finds all files in a directory, excluding temporary directories.
  */
 const getFilesRecursively = async (dir: string): Promise<string[]> => {
@@ -651,7 +667,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                 session_id: sessionId,
                 file_path: file,
                 status: 'unmatched',
-                message: 'Could not queue for manual sorting'
+                message: 'Could not queue for manual sorting',
+                details: buildEventDetails(report)
               });
               sessionSummary.unmatched++;
             }
@@ -690,7 +707,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             status: 'imported',
             patient_id: patient.id,
             report_id: reportId,
-            message: 'Merged into active visit'
+            message: 'Merged into active visit',
+            details: buildEventDetails(report)
           });
           sessionSummary.imported++;
           affectedVisits.set(reportId, { patient });
@@ -768,7 +786,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                   session_id: sessionId,
                   file_path: file,
                   status: 'unmatched',
-                  message: 'Near-match patient found; could not queue for manual sorting'
+                  message: 'Near-match patient found; could not queue for manual sorting',
+                  details: buildEventDetails(report)
                 });
                 sessionSummary.unmatched++;
               }
@@ -790,7 +809,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             file_path: file,
             status: 'imported',
             patient_id: patient.id,
-            report_id: reportId
+            report_id: reportId,
+            details: buildEventDetails(report)
           });
           sessionSummary.imported++;
           importedPatientIds.add(patient.id);
@@ -873,7 +893,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               status: 'imported',
               patient_id: visit.patientId,
               report_id: visit.reportId,
-              message: 'Matched by Serial'
+              message: 'Matched by Serial',
+              details: buildEventDetails(report)
             });
             sessionSummary.imported++;
             sessionSummary.processed++;
@@ -894,7 +915,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               status: 'imported',
               patient_id: visit.patientId,
               report_id: visit.reportId,
-              message: 'Matched by Session ID'
+              message: 'Matched by Session ID',
+              details: buildEventDetails(report)
             });
             sessionSummary.imported++;
             sessionSummary.processed++;
@@ -918,7 +940,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               status: 'imported',
               patient_id: visit.patientId,
               report_id: visit.reportId,
-              message: 'Matched by Demographics'
+              message: 'Matched by Demographics',
+              details: buildEventDetails(report)
             });
             sessionSummary.imported++;
             sessionSummary.processed++;
@@ -995,7 +1018,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               status: 'imported',
               patient_id: patient.id,
               report_id: existingReport.id,
-              message: 'Auto-matched to existing visit'
+              message: 'Auto-matched to existing visit',
+              details: buildEventDetails(report)
             });
             affectedVisits.set(existingReport.id, { patient });
 
@@ -1035,7 +1059,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                 session_id: sessionId,
                 file_path: file,
                 status: 'unmatched',
-                message: 'Could not queue for manual sorting'
+                message: 'Could not queue for manual sorting',
+                details: buildEventDetails(report)
               });
               sessionSummary.unmatched++;
             }
@@ -1066,7 +1091,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               session_id: sessionId,
               file_path: file,
               status: 'unmatched',
-              message: 'Could not queue for manual sorting'
+              message: 'Could not queue for manual sorting',
+              details: buildEventDetails(report)
             });
             sessionSummary.unmatched++;
           }

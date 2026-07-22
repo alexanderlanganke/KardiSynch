@@ -85,5 +85,26 @@ describe('Medtronic XML Parser (Leads)', () => {
         expect(rvLead?.serial).toBe('LEAD123456');
         expect(rvLead?.manufacturer).toBe('Medtronic');
         expect(rvLead?.implant_date).toBe('2021-07-21');
+
+        // Diagnostics: the context was found via its expected name.
+        expect(report.formatVariant).toContain('context=NoPendingSettings');
+    });
+
+    it('falls back to any context with parameters when the context is not named "NoPendingSettings"', () => {
+        // Same structure, but the context is named something else — simulates
+        // an older/renamed schema revision. The parser should still recover
+        // the device/lead data via the automatic fallback instead of silently
+        // ending up with an empty params list.
+        const renamedXML = sampleXML.replace(
+            '<String charset="UCS-2">NoPendingSettings</String>',
+            '<String charset="UCS-2">ActiveSettings</String>'
+        );
+
+        const report = parseMedtronicXML(renamedXML);
+
+        expect(report).not.toBeNull();
+        expect(report!.device.serial_number).toBe('DEV123456');
+        expect(report!.leads?.length).toBeGreaterThan(0);
+        expect(report!.formatVariant).toContain('context=first-with-params');
     });
 });

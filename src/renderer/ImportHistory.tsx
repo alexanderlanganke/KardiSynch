@@ -54,6 +54,18 @@ const ImportHistory: React.FC = () => {
         }
     };
 
+    // event.details is a JSON-stringified { formatVariant, parseStatus, warnings }
+    // captured from the parser (see parseDiagnostics.ts) when a file needed a
+    // fallback or came back partial — surfaces *why*, not just the outcome.
+    const parseEventDetails = (details: string | undefined | null): { formatVariant?: string; parseStatus?: string; warnings?: { stage: string; severity: string; message: string }[] } | null => {
+        if (!details) return null;
+        try {
+            return JSON.parse(details);
+        } catch {
+            return null;
+        }
+    };
+
     const handleMoveClick = async (event: any) => {
         setFileToMove(event);
         // Resolve the actual path for preview
@@ -245,13 +257,30 @@ const ImportHistory: React.FC = () => {
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="text-sm">
-                                                    {event.patient_id ? (
-                                                        <span className="font-medium">
-                                                            {(event.first_name || '')} {(event.last_name || '')}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-muted-foreground italic">{event.message}</span>
-                                                    )}
+                                                    <div className="flex items-center gap-1.5">
+                                                        {event.patient_id ? (
+                                                            <span className="font-medium">
+                                                                {(event.first_name || '')} {(event.last_name || '')}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-muted-foreground italic">{event.message}</span>
+                                                        )}
+                                                        {(() => {
+                                                            const details = parseEventDetails(event.details);
+                                                            const warnings = details?.warnings || [];
+                                                            if (warnings.length === 0) return null;
+                                                            const tooltip = [
+                                                                details?.formatVariant ? `Format: ${details.formatVariant}` : null,
+                                                                ...warnings.map(w => `[${w.severity}] ${w.stage}: ${w.message}`)
+                                                            ].filter(Boolean).join('\n');
+                                                            return (
+                                                                <AlertTriangle
+                                                                    className="h-3.5 w-3.5 text-amber-500 shrink-0"
+                                                                    title={tooltip}
+                                                                />
+                                                            );
+                                                        })()}
+                                                    </div>
                                                 </TableCell>
                                                 <TableCell className="text-right">
                                                     {['imported', 'manually_sorted', 'unmatched', 'error'].includes((event.status || '').toLowerCase().trim()) && (

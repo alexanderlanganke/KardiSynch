@@ -4,6 +4,7 @@ import AdmZip from 'adm-zip';
 import { XMLParser } from 'fast-xml-parser';
 import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 import { normalizeDate } from '../../lib/dates';
+import { DiagnosticsCollector, safeExtract, deriveParseStatus } from './parseDiagnostics';
 
 /**
  * Extracts raw text from a DOCX (ZIP) file by reading word/document.xml
@@ -194,7 +195,7 @@ function extractNumeric(str: string): number | null {
 /**
  * Build a UnifiedReport from the coded field map.
  */
-function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, rawText: string): UnifiedReport {
+function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, rawText: string, collector: DiagnosticsCollector): UnifiedReport {
     // Patient
     const nameParts = (fields.get('PatientName') || '').split(',');
     const lastName = nameParts.length > 0 ? nameParts[0].trim() : '';
@@ -232,55 +233,54 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
     const leads: LeadData[] = [];
 
     // RV Lead
-    const rvSerial = fields.get('RVLeadSerial') || '';
-    const rvImpStr = fields.get('RVLeadImpedance') || '';
-    const rvImp = extractNumeric(rvImpStr);
-    const rvSenseStr = fields.get('VentricularSignalAmplitude') || '';
-    const rvSense = extractNumeric(rvSenseStr);
-    const rvThreshStr = fields.get('RVCaptureThreshold') || '';
-    const rvThresh = extractNumeric(rvThreshStr);
-    const rvPwStr = fields.get('RVCapturePulseWidth') || '';
-    const rvPw = extractNumeric(rvPwStr);
+    const rvLead: LeadData | null = safeExtract(collector, 'leads.RV', () => {
+        const rvSerial = fields.get('RVLeadSerial') || '';
+        const rvImp = extractNumeric(fields.get('RVLeadImpedance') || '');
+        const rvSense = extractNumeric(fields.get('VentricularSignalAmplitude') || '');
+        const rvThresh = extractNumeric(fields.get('RVCaptureThreshold') || '');
+        const rvPw = extractNumeric(fields.get('RVCapturePulseWidth') || '');
 
-    const rvLead: LeadData = {
-        name: 'RV',
-        serial: rvSerial || undefined,
-        model: fields.get('RVLeadModel') || undefined,
-        manufacturer: fields.get('RVLeadManufacturer') || undefined,
-        implant_date: parseAbbottDate(fields.get('RVLeadImplantDate') || '') || undefined,
-        impedance: rvImp != null ? { value: rvImp, unit: 'Ohm' } : undefined,
-        sensing: rvSense != null ? { value: rvSense, unit: 'mV' } : undefined,
-        pacing_threshold: rvThresh != null ? { value: rvPw != null ? `${rvThresh} @ ${rvPw}` : rvThresh, unit: rvPw != null ? 'V @ ms' : 'V' } : undefined,
-    };
-    if (hasLeadData(rvLead)) leads.push(rvLead);
+        return {
+            name: 'RV',
+            serial: rvSerial || undefined,
+            model: fields.get('RVLeadModel') || undefined,
+            manufacturer: fields.get('RVLeadManufacturer') || undefined,
+            implant_date: parseAbbottDate(fields.get('RVLeadImplantDate') || '') || undefined,
+            impedance: rvImp != null ? { value: rvImp, unit: 'Ohm' } : undefined,
+            sensing: rvSense != null ? { value: rvSense, unit: 'mV' } : undefined,
+            pacing_threshold: rvThresh != null ? { value: rvPw != null ? `${rvThresh} @ ${rvPw}` : rvThresh, unit: rvPw != null ? 'V @ ms' : 'V' } : undefined,
+        };
+    }, null);
+    if (rvLead && hasLeadData(rvLead)) leads.push(rvLead);
 
     // Atrial Lead
-    const atrialSerial = fields.get('AtrialLeadSerial') || '';
-    const atrialImpStr = fields.get('AtrialLeadImpedance') || '';
-    const atrialImp = extractNumeric(atrialImpStr);
-    const atrialSenseStr = fields.get('AtrialSignalAmplitude') || '';
-    const atrialSense = extractNumeric(atrialSenseStr);
-    const atrialThreshStr = fields.get('AtrialCaptureThreshold') || '';
-    const atrialThresh = extractNumeric(atrialThreshStr);
-    const atrialPwStr = fields.get('AtrialCapturePulseWidth') || '';
-    const atrialPw = extractNumeric(atrialPwStr);
+    const atrialLead: LeadData | null = safeExtract(collector, 'leads.atrial', () => {
+        const atrialSerial = fields.get('AtrialLeadSerial') || '';
+        const atrialImp = extractNumeric(fields.get('AtrialLeadImpedance') || '');
+        const atrialSense = extractNumeric(fields.get('AtrialSignalAmplitude') || '');
+        const atrialThresh = extractNumeric(fields.get('AtrialCaptureThreshold') || '');
+        const atrialPw = extractNumeric(fields.get('AtrialCapturePulseWidth') || '');
 
-    const atrialLead: LeadData = {
-        name: 'Atrium',
-        serial: atrialSerial || undefined,
-        model: fields.get('AtrialLeadModel') || undefined,
-        manufacturer: fields.get('AtrialLeadManufacturer') || undefined,
-        implant_date: parseAbbottDate(fields.get('AtrialLeadImplantDate') || '') || undefined,
-        impedance: atrialImp != null ? { value: atrialImp, unit: 'Ohm' } : undefined,
-        sensing: atrialSense != null ? { value: atrialSense, unit: 'mV' } : undefined,
-        pacing_threshold: atrialThresh != null ? { value: atrialPw != null ? `${atrialThresh} @ ${atrialPw}` : atrialThresh, unit: atrialPw != null ? 'V @ ms' : 'V' } : undefined,
-    };
-    if (hasLeadData(atrialLead)) leads.push(atrialLead);
+        return {
+            name: 'Atrium',
+            serial: atrialSerial || undefined,
+            model: fields.get('AtrialLeadModel') || undefined,
+            manufacturer: fields.get('AtrialLeadManufacturer') || undefined,
+            implant_date: parseAbbottDate(fields.get('AtrialLeadImplantDate') || '') || undefined,
+            impedance: atrialImp != null ? { value: atrialImp, unit: 'Ohm' } : undefined,
+            sensing: atrialSense != null ? { value: atrialSense, unit: 'mV' } : undefined,
+            pacing_threshold: atrialThresh != null ? { value: atrialPw != null ? `${atrialThresh} @ ${atrialPw}` : atrialThresh, unit: atrialPw != null ? 'V @ ms' : 'V' } : undefined,
+        };
+    }, null);
+    if (atrialLead && hasLeadData(atrialLead)) leads.push(atrialLead);
 
     // Session ID from filename
     const filename = path.basename(filePath);
     const idMatch = filename.match(/_?(\d+)\.log$/i);
     const sessionId = idMatch ? idMatch[1] : undefined;
+
+    const hasPatientIdentity = !!(lastName || dob);
+    const hasDeviceIdentity = !!(deviceModel !== 'Unknown' && deviceModel || (deviceSerial && deviceSerial !== 'Unknown'));
 
     return {
         manufacturer: 'Abbott',
@@ -304,13 +304,16 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
         leads: leads,
         raw_text: rawText,
         generatedFiles: [],
+        formatVariant: 'abbott-coded-log',
+        parseWarnings: collector.list,
+        parseStatus: deriveParseStatus(collector, hasPatientIdentity, hasDeviceIdentity),
     };
 }
 
 /**
  * Parses the raw text content using regex patterns (DOCX/freeform text fallback)
  */
-function parseAbbottText(text: string, filePath: string): UnifiedReport {
+function parseAbbottText(text: string, filePath: string, collector: DiagnosticsCollector): UnifiedReport {
     const patterns = {
         patientName: /Patient Name\s+(.+)/i,
         sessionTimestamp: /Session Timestamp\s+(\d{1,2}\/\d{1,2}\/\d{4}(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?)/i,
@@ -392,6 +395,12 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
         deviceType = 'ICD';
     }
 
+    const hasPatientIdentity = !!(lastName || dob);
+    const hasDeviceIdentity = !!(modelMatch || serialMatch);
+    if (!hasPatientIdentity && !hasDeviceIdentity) {
+        collector.error('freeform', 'None of the known freeform-text patterns (patient name, model, serial) matched — likely an unrecognized Abbott report layout.');
+    }
+
     return {
         manufacturer: 'Abbott',
         interrogation_date: normalizeDate(interrogationDate, 'us'),
@@ -411,7 +420,10 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
         },
         leads: leads,
         raw_text: text,
-        generatedFiles: []
+        generatedFiles: [],
+        formatVariant: 'abbott-freeform-text',
+        parseWarnings: collector.list,
+        parseStatus: deriveParseStatus(collector, hasPatientIdentity, hasDeviceIdentity),
     };
 }
 
@@ -419,9 +431,11 @@ function parseAbbottText(text: string, filePath: string): UnifiedReport {
  * Main Entry Point
  */
 export async function parseAbbottLog(filePath: string): Promise<UnifiedReport | null> {
+    const collector = new DiagnosticsCollector();
     try {
         const buffer = await fs.readFile(filePath);
         const isZip = buffer.length > 4 && buffer[0] === 0x50 && buffer[1] === 0x4B && buffer[2] === 0x03 && buffer[3] === 0x04;
+        const sourceVariant = isZip ? 'source=docx' : 'source=plain-text';
 
         let rawText = '';
 
@@ -443,11 +457,25 @@ export async function parseAbbottLog(filePath: string): Promise<UnifiedReport | 
             console.log('[Abbott] Parsing as coded log format.');
             const fields = parseCodedLog(rawText);
             console.log(`[Abbott] Extracted ${fields.size} fields from coded log.`);
-            return buildReportFromCodedLog(fields, filePath, rawText);
+
+            // Lines look coded (most start with a numeric code) but almost none
+            // of the known codes/labels matched — the signature of an
+            // unrecognized code/label revision (a real "older Abbott log"
+            // scenario) rather than a genuinely sparse report. This used to
+            // silently return a mostly-empty "successful" report.
+            if (fields.size < 3) {
+                collector.warn('coded-log', `Coded-log format detected, but only ${fields.size} of ${Object.keys(ABBOTT_CODES).length} known fields matched — likely an unrecognized code/label revision.`);
+            }
+
+            const report = buildReportFromCodedLog(fields, filePath, rawText, collector);
+            report.formatVariant = `abbott:${sourceVariant};${report.formatVariant}`;
+            return report;
         }
 
         // Fallback to regex-based parsing (DOCX/freeform text)
-        return parseAbbottText(rawText, filePath);
+        const report = parseAbbottText(rawText, filePath, collector);
+        report.formatVariant = `abbott:${sourceVariant};${report.formatVariant}`;
+        return report;
 
     } catch (e) {
         console.error('Error parsing Abbott log:', e);

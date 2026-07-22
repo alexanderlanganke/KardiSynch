@@ -180,6 +180,11 @@ const createTables = (db: sqlite3.Database) => {
     // Manufacturer Warning Support
     safeAddColumn("ALTER TABLE Patients ADD COLUMN manufacturer_warning_status TEXT");
     safeAddColumn("ALTER TABLE Patients ADD COLUMN manufacturer_warning_hash TEXT");
+    // Parse diagnostics: JSON-stringified {formatVariant, parseStatus, warnings}
+    // captured from UnifiedReport when a parser falls back or fails soft, so
+    // Import History can show *why* a file needed manual sorting instead of
+    // just that it did.
+    safeAddColumn("ALTER TABLE ImportEvents ADD COLUMN details TEXT");
 
     db.run(`
       CREATE TABLE IF NOT EXISTS Reports (
@@ -1458,13 +1463,14 @@ export const logImportEvent = (event: {
   patient_id?: string;
   report_id?: string;
   message?: string;
+  details?: string;
 }): Promise<void> => {
   return new Promise((resolve, reject) => {
     const db = getDb();
     db.run(
       `INSERT INTO ImportEvents (
-        id, session_id, timestamp, file_path, status, patient_id, report_id, message
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        id, session_id, timestamp, file_path, status, patient_id, report_id, message, details
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.id,
         event.session_id,
@@ -1473,7 +1479,8 @@ export const logImportEvent = (event: {
         event.status,
         event.patient_id || null,
         event.report_id || null,
-        event.message || null
+        event.message || null,
+        event.details || null
       ],
       (err) => {
         if (err) reject(err);

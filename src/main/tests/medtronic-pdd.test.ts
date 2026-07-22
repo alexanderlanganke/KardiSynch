@@ -80,4 +80,28 @@ describe('Medtronic PDD string extraction (synthetic)', () => {
         expect(report).not.toBeNull();
         expect(report!.interrogation_date).toBe('2025-11-06');
     });
+
+    it('tags a recognized structure as ok/partial instead of leaving diagnostics silent', async () => {
+        // A single FF-prefixed value/type marker pair (type 4 = battery
+        // voltage, value 3000 -> 3.0V) so parsePDDStructure finds a real entry.
+        const marker = Buffer.from([0xFF, 0x33, 0x30, 0x30, 0x30, 0x0A, 0xFF, 0x34, 0x0A]);
+        const file = writePdd([SEP, 'Müller, Hans', SEP, 'Protecta XT DR', SEP, 'PTC610468S', SEP, marker]);
+        const report = await parseMedtronicPdd(file);
+
+        expect(report).not.toBeNull();
+        expect(report!.formatVariant).toBe('medtronic-pdd');
+        expect(report!.parseStatus).not.toBe('failed');
+    });
+
+    it('fails soft (not null/throw) on a byte layout with no recognizable FF markers', async () => {
+        // No 0xFF-prefixed value/type entries at all — simulates a .pdd
+        // revision the binary structure scanner doesn't recognize.
+        const file = writePdd(['plain garbage bytes, no markers here at all']);
+        const report = await parseMedtronicPdd(file);
+
+        expect(report).not.toBeNull();
+        expect(report!.formatVariant).toBe('pdd-unrecognized-structure');
+        expect(report!.parseStatus).toBe('failed'); // no patient/device identity recovered either
+        expect(report!.parseWarnings?.some(w => w.stage === 'structure' && w.severity === 'error')).toBe(true);
+    });
 });

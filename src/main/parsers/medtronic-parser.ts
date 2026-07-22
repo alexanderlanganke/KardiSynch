@@ -6,6 +6,7 @@ import { XMLParser } from 'fast-xml-parser';
 import { normalizeDate } from '../../lib/dates';
 import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 import { extractTextFromPdf, extractStructuredData } from '../utils/pdf-utils';
+import { DiagnosticsCollector, safeExtract, detectVariant, deriveParseStatus } from './parseDiagnostics';
 
 /**
  * --- Medtronic Parser ---
@@ -17,45 +18,57 @@ import { extractTextFromPdf, extractStructuredData } from '../utils/pdf-utils';
  * Extracts header information and measurements using binary structure analysis.
  */
 export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport | null> => {
+    const collector = new DiagnosticsCollector();
+    let buffer: Buffer;
+
     try {
-        const buffer = await fs.readFile(filePath);
-        const pddString = buffer.toString('utf8'); // For text-based searches
-        const entries = parsePDDStructure(buffer);
+        buffer = await fs.readFile(filePath);
+    } catch (error) {
+        // Can't even read the file — nothing to extract.
+        console.error("Failed to parse Medtronic PDD:", error);
+        return null;
+    }
 
-        // Map entries to report fields
-        const latestValues: { [key: number]: number } = {};
-        entries.forEach(e => {
-            latestValues[e.type] = e.value;
-        });
+    const entries = safeExtract(collector, 'structure', () => parsePDDStructure(buffer), [] as { offset: number, value: number, type: number }[]);
 
-        const report: UnifiedReport = {
-            manufacturer: 'Medtronic',
-            interrogation_date: '',
-            patient: {
-                first_name: '',
-                last_name: '',
-                dob: '1900-01-01',
-            },
-            device: {
-                type: 'Unknown', // Refined below by keyword match; if nothing matches, the watcher's alias flow asks the user once and remembers.
-                model: '',
-                serial_number: '',
-            },
-            battery: {},
-            leads: [],
-            raw_text: '',
-        };
+    // If the FF-prefixed value/type marker scan found nothing at all, this is
+    // very likely a byte layout the parser doesn't recognize (an older/newer
+    // .pdd revision) rather than a genuinely empty report. Previously this
+    // silently proceeded to build an empty-but-"successful" report with no
+    // signal that anything was wrong.
+    if (entries.length === 0) {
+        collector.error('structure', 'No FF-prefixed value/type markers found in the .pdd binary structure — the byte layout was not recognized (possibly a different Medtronic .pdd revision).');
+    }
 
-        // --- 1. Robust Header Extraction (Regex/String Analysis) ---
+    const report: UnifiedReport = {
+        manufacturer: 'Medtronic',
+        interrogation_date: '',
+        patient: {
+            first_name: '',
+            last_name: '',
+            dob: '1900-01-01',
+        },
+        device: {
+            type: 'Unknown', // Refined below by keyword match; if nothing matches, the watcher's alias flow asks the user once and remembers.
+            model: '',
+            serial_number: '',
+        },
+        battery: {},
+        leads: [],
+        raw_text: '',
+    };
 
-        // Extract all printable strings >= 4 chars. UTF-8 aware: multi-byte
-        // sequences (umlauts etc.) are kept, so "Müller, Hans" survives intact
-        // instead of being split at the non-ASCII byte.
-        const strings: string[] = [];
+    // --- 1. Robust Header Extraction (Regex/String Analysis) ---
+
+    // Extract all printable strings >= 4 chars. UTF-8 aware: multi-byte
+    // sequences (umlauts etc.) are kept, so "Müller, Hans" survives intact
+    // instead of being split at the non-ASCII byte.
+    const strings: string[] = safeExtract(collector, 'strings', () => {
+        const found: string[] = [];
         const flushRun = (start: number, end: number) => {
             if (end <= start) return;
             const s = buffer.toString('utf8', start, end).trim();
-            if (s.length >= 4) strings.push(s);
+            if (s.length >= 4) found.push(s);
         };
         let runStart = -1;
         let i = 0;
@@ -83,12 +96,15 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
             }
         }
         if (runStart !== -1) flushRun(runStart, buffer.length);
+        return found;
+    }, [] as string[]);
 
-        report.raw_text = strings.join('\n');
+    report.raw_text = strings.join('\n');
 
-        // A. Patient Name: Look for "Name, Firstname" format
-        // Heuristic: First string that matches "Word, Word" pattern
-        const nameRegex = /^([A-Za-z\u00C0-\u00FF][A-Za-z\u00C0-\u00FF'-]+),\s+([A-Za-z\u00C0-\u00FF].*)$/;
+    // A. Patient Name: Look for "Name, Firstname" format
+    // Heuristic: First string that matches "Word, Word" pattern
+    safeExtract(collector, 'patient.name', () => {
+        const nameRegex = /^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]+),\s+([A-Za-zÀ-ÿ].*)$/;
         const nameMatch = strings.find(s => nameRegex.test(s));
 
         if (nameMatch) {
@@ -98,8 +114,11 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                 report.patient.first_name = parts[2];
             }
         }
+        return undefined;
+    }, undefined);
 
-        // B. Device Model: Look for known families
+    // B. Device Model: Look for known families
+    safeExtract(collector, 'device.model', () => {
         const knownFamilies = ['Protecta', 'Visia', 'Evera', 'Viva', 'Brava', 'Claria', 'Amplify', 'Consulta', 'Secura', 'Maximo', 'Concerto', 'Virtuoso'];
         const modelString = strings.find(s => knownFamilies.some(f => s.includes(f)));
         if (modelString) {
@@ -113,10 +132,13 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                 report.device.type = 'ICD';
             }
         }
+        return undefined;
+    }, undefined);
 
-        // C. Serial Number & Date
-        // Pattern: PTC610468S + optional Date suffix (20251106144806)
-        // Regex: 3 chars, 6 digits, 1 char (S/P/etc), optional 14 digits
+    // C. Serial Number & Date
+    // Pattern: PTC610468S + optional Date suffix (20251106144806)
+    // Regex: 3 chars, 6 digits, 1 char (S/P/etc), optional 14 digits
+    safeExtract(collector, 'device.serial_number', () => {
         const serialRegex = /([A-Z]{3}\d{6}[A-Z])(\d{14})?/;
         const serialString = strings.find(s => serialRegex.test(s));
 
@@ -144,10 +166,13 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                 }
             }
         }
+        return undefined;
+    }, undefined);
 
-        // --- 2. Measurements (Binary Structure) ---
+    // --- 2. Measurements (Binary Structure) ---
 
-        // Battery Voltage (Type 4, 2.0-3.5V)
+    // Battery Voltage (Type 4, 2.0-3.5V)
+    safeExtract(collector, 'battery.voltage', () => {
         const batteryEntries = entries.filter(e => e.type === 4).reverse();
         for (const entry of batteryEntries) {
             if (entry.value >= 2000 && entry.value <= 3500) {
@@ -155,12 +180,14 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
                 break;
             }
         }
+        return undefined;
+    }, undefined);
 
-        // Leads - Snapshot Analysis (Best Effort)
-        // We look for the marker "69\n68\n1035" or similar patterns in strings
-        // But since we have the raw entries, let's use the robust Type 3 (Imp) and Type 2 (Thresh) logic
-
-        const leads: LeadData[] = [];
+    // Leads - Snapshot Analysis (Best Effort)
+    // We look for the marker "69\n68\n1035" or similar patterns in strings
+    // But since we have the raw entries, let's use the robust Type 3 (Imp) and Type 2 (Thresh) logic
+    const leads: LeadData[] = safeExtract(collector, 'leads', () => {
+        const built: LeadData[] = [];
         let rvImp: number | undefined;
         let aImp: number | undefined;
         let rvThresh: number | undefined;
@@ -181,7 +208,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
         // 737450 -> 50 -> 0.5V
         const type2Entries = entries.filter(e => e.type === 2 && e.value >= 737400 && e.value < 737600);
 
-        // Heuristic: Lower value is usually A or RV? 
+        // Heuristic: Lower value is usually A or RV?
         // 50 (0.5V) and 60 (0.6V).
         // Let's assume order or simply take found values
         const threshValues = type2Entries.map(e => (e.value % 100) / 100).filter(v => v > 0 && v < 5);
@@ -189,7 +216,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
         if (threshValues.length >= 2) rvThresh = threshValues[1];
 
         if (aImp || aThresh) {
-            leads.push({
+            built.push({
                 name: 'Atrial Lead',
                 anatomic_location: 'A',
                 impedance: aImp ? { value: aImp, unit: 'Ohm' } : undefined,
@@ -203,30 +230,30 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
         const rvImpEntry = rawEntries.find(e => e.isDoubleFF && e.value >= 589200 && e.value < 589900);
         if (rvImpEntry) {
             rvImp = rvImpEntry.value % 1000;
-            leads.push({
+            built.push({
                 name: 'RV Lead',
                 anatomic_location: 'RV',
                 impedance: { value: rvImp, unit: 'Ohm' },
                 pacing_threshold: rvThresh ? { value: rvThresh, unit: 'V' } : undefined
             });
         } else if (rvThresh && !rvImp) {
-            leads.push({
+            built.push({
                 name: 'RV Lead',
                 anatomic_location: 'RV',
                 pacing_threshold: { value: rvThresh, unit: 'V' }
             });
         }
+        return built;
+    }, [] as LeadData[]);
 
-        if (leads.length > 0) report.leads = leads;
+    if (leads.length > 0) report.leads = leads;
 
-        return report;
+    report.formatVariant = entries.length > 0 ? 'medtronic-pdd' : 'pdd-unrecognized-structure';
+    report.parseWarnings = collector.list;
+    report.parseStatus = deriveParseStatus(collector, !!report.patient.last_name, !!(report.device.model || report.device.serial_number));
 
-    } catch (error) {
-        console.error("Failed to parse Medtronic PDD:", error);
-        return null;
-    }
+    return report;
 };
-
 function parsePDDStructure(buffer: Buffer) {
     const entries: { offset: number, value: number, type: number }[] = [];
     let i = 0;
@@ -409,6 +436,7 @@ const removeDirWithRetry = async (dir: string, attempts = 5, delayMs = 100): Pro
  * Parses the PublicDiscreteData.xml content from a Medtronic PKG.
  */
 export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
+  const collector = new DiagnosticsCollector();
   try {
     const parser = new XMLParser({
         ignoreAttributes: false,
@@ -465,34 +493,62 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
         return null;
     };
 
-    // Locate "Value" -> "DiscreteDataContent" -> "ContextCollection" -> "NoPendingSettings" -> "NormalizedParameterCollection"
+    // Locate "Value" -> "DiscreteDataContent" -> "ContextCollection" -> a context -> "NormalizedParameterCollection"
 
     let params: any[] = [];
+    let contextVariant = 'context=unmatched';
 
     try {
         const valueField = findInComposite(root, 'Value');
-
         const contextCollection = findInComposite(valueField, 'ContextCollection');
 
-        // ContextCollection is an Array of Contexts. We want the one named "NoPendingSettings" (usually index 1)
-        let targetContext = null;
+        let contexts: any[] = [];
         if (contextCollection && contextCollection.Array && contextCollection.Array.Composite) {
-            const contexts = Array.isArray(contextCollection.Array.Composite) ? contextCollection.Array.Composite : [contextCollection.Array.Composite];
-
-            targetContext = contexts.find((c: any) => {
-                const nameField = findInComposite(c, 'Name');
-                return nameField && getText(nameField.String) === 'NoPendingSettings';
-            });
+            contexts = Array.isArray(contextCollection.Array.Composite) ? contextCollection.Array.Composite : [contextCollection.Array.Composite];
         }
 
-        if (targetContext) {
-            const paramCollection = findInComposite(targetContext, 'NormalizedParameterCollection');
+        const paramsFromContext = (context: any): any[] => {
+            const paramCollection = findInComposite(context, 'NormalizedParameterCollection');
             if (paramCollection && paramCollection.Array && paramCollection.Array.Composite) {
-                params = Array.isArray(paramCollection.Array.Composite) ? paramCollection.Array.Composite : [paramCollection.Array.Composite];
+                return Array.isArray(paramCollection.Array.Composite) ? paramCollection.Array.Composite : [paramCollection.Array.Composite];
             }
+            return [];
+        };
+
+        // We normally want the context named "NoPendingSettings" (usually index
+        // 1). Older/renamed schema revisions may not carry that exact name, so
+        // fall back to the first context that has any parameter collection at
+        // all rather than silently ending up with params = [] — this is what
+        // lets the parser adapt to a renamed context automatically instead of
+        // going quietly empty.
+        const contextResult = detectVariant(collector, 'context', [
+            {
+                name: 'context=NoPendingSettings', test: () => {
+                    const named = contexts.find((c: any) => {
+                        const nameField = findInComposite(c, 'Name');
+                        return nameField && getText(nameField.String) === 'NoPendingSettings';
+                    });
+                    const found = named ? paramsFromContext(named) : [];
+                    return found.length > 0 ? found : null;
+                }
+            },
+            {
+                name: 'context=first-with-params', test: () => {
+                    for (const c of contexts) {
+                        const found = paramsFromContext(c);
+                        if (found.length > 0) return found;
+                    }
+                    return null;
+                }
+            },
+        ]);
+
+        if (contextResult) {
+            params = contextResult.value;
+            contextVariant = contextResult.variant;
         }
     } catch (e) {
-        console.error(`Error traversing XML structure: ${e}`);
+        collector.error('context', `Error traversing XML structure: ${e}`);
     }
 
     // Helper to find parameter by name
@@ -796,7 +852,10 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
             remaining_longevity: remainingLongevity
         },
         leads: leads,
-        raw_text: xmlData
+        raw_text: xmlData,
+        formatVariant: `medtronic-xml:${contextVariant}`,
+        parseWarnings: collector.list,
+        parseStatus: deriveParseStatus(collector, !!(lastName || dob), !!(deviceModel || deviceSerial)),
     };
   } catch (error) {
     console.error('Failed to parse Medtronic XML:', error);

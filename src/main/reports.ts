@@ -1,5 +1,7 @@
 // src/main/reports.ts
 
+import { ParseDiagnostic } from './parsers/parseDiagnostics';
+
 /**
  * A single measurement with a value and its unit.
  */
@@ -77,6 +79,18 @@ export interface UnifiedReport {
   // --- Raw Data ---
   raw_text?: string;
   generatedFiles?: string[]; // Paths to files generated during parsing (e.g. extracted PDFs)
+
+  // --- Parse Diagnostics ---
+  // Machine-readable tag for which structural variant/branch a parser detected
+  // (e.g. 'medtronic-pdd-legacy', 'abbott-coded-log', 'biotronik:settings=Kanäle').
+  formatVariant?: string;
+  // Non-fatal issues collected while parsing (fields that fell back to a
+  // default instead of aborting the whole parse).
+  parseWarnings?: ParseDiagnostic[];
+  // 'ok': no warnings. 'partial': some fields missing/fell back but patient
+  // and/or device identity was recovered. 'failed': neither patient nor
+  // device identity could be established (still a real report, not null).
+  parseStatus?: 'ok' | 'partial' | 'failed';
 }
 
 /**
