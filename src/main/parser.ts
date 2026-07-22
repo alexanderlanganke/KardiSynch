@@ -48,6 +48,20 @@ const decodeXmlBuffer = (buffer: Buffer): string => {
 };
 
 /**
+ * Stamps `manufacturer` onto a report whose manufacturer the dispatcher
+ * already knows for certain from the file's extension/naming convention
+ * (e.g. .bnk is always Boston Scientific) — overriding whatever the parser
+ * itself produced. Keeps "manufacturer" reliable on autoimport even if a
+ * parser's own extraction of that field is wrong, missing, or falls back to
+ * 'Unknown' along some partial-parse path (#147). Not used for formats that
+ * are genuinely multi-vendor, like Microport/Paceart.
+ */
+const withManufacturer = <T extends UnifiedReport | null>(report: T, manufacturer: string): T => {
+  if (report) report.manufacturer = manufacturer;
+  return report;
+};
+
+/**
  * Acts as a dispatcher, routing files to the appropriate parser based on their
  * file type and naming conventions. It handles PDFs (with OCR fallback),
  * Biotronik XML files, Boston Scientific .bnk files, Medtronic .pdd/.pkg files,
@@ -76,6 +90,12 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     // The watcher will ensure we don't overwrite the XML data.
     if (filename.includes('BIOSTD_')) {
       console.log('Identified Biotronik PDF. Proceeding to extract data for matching.');
+      const report = extractStructuredData(rawText, filename);
+      // The filename already tells us this is Biotronik — don't leave
+      // manufacturer to extractStructuredData's generic keyword scan, which
+      // can miss it if the PDF text never spells out "Biotronik" (#147).
+      report.manufacturer = 'Biotronik';
+      return report;
     }
 
     return extractStructuredData(rawText, filename);
@@ -88,7 +108,7 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     }
 
     if (filename.includes('BIOSTD_')) {
-      return parseBiotronikXML(xmlData);
+      return withManufacturer(parseBiotronikXML(xmlData), 'Biotronik');
     } else if (filename === 'visit.xml') {
       try {
         const { XMLParser } = require('fast-xml-parser');
@@ -146,13 +166,13 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     return null;
   } else if (fileExtension === '.bnk') {
     const bnkData = await fs.readFile(filePath, 'utf-8');
-    return parseBostonScientificBnk(bnkData);
+    return withManufacturer(parseBostonScientificBnk(bnkData), 'Boston Scientific');
   } else if (fileExtension === '.pdd') {
-    return parseMedtronicPdd(filePath);
+    return withManufacturer(await parseMedtronicPdd(filePath), 'Medtronic');
   } else if (fileExtension === '.pkg') {
-    return parseMedtronicPkg(filePath);
+    return withManufacturer(await parseMedtronicPkg(filePath), 'Medtronic');
   } else if (fileExtension === '.log') {
-    return parseAbbottLog(filePath);
+    return withManufacturer(await parseAbbottLog(filePath), 'Abbott');
   } else {
     console.warn(`Unsupported file type: ${fileExtension}`);
     return null;
