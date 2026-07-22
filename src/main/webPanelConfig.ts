@@ -104,6 +104,49 @@ export function getDownloadWhitelist(): DownloadConfig {
   }
 }
 
+// Plausible-hostname check: dotted labels of alphanumerics/hyphens (no
+// leading/trailing hyphen per label), at least one dot. Permissive enough for
+// real-world manufacturer domains (e.g. "latitude2.bostonscientific.com").
+const DOMAIN_PATTERN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
+const MAX_DOMAIN_LENGTH = 253; // max total length of a DNS hostname
+
+function isPlausibleDomain(domain: string): boolean {
+  if (!domain || domain.length > MAX_DOMAIN_LENGTH) return false;
+  return DOMAIN_PATTERN.test(domain);
+}
+
+/**
+ * This list directly gates which downloaded files get auto-imported into the
+ * patient record store, so entries coming from the renderer (settings UI)
+ * are validated before being persisted. Invalid entries are dropped (with a
+ * warning), not rejected outright, so a single bad entry doesn't block the
+ * rest of a legitimate edit.
+ */
+function sanitizeDomainList(domains: unknown): string[] {
+  if (!Array.isArray(domains)) return [];
+  const seen = new Set<string>();
+  const valid: string[] = [];
+  for (const raw of domains) {
+    if (typeof raw !== 'string') {
+      console.warn('[WebPanelConfig] Dropping non-string domain whitelist entry:', raw);
+      continue;
+    }
+    const normalized = raw.trim().toLowerCase();
+    if (!isPlausibleDomain(normalized)) {
+      console.warn('[WebPanelConfig] Dropping invalid domain whitelist entry:', JSON.stringify(raw));
+      continue;
+    }
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    valid.push(normalized);
+  }
+  return valid;
+}
+
 export function setDownloadWhitelist(config: DownloadConfig): void {
-  fs.writeFileSync(getDownloadConfigPath(), JSON.stringify(config, null, 2), 'utf-8');
+  const sanitized: DownloadConfig = {
+    ...config,
+    remote_monitoring_domains: sanitizeDomainList(config?.remote_monitoring_domains),
+  };
+  fs.writeFileSync(getDownloadConfigPath(), JSON.stringify(sanitized, null, 2), 'utf-8');
 }

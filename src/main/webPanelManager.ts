@@ -175,6 +175,24 @@ class WebPanelManager {
 
     const ses = session.fromPartition('persist:webpanel');
 
+    // Deny-by-default for sensitive device permissions. This view loads real
+    // third-party manufacturer websites, so it must not silently grant access
+    // to the camera/mic/location/notifications the way Electron's implicit
+    // default can. Registering this handler means we decide every request;
+    // anything not explicitly denied below is allowed, matching Electron's
+    // built-in (no-handler) behavior rather than guessing at a broader
+    // denylist for permissions the panel may legitimately need.
+    ses.setPermissionRequestHandler((_webContents, permission, callback) => {
+      const DENIED_PERMISSIONS = new Set(['camera', 'microphone', 'geolocation', 'notifications']);
+      if (DENIED_PERMISSIONS.has(permission)) {
+        dbg('setPermissionRequestHandler() denying permission:', permission);
+        callback(false);
+        return;
+      }
+      dbg('setPermissionRequestHandler() allowing permission:', permission);
+      callback(true);
+    });
+
     this.view = new BrowserView({
       webPreferences: {
         nodeIntegration: false,
