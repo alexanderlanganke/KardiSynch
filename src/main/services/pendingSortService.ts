@@ -211,3 +211,33 @@ export const removePendingSortTask = async (id: string, deleteDir: boolean): Pro
   }
   await persist();
 };
+
+/**
+ * Drop specific already-handled files from a task without touching the rest.
+ * Used when a task's files are processed one at a time and only some of them
+ * succeed (e.g. a resolve-pending-sort batch where one file's storeFile call
+ * fails mid-batch): the succeeded files were already moved out of `task.dir`
+ * by the caller, so this just updates the queue's bookkeeping to match.
+ *
+ * If dropping `processedBasenames` empties the task's file list, the task is
+ * removed entirely, the same way `removePendingSortTask` does for a clean
+ * resolve. Since the caller already moved every processed file out of
+ * `task.dir`, the dir should be empty at that point — this only ever does a
+ * non-recursive `rmdir`, never a recursive delete, so a directory that turns
+ * out NOT to be empty surfaces as a logged error (a real bug: files left
+ * behind untracked) instead of being silently swept away.
+ */
+export const removeFilesFromTask = async (taskId: string, processedBasenames: string[]): Promise<void> => {
+  const task = tasks.find(t => t.id === taskId);
+  if (!task) return;
+
+  const remaining = task.files.filter(f => !processedBasenames.includes(f));
+  if (remaining.length === 0) {
+    tasks = tasks.filter(t => t.id !== taskId);
+    await fs.rmdir(task.dir).catch(e =>
+      console.error(`[PendingSort] Task ${taskId} dir ${task.dir} was not empty after all its files were processed — leaving it in place for inspection:`, e));
+  } else {
+    task.files = remaining;
+  }
+  await persist();
+};
