@@ -90,53 +90,58 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
     if (filename.includes('BIOSTD_')) {
       return parseBiotronikXML(xmlData);
     } else if (filename === 'visit.xml') {
-      const { XMLParser } = require('fast-xml-parser');
-      // parseTagValue: false — keep all values as strings so serial numbers
-      // like "008763967" or "60E5" survive verbatim (no number coercion).
-      const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false });
-      const parsed = parser.parse(xmlData);
-      const visit = parsed.visit;
+      try {
+        const { XMLParser } = require('fast-xml-parser');
+        // parseTagValue: false — keep all values as strings so serial numbers
+        // like "008763967" or "60E5" survive verbatim (no number coercion).
+        const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false });
+        const parsed = parser.parse(xmlData);
+        const visit = parsed.visit;
 
-      if (!visit) return null;
+        if (!visit) return null;
 
-      const report: UnifiedReport = {
-        manufacturer: visit.manufacturer,
-        interrogation_date: visit.interrogation_date,
-        patient: { first_name: '', last_name: '', dob: '' }, // Metadata only
-        device: {
-          type: visit.device_type,
-          model: visit.device_model,
-          serial_number: visit.device_serial != null ? String(visit.device_serial) : visit.device_serial
-        },
-        battery: {},
-        leads: [],
-        raw_text: ''
-      };
-
-      if (visit.battery) {
-        report.battery = {
-          voltage: visit.battery.voltage ? { value: parseFloat(visit.battery.voltage.value), unit: visit.battery.voltage.unit } : undefined,
-          lastChargeTime: visit.battery.last_charge_time ? { value: parseFloat(visit.battery.last_charge_time.value), unit: visit.battery.last_charge_time.unit } : undefined,
-          status: visit.battery.status
+        const report: UnifiedReport = {
+          manufacturer: visit.manufacturer,
+          interrogation_date: visit.interrogation_date,
+          patient: { first_name: '', last_name: '', dob: '' }, // Metadata only
+          device: {
+            type: visit.device_type,
+            model: visit.device_model,
+            serial_number: visit.device_serial != null ? String(visit.device_serial) : visit.device_serial
+          },
+          battery: {},
+          leads: [],
+          raw_text: ''
         };
-      }
 
-      if (visit.leads && visit.leads.lead) {
-        const leads = Array.isArray(visit.leads.lead) ? visit.leads.lead : [visit.leads.lead];
-        report.leads = leads.map((l: any) => ({
-          name: l.name,
-          model: l.model,
-          serial: l.serial,
-          anatomic_location: l.anatomic_location,
-          impedance: l.impedance ? { value: parseFloat(l.impedance.value), unit: l.impedance.unit } : undefined,
-          sensing: l.sensing ? { value: parseFloat(l.sensing.value), unit: l.sensing.unit } : undefined,
-          pacing_threshold: l.pacing_threshold ? { value: parseFloat(l.pacing_threshold.value), unit: l.pacing_threshold.unit } : undefined,
-          pacing_amplitude: l.pacing_amplitude ? { value: parseFloat(l.pacing_amplitude.value), unit: l.pacing_amplitude.unit } : undefined,
-          shock_impedance: l.shock_impedance ? { value: parseFloat(l.shock_impedance.value), unit: l.shock_impedance.unit } : undefined
-        }));
-      }
+        if (visit.battery) {
+          report.battery = {
+            voltage: visit.battery.voltage ? { value: parseFloat(visit.battery.voltage.value), unit: visit.battery.voltage.unit } : undefined,
+            lastChargeTime: visit.battery.last_charge_time ? { value: parseFloat(visit.battery.last_charge_time.value), unit: visit.battery.last_charge_time.unit } : undefined,
+            status: visit.battery.status
+          };
+        }
 
-      return report;
+        if (visit.leads && visit.leads.lead) {
+          const leads = Array.isArray(visit.leads.lead) ? visit.leads.lead : [visit.leads.lead];
+          report.leads = leads.map((l: any) => ({
+            name: l.name,
+            model: l.model,
+            serial: l.serial,
+            anatomic_location: l.anatomic_location,
+            impedance: l.impedance ? { value: parseFloat(l.impedance.value), unit: l.impedance.unit } : undefined,
+            sensing: l.sensing ? { value: parseFloat(l.sensing.value), unit: l.sensing.unit } : undefined,
+            pacing_threshold: l.pacing_threshold ? { value: parseFloat(l.pacing_threshold.value), unit: l.pacing_threshold.unit } : undefined,
+            pacing_amplitude: l.pacing_amplitude ? { value: parseFloat(l.pacing_amplitude.value), unit: l.pacing_amplitude.unit } : undefined,
+            shock_impedance: l.shock_impedance ? { value: parseFloat(l.shock_impedance.value), unit: l.shock_impedance.unit } : undefined
+          }));
+        }
+
+        return report;
+      } catch (error) {
+        console.warn(`Failed to parse visit.xml file ${filePath}:`, error);
+        return null;
+      }
     }
     return null;
   } else if (fileExtension === '.bnk') {

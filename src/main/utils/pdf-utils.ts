@@ -14,7 +14,13 @@ const pdfParse = require('pdf-parse');
  * @returns A promise that resolves with the extracted text.
  */
 export const extractTextFromPdf = async (filePath: string): Promise<string> => {
-    const dataBuffer = await fs.readFile(filePath);
+    let dataBuffer: Buffer;
+    try {
+        dataBuffer = await fs.readFile(filePath);
+    } catch (e) {
+        console.warn(`Failed to read PDF file ${filePath}:`, e);
+        return '';
+    }
 
     // 1. Try pdf-parse
     try {
