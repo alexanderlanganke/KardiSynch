@@ -55,3 +55,73 @@ jobs:
         run: |
           npm run build
           npm test
+
+  lint-and-audit:
+    name: Lint & Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run ESLint
+        # Non-blocking for now: this is the first pass of linting introduced
+        # to an existing codebase and currently surfaces ~560 pre-existing
+        # findings (dominated by `@typescript-eslint/no-explicit-any` and
+        # leftover unused imports) that haven't been triaged yet. Flip this
+        # to blocking once that backlog is worked down.
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run npm audit
+        # Non-blocking for now: this repo currently has known vulnerabilities
+        # (2 critical / 22 high at time of writing), mostly from
+        # Electron/native-module build tooling rather than runtime-critical
+        # dependencies. This step surfaces the report without failing every
+        # PR; tighten to blocking (e.g. drop continue-on-error, or gate on
+        # `--audit-level=critical`) once the backlog is triaged.
+        run: npm audit
+        continue-on-error: true
+
+  e2e:
+    name: E2E Tests on ${{ matrix.os }}
+    needs: test
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y xvfb xauth libgtk-3-0 libnss3 libasound2t64 libxtst6
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run Electron postinstall
+        run: node node_modules/electron/install.js
+
+      - name: Rebuild sqlite3 native module
+        run: npm rebuild sqlite3
+
+      - name: Run E2E tests
+        run: npm run test:e2e:ci

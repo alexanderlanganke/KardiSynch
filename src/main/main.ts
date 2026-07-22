@@ -16,22 +16,28 @@ import { logError, logInfo, getLogPath, getRecentLogs } from './logger';
 import { buildGitHubIssueUrl } from './crashReport';
 
 // ─── Global Error Handlers ───────────────────────────────────────
-process.on('uncaughtException', (error) => {
-  logError('main/uncaughtException', error.message, error.stack);
-  const detail = `${error.message}\n\n${error.stack ?? ''}`;
+
+/**
+ * Shows the same "Report on GitHub / Copy & Close / Close" native dialog used
+ * for every kind of fatal/crash condition (uncaught exceptions, unhandled
+ * promise rejections, renderer-process-gone). Never throws — callers can fire
+ * this and forget it.
+ */
+function showCrashDialog(source: string, message: string, stack?: string): void {
+  const detail = `${message}\n\n${stack ?? ''}`;
   dialog.showMessageBox({
     type: 'error',
     title: 'KardiSynch — Unexpected Error',
-    message: error.message,
+    message,
     detail,
     buttons: ['Report on GitHub', 'Copy & Close', 'Close'],
     defaultId: 0
   }).then(({ response }) => {
     if (response === 0) {
       const url = buildGitHubIssueUrl({
-        errorMessage: error.message,
-        stack: error.stack,
-        source: 'main/uncaughtException',
+        errorMessage: message,
+        stack,
+        source,
         appVersion: app.getVersion(),
         electronVersion: process.versions.electron,
         platform: `${process.platform} ${process.arch}`
@@ -41,12 +47,29 @@ process.on('uncaughtException', (error) => {
       clipboard.writeText(detail);
     }
   }).catch(() => {});
+}
+
+process.on('uncaughtException', (error) => {
+  logError('main/uncaughtException', error.message, error.stack);
+  showCrashDialog('main/uncaughtException', error.message, error.stack);
 });
 
 process.on('unhandledRejection', (reason) => {
   const message = reason instanceof Error ? reason.message : String(reason);
   const stack = reason instanceof Error ? reason.stack : undefined;
   logError('main/unhandledRejection', message, stack);
+  showCrashDialog('main/unhandledRejection', message, stack);
+});
+
+// The renderer process (not the main process) crashing/getting killed doesn't
+// go through uncaughtException/unhandledRejection above — Electron reports it
+// via this app-level event instead. There's no Error object for this event,
+// only a reason string (e.g. 'crashed', 'oom', 'killed'), so build a message
+// from that.
+app.on('render-process-gone', (_event, _webContents, details) => {
+  const message = `Renderer process gone: ${details.reason}`;
+  logError('main/render-process-gone', message);
+  showCrashDialog('main/render-process-gone', message);
 });
 
 // Cache of allowed base directories, updated when settings change
@@ -103,7 +126,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
-      contextIsolation: true
+      contextIsolation: true,
+      sandbox: true
     },
     title: 'KardiSynch'
   });
@@ -359,11 +383,21 @@ ipcMain.handle('get-all-patients', async (event, filters) => {
 ipcMain.handle('create-patient', async (event, patient) => {
   try {
     const { findOrCreatePatient } = await import('./database');
+    const { validate: isUuid } = await import('uuid');
+
+    // `patient.id` comes from the renderer as `any` with no format check. It
+    // ends up as a SQL primary key that later composes filesystem paths under
+    // _DATA/Reports, so a crafted id (e.g. containing "../") would be a path
+    // traversal primitive if the renderer were ever compromised. Only pass a
+    // properly UUID-shaped id through; otherwise fall through to
+    // findOrCreatePatient's own `patient.id || uuidv4()` fallback, exactly as
+    // if no id had been supplied.
+    const safePatientId = typeof patient.id === 'string' && isUuid(patient.id) ? patient.id : undefined;
 
     // Reuse an existing patient with the same name + DOB instead of inserting a
     // duplicate (the sorting dialogue routes "create new patient" through here).
     const { patient: result } = await findOrCreatePatient({
-      id: patient.id,
+      id: safePatientId,
       first_name: patient.first_name || '',
       last_name: patient.last_name,
       dob: patient.dob,
@@ -1021,7 +1055,16 @@ ipcMain.handle('get-visit-files', async (event, patientId: string, visitDirName:
       return [];
     }
 
-    const visitPath = path.join(reportsDir, patientDir, visitDirName);
+    // Guard against path traversal: only accept a `visitDirName` that exactly
+    // matches a real directory entry under this patient's dir — never trust
+    // the renderer-supplied string directly in a filesystem path.
+    const patientPath = path.join(reportsDir, patientDir);
+    const visitDirs = await fs.readdir(patientPath);
+    if (!visitDirs.includes(visitDirName)) {
+      return [];
+    }
+
+    const visitPath = path.join(patientPath, visitDirName);
     const files = await fs.readdir(visitPath);
     console.log('[get-visit-files] Found files:', files);
     return files.map(file => path.join(visitPath, file)); // Return file list for frontend if needed
@@ -1210,7 +1253,7 @@ ipcMain.handle('dismiss-pending-sort-tasks', async (_event, taskIds: string[]) =
  * task's files into that one visit — never N duplicate patients/visits.
  */
 async function resolvePendingSortTasks(taskIds: string[], decision: any) {
-  const { getPendingSortTask, pendingSortTaskFilePaths, removePendingSortTask, listPendingSortTasks } = await import('./services/pendingSortService');
+  const { getPendingSortTask, pendingSortTaskFilePaths, removePendingSortTask, removeFilesFromTask, listPendingSortTasks } = await import('./services/pendingSortService');
   const { sendPendingSortUpdate, sendPatientListUpdate } = await import('./windowManager');
 
   const tasks = (taskIds || []).map(id => getPendingSortTask(id)).filter(Boolean) as any[];
@@ -1270,67 +1313,115 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
       if (r) { targetReportId = r.id; targetDate = r.interrogation_date; }
     }
 
+    // Per-task, per-file failures (e.g. a staged file vanishing from disk
+    // mid-session before storeFile runs) must not abort the whole batch: a
+    // throw here used to propagate out of both loops, leaving the failing
+    // task stuck in the queue with no record of which of its files were
+    // already imported, AND abandoning every other task that hadn't been
+    // reached yet even though it had nothing to do with the failure. Instead,
+    // each file is tried independently and successes/failures are tracked so
+    // the queue only ever loses exactly the files that actually got handled.
+    const failedTasks: { taskId: string; files: { file: string; error: string }[] }[] = [];
+    let resolvedCount = 0;
+
     for (const task of tasks) {
+      const succeededFiles: string[] = [];
+      const taskFileFailures: { file: string; error: string }[] = [];
+
       for (const fp of pendingSortTaskFilePaths(task)) {
-        let parsed: any = null;
-        try { parsed = await parseFile(fp); } catch { /* tolerate unparseable file */ }
-        if (parsed && task.isIntraop) {
-          parsed._remoteSource = { visit_type: 'intraoperative', source_manufacturer: parsed.manufacturer || undefined };
-        }
-
-        if (!targetReportId) {
-          const date = decision.visitDate || parsed?.interrogation_date || '';
-          targetDate = date;
-
-          // Dedup: while this task sat in the non-blocking sort queue, the
-          // auto-import path may have already created a visit for this
-          // patient+date (issue #140). Reuse it instead of creating a second
-          // instance of the same visit. But a patient can genuinely have
-          // several visits on one day (pre-/post-MRI, issue #145), so a
-          // same-day report is only reused when its device serial and
-          // interrogation timestamp don't contradict the incoming file — and
-          // when the user explicitly chose "Create New Visit", only an exact
-          // same-interrogation match still dedups.
-          // NOTE (TOCTOU): this check deliberately runs HERE — after every
-          // await in this iteration (patient resolution, parseFile) — so it is
-          // immediately adjacent to the createReport below with no intervening
-          // awaits, keeping the double-visit race window as narrow as possible.
-          const datePrefix = (date || '').split('T')[0];
-          const sameDayReports = datePrefix ? await findReportsByDate(targetPatient.id, datePrefix) : [];
-          const existingReport = pickSameDayReport(sameDayReports, parsed, decision.visitMode === 'new');
-
-          if (existingReport) {
-            const existingId: string = existingReport.id;
-            targetReportId = existingId;
-            targetDate = existingReport.interrogation_date;
-            await storeFile(fp, existingId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
-          } else {
-            // Create a new visit once, then reuse it for every remaining file.
-            const newReportId = uuidv4();
-            const base: any = parsed || { manufacturer: 'Unknown' };
-            const newReport: any = {
-              ...base,
-              id: newReportId,
-              patient_id: targetPatient.id,
-              interrogation_date: date,
-              raw_text: base.raw_text || 'Manually sorted file',
-              data: base.data || JSON.stringify({ note: 'Created via manual sorting' }),
-            };
-            delete newReport.rowid; delete newReport.created_at; delete newReport.updated_at;
-            await createReport(newReport);
-            targetReportId = newReportId;
-            await storeFile(fp, targetReportId, targetPatient.id, nameForDir, date, targetPatient, parsed || newReport);
+        try {
+          let parsed: any = null;
+          try { parsed = await parseFile(fp); } catch { /* tolerate unparseable file */ }
+          if (parsed && task.isIntraop) {
+            parsed._remoteSource = { visit_type: 'intraoperative', source_manufacturer: parsed.manufacturer || undefined };
           }
-        } else {
-          await storeFile(fp, targetReportId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
+
+          if (!targetReportId) {
+            const date = decision.visitDate || parsed?.interrogation_date || '';
+            targetDate = date;
+
+            // Dedup: while this task sat in the non-blocking sort queue, the
+            // auto-import path may have already created a visit for this
+            // patient+date (issue #140). Reuse it instead of creating a second
+            // instance of the same visit. But a patient can genuinely have
+            // several visits on one day (pre-/post-MRI, issue #145), so a
+            // same-day report is only reused when its device serial and
+            // interrogation timestamp don't contradict the incoming file — and
+            // when the user explicitly chose "Create New Visit", only an exact
+            // same-interrogation match still dedups.
+            // NOTE (TOCTOU): this check deliberately runs HERE — after every
+            // await in this iteration (patient resolution, parseFile) — so it is
+            // immediately adjacent to the createReport below with no intervening
+            // awaits, keeping the double-visit race window as narrow as possible.
+            const datePrefix = (date || '').split('T')[0];
+            const sameDayReports = datePrefix ? await findReportsByDate(targetPatient.id, datePrefix) : [];
+            const existingReport = pickSameDayReport(sameDayReports, parsed, decision.visitMode === 'new');
+
+            if (existingReport) {
+              const existingId: string = existingReport.id;
+              targetReportId = existingId;
+              targetDate = existingReport.interrogation_date;
+              await storeFile(fp, existingId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
+            } else {
+              // Create a new visit once, then reuse it for every remaining file.
+              const newReportId = uuidv4();
+              const base: any = parsed || { manufacturer: 'Unknown' };
+              const newReport: any = {
+                ...base,
+                id: newReportId,
+                patient_id: targetPatient.id,
+                interrogation_date: date,
+                raw_text: base.raw_text || 'Manually sorted file',
+                data: base.data || JSON.stringify({ note: 'Created via manual sorting' }),
+              };
+              delete newReport.rowid; delete newReport.created_at; delete newReport.updated_at;
+              await createReport(newReport);
+              targetReportId = newReportId;
+              await storeFile(fp, targetReportId, targetPatient.id, nameForDir, date, targetPatient, parsed || newReport);
+            }
+          } else {
+            await storeFile(fp, targetReportId, targetPatient.id, nameForDir, targetDate, targetPatient, parsed || undefined);
+          }
+          succeededFiles.push(path.basename(fp));
+        } catch (fileError) {
+          const msg = (fileError as Error)?.message || String(fileError);
+          console.error(`[resolvePendingSortTasks] Failed to process file ${fp} (task ${task.id}):`, fileError);
+          taskFileFailures.push({ file: path.basename(fp), error: msg });
         }
       }
-      await removePendingSortTask(task.id, true);
+
+      try {
+        if (taskFileFailures.length === 0) {
+          await removePendingSortTask(task.id, true);
+          resolvedCount++;
+        } else if (succeededFiles.length > 0) {
+          // Partial success: drop only the files that were actually handled
+          // so the task keeps exactly the files that still need attention.
+          await removeFilesFromTask(task.id, succeededFiles);
+          failedTasks.push({ taskId: task.id, files: taskFileFailures });
+        } else {
+          // Nothing in this task succeeded — leave it untouched in the queue.
+          failedTasks.push({ taskId: task.id, files: taskFileFailures });
+        }
+      } catch (taskError) {
+        console.error(`[resolvePendingSortTasks] Failed to finalize task ${task.id} after processing its files:`, taskError);
+        failedTasks.push({
+          taskId: task.id,
+          files: taskFileFailures.length > 0
+            ? taskFileFailures
+            : [{ file: '(task)', error: (taskError as Error)?.message || String(taskError) }]
+        });
+      }
     }
 
     sendPendingSortUpdate(listPendingSortTasks());
     sendPatientListUpdate();
-    return { success: true, reportId: targetReportId, resolved: tasks.length };
+    return {
+      success: true,
+      reportId: targetReportId,
+      resolved: resolvedCount,
+      failedTasks
+    };
   } catch (error) {
     console.error('Failed to resolve pending sort task(s)', error);
     return { success: false, error: (error as Error).message };

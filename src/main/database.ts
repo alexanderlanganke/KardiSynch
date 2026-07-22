@@ -135,7 +135,19 @@ const createDbConnection = (dbPath: string) => {
   return db;
 };
 
+// Populated by the most recent createTables() call and checked by
+// initializeDatabase once the serialized migration queue has drained (see the
+// backfillLastNameKeys() call there, which is guaranteed to run after every
+// statement queued below on the same connection). Kept module-scoped rather
+// than returned from createTables/safeAddColumn because db.run's errors only
+// arrive in an async callback — there is no meaningful synchronous
+// success/failure value to return at call time.
+let lastSchemaMigrationFailures: string[] = [];
+
 const createTables = (db: sqlite3.Database) => {
+  const migrationFailures: string[] = [];
+  lastSchemaMigrationFailures = migrationFailures;
+
   db.serialize(() => {
     // Create tables if they don't exist
 
@@ -154,12 +166,19 @@ const createTables = (db: sqlite3.Database) => {
       );
     `);
 
-    // Safe Migration Helper
+    // Safe Migration Helper. Tolerates "duplicate column name" (the column
+    // was already added by a previous run) but treats any other failure
+    // (disk full, locked file, permissions, malformed SQL, ...) as a real
+    // schema-migration failure: it's logged at error level immediately and
+    // recorded so initializeDatabase can surface a single impossible-to-miss
+    // summary once the migration queue finishes, instead of a lone
+    // console.warn that reads the same as the benign case.
     const safeAddColumn = (sql: string) => {
       db.run(sql, (err) => {
-        if (err && !err.message.includes('duplicate column name')) {
-          console.warn(`[Schema Migration] Error running ${sql}:`, err.message);
-        }
+        if (!err) return;
+        if (err.message.includes('duplicate column name')) return;
+        console.error(`[Schema Migration] CRITICAL: failed to run "${sql}":`, err.message);
+        migrationFailures.push(`${sql} (${err.message})`);
       });
     };
 
@@ -305,9 +324,20 @@ export const initializeDatabase = (customDbPath: string): Promise<sqlite3.Databa
         createTables(db);
         dbInstance = db;
         // Backfill is queued after createTables on the same connection; await it
-        // so the first match query never races an un-keyed row.
+        // so the first match query never races an un-keyed row. Because it runs
+        // on the same serialized connection, by the time it settles every
+        // safeAddColumn() statement from createTables has also completed, so
+        // this is also the first safe point to check for migration failures.
         backfillLastNameKeys(db)
-          .then(() => resolve(db))
+          .then(() => {
+            if (lastSchemaMigrationFailures.length > 0) {
+              console.error(
+                `[Database] CRITICAL: ${lastSchemaMigrationFailures.length} schema column(s) failed to add. ` +
+                `The database schema may be out of date, which can cause errors later when this data is read or written. Failures: ${lastSchemaMigrationFailures.join(' | ')}`
+              );
+            }
+            resolve(db);
+          })
           .catch(() => resolve(db));
       }
     });

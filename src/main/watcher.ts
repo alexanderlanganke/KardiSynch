@@ -642,44 +642,54 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             }
           }
 
-          // 2. If still unknown, hand off to the non-blocking manual-sort queue
-          //    (issue #136) instead of force-opening a modal. The file is staged
-          //    to its own pending task dir; the user resolves it on demand from
-          //    the notification area (assign/create patient + visit, or move to
+          // 2. Hand off to the non-blocking manual-sort queue (issue #136)
+          //    instead of force-opening a modal. The file is staged to its own
+          //    pending task dir; the user resolves it on demand from the
+          //    notification area (assign/create patient + visit, or move to
           //    the unmatched dir) via the pending-sort IPC handlers.
-          if (!targetPatient) {
-            const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
-            const queued = await enqueueManualSort(file, {
-              patientName: isUnparsedStructured ? "UNKNOWN (could not read file)" : "UNKNOWN (Missing in Log)",
-              dob: report.patient.dob || "Unknown",
-              date: report.interrogation_date,
-              serial: report.device?.serial_number || "Unknown",
-              manufacturer: report.manufacturer,
-              deviceModel: report.device?.model,
-              leads: report.leads
-            }, isIntraopFile, sessionId);
-            if (queued) {
-              sessionSummary.pendingSort++;
-            } else {
-              unmatchedFiles.push(file);
-              logEvent({
-                id: uuidv4(),
-                session_id: sessionId,
-                file_path: file,
-                status: 'unmatched',
-                message: 'Could not queue for manual sorting',
-                details: buildEventDetails(report)
-              });
-              sessionSummary.unmatched++;
-            }
-            continue; // handled (queued or unmatched) — nothing to store now
+          //
+          //    Note: a serial-number match here is NEVER auto-applied, even
+          //    though it was in earlier versions of this code. This report
+          //    has no name/DOB at all to corroborate against — that's exactly
+          //    why we're in this recovery branch — so a serial match is
+          //    fundamentally uncorroborated. A device explanted from patient A
+          //    and reimplanted in patient B would otherwise silently misfile
+          //    B's report under A's chart with no human review. Instead, pre-
+          //    fill the serial match as a suggested candidate (same
+          //    suggestedPatientId/note convention used by the near-match
+          //    ladder below) so the user confirms it with one click rather
+          //    than it being applied blind.
+          const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
+          const queued = await enqueueManualSort(file, {
+            patientName: targetPatient
+              ? `${targetPatient.first_name} ${targetPatient.last_name}`
+              : (isUnparsedStructured ? "UNKNOWN (could not read file)" : "UNKNOWN (Missing in Log)"),
+            dob: targetPatient?.dob || report.patient.dob || "Unknown",
+            date: report.interrogation_date,
+            serial: report.device?.serial_number || "Unknown",
+            manufacturer: report.manufacturer,
+            deviceModel: report.device?.model,
+            leads: report.leads,
+            note: targetPatient
+              ? `Device serial matches ${targetPatient.last_name}, ${targetPatient.first_name} on file, but this report has no name/DOB of its own to confirm it's the same patient (e.g. device explant/reimplant). Confirm or reassign before importing.`
+              : undefined,
+            suggestedPatientId: targetPatient ? targetPatient.id : undefined
+          }, isIntraopFile, sessionId);
+          if (queued) {
+            sessionSummary.pendingSort++;
+          } else {
+            unmatchedFiles.push(file);
+            logEvent({
+              id: uuidv4(),
+              session_id: sessionId,
+              file_path: file,
+              status: 'unmatched',
+              message: 'Could not queue for manual sorting',
+              details: buildEventDetails(report)
+            });
+            sessionSummary.unmatched++;
           }
-
-          // Apply recovered identity to the report object (serial-number match)
-          report.patient.first_name = targetPatient.first_name;
-          report.patient.last_name = targetPatient.last_name;
-          report.patient.dob = targetPatient.dob;
-          report.patient.hospitalPatientId = targetPatient.hospitalPatientId;
+          continue; // handled (queued or unmatched) — nothing to store now
         }
 
         // Defined here to be accessible for internal PDF processing
