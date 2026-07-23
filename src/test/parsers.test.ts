@@ -61,6 +61,90 @@ describe('Parsers', () => {
             expect(() => parseBiotronikXML('not xml at all {{{')).not.toThrow();
             expect(() => parseBiotronikXML('')).not.toThrow();
         });
+
+        // Real sample (test/Biotronik xml/, gitignored, not committed): an
+        // "Amvia Sky DR-T" pacemaker came back with device.model correct but
+        // device.type 'Unknown' — "Amvia" wasn't in the family keyword list,
+        // and battery.status was 'Unknown' because this export uses
+        // 'BATTERYSTATUS' where the parser only looked for
+        // 'FU1BATTERYSTATUS'.
+        it('recognizes the Amvia family as a Pacemaker', () => {
+            const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<carddas:InterfaceData xmlns:carddas="http://www.biotronik.com/carddas">
+    <carddas:Examination>
+        <carddas:ExaminationDate>2026-07-23</carddas:ExaminationDate>
+        <carddas:Measurements>
+            <carddas:Table>
+                <carddas:TableName>TBU_HSM_DATEN</carddas:TableName>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Biotronik</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>CATAGGREGATDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Amvia Sky DR-T</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>SERHSM</carddas:AttributeName>
+                    <carddas:CharValue>0000000000</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>BATTERYSTATUS</carddas:AttributeName>
+                    <carddas:CharValue>OK</carddas:CharValue>
+                </carddas:TableEntry>
+            </carddas:Table>
+        </carddas:Measurements>
+    </carddas:Examination>
+    <carddas:Patient>
+        <carddas:PersonalData>
+            <carddas:FirstName>Erika</carddas:FirstName>
+            <carddas:Name>Mustermann</carddas:Name>
+            <carddas:DOB>1975-05-20</carddas:DOB>
+        </carddas:PersonalData>
+    </carddas:Patient>
+</carddas:InterfaceData>`;
+
+            const result = parseBiotronikXML(xmlContent);
+
+            expect(result?.device.model).toBe('Amvia Sky DR-T');
+            expect(result?.device.type).toBe('Pacemaker');
+            expect(result?.battery?.status).toBe('OK');
+        });
+
+        it('falls back to FunctionalDomain=HSM to infer Pacemaker when the model matches no known family keyword', () => {
+            const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<carddas:InterfaceData xmlns:carddas="http://www.biotronik.com/carddas">
+    <carddas:Examination>
+        <carddas:ExaminationDate>2026-07-23</carddas:ExaminationDate>
+        <carddas:FunctionalDomain>HSM</carddas:FunctionalDomain>
+        <carddas:Measurements>
+            <carddas:Table>
+                <carddas:TableName>TBU_HSM_DATEN</carddas:TableName>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Biotronik</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>CATAGGREGATDESCR</carddas:AttributeName>
+                    <carddas:CharValue>SomeBrandNewModel XR</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>SERHSM</carddas:AttributeName>
+                    <carddas:CharValue>0000000001</carddas:CharValue>
+                </carddas:TableEntry>
+            </carddas:Table>
+        </carddas:Measurements>
+    </carddas:Examination>
+    <carddas:Patient>
+        <carddas:PersonalData />
+    </carddas:Patient>
+</carddas:InterfaceData>`;
+
+            const result = parseBiotronikXML(xmlContent);
+
+            expect(result?.device.model).toBe('SomeBrandNewModel XR');
+            expect(result?.device.type).toBe('Pacemaker');
+        });
     });
 
     describe('Boston Scientific Parser', () => {

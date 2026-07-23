@@ -51,6 +51,7 @@ test/abbott_logfiles/
 test/boston bnk/
 test/microport xml/
 test/medtronic pdd files/
+test/Biotronik xml/
 
 # IDE & System
 .DS_Store

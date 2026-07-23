@@ -397,7 +397,14 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         if (deviceModelUpper.includes('CRT-D') || deviceModelUpper.includes('HF-T')) return 'CRT-D';
         if (deviceModelUpper.includes('CRT-P') || deviceModelUpper.includes('HF-P')) return 'CRT-P';
         if (deviceModelUpper.includes('ICD') || deviceModelUpper.includes('DEFI') || deviceModelUpper.includes('LUMAX') || deviceModelUpper.includes('IFORIA') || deviceModelUpper.includes('ILIVIA')) return 'ICD';
-        if (deviceModelUpper.includes('HSM') || deviceModelUpper.includes('ENTOVIS') || deviceModelUpper.includes('EDORA') || deviceModelUpper.includes('EFFECTA')) return 'Pacemaker';
+        if (deviceModelUpper.includes('HSM') || deviceModelUpper.includes('ENTOVIS') || deviceModelUpper.includes('EDORA') || deviceModelUpper.includes('EFFECTA') || deviceModelUpper.includes('AMVIA')) return 'Pacemaker';
+        // FunctionalDomain is the source system's own device-category code —
+        // 'HSM' (Herzschrittmacher/pacemaker) is the one value confirmed
+        // against a real sample (Amvia Sky, a pacemaker family not covered
+        // by any of the keyword checks above). Only trusted for this one
+        // known value; anything else falls through to 'Unknown' rather than
+        // guessing what an unconfirmed code means.
+        if (xml['InterfaceData']?.['Examination']?.['FunctionalDomain'] === 'HSM') return 'Pacemaker';
         return 'Unknown';
     }, 'Unknown');
 
@@ -418,7 +425,7 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
             value: findEntryMultilang(settingsTable, 'Batterie-Restkapazität', 'BatteryRemainingCapacity') || '',
             unit: '%'
         },
-        status: findEntry(summaryTable, 'FU1BATTERYSTATUS') || 'Unknown',
+        status: findEntryMultilang(summaryTable, 'FU1BATTERYSTATUS', 'BATTERYSTATUS') || 'Unknown',
     }), {});
 
     const arrhythmiaSummary = safeExtract<NonNullable<UnifiedReport['arrhythmia_summary']>>(collector, 'arrhythmia_summary', () => ({
