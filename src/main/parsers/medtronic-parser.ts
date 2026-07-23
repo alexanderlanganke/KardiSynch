@@ -14,6 +14,58 @@ import { DiagnosticsCollector, safeExtract, detectVariant, deriveParseStatus } f
  */
 
 /**
+ * Reads a 1-byte-length-prefixed ASCII/Latin-1 string: `buffer[offset]` is
+ * the length in bytes, followed by that many bytes of text. Returns '' if
+ * the length byte is 0 or the declared length runs past the buffer.
+ */
+function readLenPrefixedAscii(buffer: Buffer, offset: number): string {
+    const len = buffer[offset];
+    if (!len || offset + 1 + len > buffer.length) return '';
+    return buffer.toString('latin1', offset + 1, offset + 1 + len);
+}
+
+/**
+ * Reads a 1-byte-length-prefixed UTF-16BE string (length is in bytes, so
+ * always even): every pair is `0x00 <char>` for the ASCII-range text .pdd
+ * files use. Real samples store the patient name here (offset 0x77) when
+ * the earlier ASCII name field (offset 0x03) is blank — apparently two
+ * different encodings depending on which software wrote the record. Returns
+ * '' if the length is 0/odd or any pair isn't plain 0x00-high-byte ASCII
+ * (a mismatched offset landing on unrelated binary data).
+ */
+function readLenPrefixedUtf16Be(buffer: Buffer, offset: number): string {
+    const len = buffer[offset];
+    if (!len || len % 2 !== 0 || offset + 1 + len > buffer.length) return '';
+    let out = '';
+    for (let i = offset + 1; i < offset + 1 + len; i += 2) {
+        const hi = buffer[i];
+        const lo = buffer[i + 1];
+        if (hi !== 0x00 || lo < 0x20 || lo > 0x7e) return '';
+        out += String.fromCharCode(lo);
+    }
+    return out;
+}
+
+/**
+ * Splits a raw name string into last/first, accepting the three shapes seen
+ * in real files: "Last, First", "Last First" (no comma), or a bare
+ * surname with no first name at all.
+ */
+function parsePersonName(raw: string): { last: string; first: string } | null {
+    const trimmed = raw.trim().replace(/\s+/g, ' ');
+    if (!trimmed) return null;
+    if (trimmed.includes(',')) {
+        const [last, first] = trimmed.split(',');
+        return { last: last.trim(), first: (first || '').trim() };
+    }
+    const parts = trimmed.split(' ');
+    if (parts.length >= 2) {
+        return { last: parts[0], first: parts.slice(1).join(' ') };
+    }
+    return { last: trimmed, first: '' };
+}
+
+/**
  * Parses a legacy Medtronic .pdd file.
  * Extracts header information and measurements using binary structure analysis.
  */
@@ -101,35 +153,77 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
 
     report.raw_text = strings.join('\n');
 
-    // A. Patient Name: Look for "Name, Firstname" format
-    // Heuristic: First string that matches "Word, Word" pattern
-    safeExtract(collector, 'patient.name', () => {
-        const nameRegex = /^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]+),\s+([A-Za-zÀ-ÿ].*)$/;
-        const nameMatch = strings.find(s => nameRegex.test(s));
-
-        if (nameMatch) {
-            const parts = nameMatch.match(nameRegex);
-            if (parts && parts.length >= 3) {
-                report.patient.last_name = parts[1];
-                report.patient.first_name = parts[2];
+    // A. Patient Name. Real samples store this in one of three places: a
+    // fixed-offset length-prefixed ASCII field (offset 0x03/0x04) — the
+    // primary/most common — or, when that's blank, a fixed-offset
+    // length-prefixed UTF-16BE field later in the header (offset 0x77/0x78,
+    // apparently written by newer/different software). Falls back to the
+    // original "scan all strings for a Word, Word pattern" heuristic for any
+    // other layout.
+    const nameResult = detectVariant(collector, 'patient.name', [
+        { name: 'name=ascii-fixed-offset', test: () => parsePersonName(readLenPrefixedAscii(buffer, 0x03)) },
+        { name: 'name=utf16be-fixed-offset', test: () => parsePersonName(readLenPrefixedUtf16Be(buffer, 0x77)) },
+        {
+            name: 'name=scanned-string', test: () => {
+                const nameRegex = /^([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ'-]+),\s+([A-Za-zÀ-ÿ].*)$/;
+                const nameMatch = strings.find(s => nameRegex.test(s));
+                if (!nameMatch) return null;
+                const parts = nameMatch.match(nameRegex);
+                return parts && parts.length >= 3 ? { last: parts[1], first: parts[2] } : null;
             }
-        }
-        return undefined;
-    }, undefined);
+        },
+    ]);
+    if (nameResult) {
+        report.patient.last_name = nameResult.value.last;
+        report.patient.first_name = nameResult.value.first;
+    }
 
-    // B. Device Model: Look for known families
+    // B. Device Model. Real samples carry this at a fixed offset (0x22
+    // length byte, 0x23 string — always exactly 15 bytes, truncating longer
+    // model names) which is far more reliable than scanning for a hardcoded
+    // family name: it caught things like "Astra", "Serena" and "Azure" that
+    // weren't in the known-family list at all. Keeps the family scan as a
+    // fallback for any file where the fixed offset doesn't hold a name.
+    const knownFamilies = ['Protecta', 'Visia', 'Evera', 'Viva', 'Brava', 'Claria', 'Amplia', 'Consulta', 'Secura', 'Maximo', 'Concerto', 'Virtuoso', 'Reveal', 'LINQ'];
+    const modelResult = detectVariant(collector, 'device.model', [
+        { name: 'model=fixed-offset', test: () => { const m = readLenPrefixedAscii(buffer, 0x22).trim(); return m || null; } },
+        { name: 'model=known-family-scan', test: () => strings.find(s => knownFamilies.some(f => s.toUpperCase().includes(f.toUpperCase()))) || null },
+    ]);
     safeExtract(collector, 'device.model', () => {
-        const knownFamilies = ['Protecta', 'Visia', 'Evera', 'Viva', 'Brava', 'Claria', 'Amplify', 'Consulta', 'Secura', 'Maximo', 'Concerto', 'Virtuoso'];
-        const modelString = strings.find(s => knownFamilies.some(f => s.includes(f)));
+        const modelString = modelResult?.value;
         if (modelString) {
             report.device.model = modelString;
-            // Infer type
-            if (modelString.includes('CRT-D')) {
+            const modelUpper = modelString.toUpperCase();
+            // Well-known families whose product line unambiguously implies a
+            // device type even when the (sometimes truncated) model string
+            // doesn't spell it out — e.g. "Amplia MRI Quad" is CRT-D with the
+            // "CRT-D" suffix cut off by the 15-byte field width, and "Visia"/
+            // "Evera" are ICD lines with no literal "ICD" in the name at all.
+            // Matching is case-insensitive: real samples spell some models
+            // in all caps ("REVEAL LINQ LNQ").
+            const familyType: [string, string][] = [
+                ['REVEAL', 'ICM'], ['LINQ', 'ICM'],
+                ['AMPLIA', 'CRT-D'],
+                ['PROTECTA', 'ICD'], ['VISIA', 'ICD'], ['EVERA', 'ICD'],
+            ];
+            const family = familyType.find(([f]) => modelUpper.includes(f));
+            if (family) {
+                report.device.type = family[1];
+            } else if (modelUpper.includes('CRT-D')) {
                 report.device.type = 'CRT-D';
-            } else if (modelString.includes('CRT-P')) {
+            } else if (modelUpper.includes('CRT-P')) {
                 report.device.type = 'CRT-P';
-            } else if (modelString.includes('ICD') || (modelString.includes('DR') && modelString.includes('Protecta'))) {
+            } else if (modelUpper.includes('CRT')) {
+                // "CRT" present but the -P/-D suffix was truncated — flag it
+                // as CRT without guessing defibrillation capability.
+                report.device.type = 'CRT';
+            } else if (modelUpper.includes('ICD') || (modelUpper.includes('DR') && modelUpper.includes('PROTECTA'))) {
                 report.device.type = 'ICD';
+            } else {
+                // A model was positively identified but doesn't match any
+                // ICD/CRT/ICM family — real samples confirm this is a basic
+                // pacemaker (Ensura, Astra, Azure), not truly "Unknown".
+                report.device.type = 'Pacemaker';
             }
         }
         return undefined;
@@ -248,7 +342,8 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
 
     if (leads.length > 0) report.leads = leads;
 
-    report.formatVariant = entries.length > 0 ? 'medtronic-pdd' : 'pdd-unrecognized-structure';
+    const structureVariant = entries.length > 0 ? 'medtronic-pdd' : 'pdd-unrecognized-structure';
+    report.formatVariant = `${structureVariant};${nameResult?.variant || 'name=unmatched'};${modelResult?.variant || 'model=unmatched'}`;
     report.parseWarnings = collector.list;
     report.parseStatus = deriveParseStatus(collector, !!report.patient.last_name, !!(report.device.model || report.device.serial_number));
 

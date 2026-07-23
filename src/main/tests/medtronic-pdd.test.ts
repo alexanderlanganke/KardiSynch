@@ -89,7 +89,7 @@ describe('Medtronic PDD string extraction (synthetic)', () => {
         const report = await parseMedtronicPdd(file);
 
         expect(report).not.toBeNull();
-        expect(report!.formatVariant).toBe('medtronic-pdd');
+        expect(report!.formatVariant).toContain('medtronic-pdd');
         expect(report!.parseStatus).not.toBe('failed');
     });
 
@@ -100,7 +100,7 @@ describe('Medtronic PDD string extraction (synthetic)', () => {
         const report = await parseMedtronicPdd(file);
 
         expect(report).not.toBeNull();
-        expect(report!.formatVariant).toBe('pdd-unrecognized-structure');
+        expect(report!.formatVariant).toContain('pdd-unrecognized-structure');
         expect(report!.parseStatus).toBe('failed'); // no patient/device identity recovered either
         expect(report!.parseWarnings?.some(w => w.stage === 'structure' && w.severity === 'error')).toBe(true);
     });
