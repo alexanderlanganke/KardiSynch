@@ -145,6 +145,54 @@ describe('Parsers', () => {
             expect(result?.device.model).toBe('SomeBrandNewModel XR');
             expect(result?.device.type).toBe('Pacemaker');
         });
+
+        it('finds battery remaining-capacity in a separate AdditionalMeasurements table and strips the redundant % sign', () => {
+            // Real sample: Batterie-Restkapazität lives in an
+            // AdditionalMeasurements table (table '9112'), not the
+            // settings table findTableByAttribute('Elektrodenmodell')
+            // resolves — and its CharValue carries its own "95%" rather
+            // than a bare number.
+            const xmlContent = `<?xml version="1.0" encoding="UTF-8"?>
+<carddas:InterfaceData xmlns:carddas="http://www.biotronik.com/carddas">
+    <carddas:Examination>
+        <carddas:ExaminationDate>2026-07-23</carddas:ExaminationDate>
+        <carddas:Measurements>
+            <carddas:Table>
+                <carddas:TableName>TBU_HSM_DATEN</carddas:TableName>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Biotronik</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>CATAGGREGATDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Amvia Sky DR-T</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>SERHSM</carddas:AttributeName>
+                    <carddas:CharValue>0000000000</carddas:CharValue>
+                </carddas:TableEntry>
+            </carddas:Table>
+        </carddas:Measurements>
+        <carddas:AdditionalMeasurements>
+            <carddas:Table>
+                <carddas:TableName>9112</carddas:TableName>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>Batterie-Restkapazität</carddas:AttributeName>
+                    <carddas:CharValue>95%</carddas:CharValue>
+                </carddas:TableEntry>
+            </carddas:Table>
+        </carddas:AdditionalMeasurements>
+    </carddas:Examination>
+    <carddas:Patient>
+        <carddas:PersonalData />
+    </carddas:Patient>
+</carddas:InterfaceData>`;
+
+            const result = parseBiotronikXML(xmlContent);
+
+            expect(result?.battery?.remaining_longevity?.value).toBe('95');
+            expect(result?.battery?.remaining_longevity?.unit).toBe('%');
+        });
     });
 
     describe('Boston Scientific Parser', () => {

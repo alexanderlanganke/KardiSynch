@@ -210,6 +210,20 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
 
     const statsTable = safeExtract(collector, 'statsTable', () => findTable(xml, '9473'), null); // Contains arrhythmia stats
 
+    // Battery remaining-capacity sometimes lives in a separate
+    // AdditionalMeasurements table (seen as table '9112' on a real Amvia Sky
+    // sample) rather than settingsTable, where the lookup below checks
+    // first. findTableByAttribute already searches AdditionalMeasurements
+    // too, so this is found by attribute name rather than a hardcoded table
+    // number, in case a different export uses a different table for it.
+    // Not wrapped in detectVariant: unlike summary/settings tables, battery
+    // capacity is genuinely optional in some exports, so a file that simply
+    // doesn't report it shouldn't get a diagnostic (and the parseStatus
+    // downgrade that comes with one).
+    const batteryTable = safeExtract(collector, 'batteryTable', () =>
+        findTableByAttribute(xml, 'Batterie-Restkapazität') || findTableByAttribute(xml, 'BatteryRemainingCapacity'),
+        null);
+
     // Count 'nsT' episodes from the episode list (if it exists)
     const nsTCount = safeExtract(collector, 'episodeList', () => {
         const rawTables = xml['InterfaceData']['Examination']['Measurements']['Table'];
@@ -422,7 +436,12 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
             unit: 'V'
         },
         remaining_longevity: {
-            value: findEntryMultilang(settingsTable, 'Batterie-Restkapazität', 'BatteryRemainingCapacity') || '',
+            // The raw value sometimes carries its own trailing '%' (e.g.
+            // "95%") alongside the separate unit field below — strip it so
+            // the two don't end up duplicated wherever this gets displayed.
+            value: (findEntryMultilang(settingsTable, 'Batterie-Restkapazität', 'BatteryRemainingCapacity')
+                || findEntryMultilang(batteryTable, 'Batterie-Restkapazität', 'BatteryRemainingCapacity')
+                || '').replace(/%\s*$/, ''),
             unit: '%'
         },
         status: findEntryMultilang(summaryTable, 'FU1BATTERYSTATUS', 'BATTERYSTATUS') || 'Unknown',
