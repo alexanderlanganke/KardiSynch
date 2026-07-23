@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Paceart>
+  <FileInformation InstitutionName="ELA Medical, Sorin Group" SchemaVersion="4.0" GenerationDate="2023-10-27T10:04:45+02:00"/>
+  <LookupTables>
+    <Devices>
+      <Pacemakers>
+        <PacemakerDetail Manufacturer="ELA Medical" GUID="5d2485d6-5777-43e8-9c3a-b39deae454bf" Commentary="W2.17.2 b02" Model="TEO DR"/>
+      </Pacemakers>
+      <Leads>
+        <LeadDetail GUID="4944fec7-8deb-4aca-8263-0a0db1666824" Manufacturer="Microport CRM | SORIN" Model="Vega R52"/>
+        <LeadDetail GUID="73b16c52-c906-4b95-9a23-fe90b7259741" Manufacturer="Microport CRM | SORIN" Model="Vega R58"/>
+      </Leads>
+    </Devices>
+    <Diagnoses>
+      <DiagnosisDetail GUID="504d4977-9bd2-4c20-ba8a-0190ff4f4d70" Description="Tachycardia"/>
+    </Diagnoses>
+  </LookupTables>
+  <PatientRecords>
+    <PatientRecord>
+      <Demographics nameLast="Mustermann, Erika" BirthDate="1952-09-25" Sex="F"/>
+      <Devices>
+        <Pacemaker SerialNumber="PM123456">
+          <PacemakerLookup>
+            <PacemakerReference GUID="5d2485d6-5777-43e8-9c3a-b39deae454bf"/>
+          </PacemakerLookup>
+          <ImplantInformation Date="2020-05-15"/>
+        </Pacemaker>
+        <Lead SerialNumber="LD654321">
+          <LeadLookup>
+            <LeadReference GUID="4944fec7-8deb-4aca-8263-0a0db1666824"/>
+          </LeadLookup>
+          <ImplantInformation Chamber="Atrium" Connect="Pacemaker" Pacing="true" Date="2020-05-15"/>
+        </Lead>
+        <Lead SerialNumber="LD654322">
+          <LeadLookup>
+            <LeadReference GUID="73b16c52-c906-4b95-9a23-fe90b7259741"/>
+          </LeadLookup>
+          <ImplantInformation Chamber="Ventricle" Connect="Pacemaker" Pacing="true" Date="2020-05-15"/>
+        </Lead>
+      </Devices>
+      <Tests>
+        <PacemakerClinic Date="2023-10-27T10:04:45+02:00">
+          <Evaluation>
+            <BradyProgramming PacingMode="SafeR" LowerRate_bpm="60" HysteresisRate_bpm="0" TrackingRate_bpm="130" MaxSensorRate_bpm="130" PMTIntervention="Reprog">
+              <Sensing Chamber="RA" Amplitude_millivolts="0.40" Polarity="B"/>
+              <Sensing Chamber="RV" Amplitude_millivolts="2.00" Polarity="B"/>
+              <Pacing Chamber="RA" Amplitude_volts="1.50" PulseWidth_ms="0.35" Polarity="B"/>
+              <Pacing Chamber="RV" Amplitude_volts="2.00" PulseWidth_ms="0.35" Polarity="B"/>
+            </BradyProgramming>
+            <PacemakerTelemetry BatteryImpedance_ohms="230.50" PercentPacingAtrial="53" PercentPacingVentricular="0">
+              <Lead Chamber="RA" BipolarImpedance_ohms="613.00"/>
+              <Lead Chamber="RV" BipolarImpedance_ohms="732.81"/>
+            </PacemakerTelemetry>
+            <Thresholds>
+              <Sensing Chamber="RA" UseForGraphing="1" Amplitude_millivolts="6.14" Polarity="Bipolar"/>
+              <Sensing Chamber="RV" UseForGraphing="1" Amplitude_millivolts="11.29" Polarity="Bipolar"/>
+              <Capture Chamber="RA" UseForGraphing="1" Amplitude_volts="0.50" Duration_ms="0.35"/>
+              <Capture Chamber="RV" UseForGraphing="1" Amplitude_volts="0.50" Duration_ms="0.35"/>
+            </Thresholds>
+          </Evaluation>
+        </PacemakerClinic>
+      </Tests>
+    </PatientRecord>
+  </PatientRecords>
+</Paceart>
