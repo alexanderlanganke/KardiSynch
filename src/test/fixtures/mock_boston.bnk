@@ -1,10 +1,35 @@
-Brady.LastInterrogationDate, 2023-10-27
-Patient.PatientFirstName, Max
-Patient.PatientLastName, Mustermann
-Patient.PatientDOB, 1980-01-01
-Device.Model, ACCOLADE
-Device.SerialNumber, 123456
-Device.ImplantDate, 2020-05-15
-BatteryStatus.BatteryVoltage, 3.05
-BatteryStatus.EstLongevity, 60
-BatteryStatus.BatteryPhase, Good
+# TYPE: PACEART           SAVE DATE: 27 Oct 2023
+# PROGRAMMER      MODEL: 3300 SERIAL: 000000 APP   MODEL: 3868 VERSION: 2.03
+# DEVICE          MODEL: ACCOLADE-MRI  SERIAL: 123456
+# RAM VERSION: H_v1.00.00
+# ROM VERSION: ROM_v5.04
+# APPLICATION     MODEL: 2868 VERSION: 2.03
+PatientFirstName,Max
+PatientLastName,Mustermann
+PatientBirthDay,1
+PatientBirthMonth,Jan
+PatientBirthYear,1980
+PatientData.ImplantDay,15
+PatientData.ImplantMonth,Mai
+PatientData.ImplantYear,2020
+PatientLeadAManufacturer,Boston Scientific
+PatientLeadAModelNum,4470
+PatientLeadASerialNum,654321
+PatientLeadAPosition,Rechter Vorhof
+PatientAtrialImped,450.0 Ω
+PatientAtrialThreshAmpl,500.0 mV
+PatientAtrialThreshPW,0.4 ms
+PatientData.LeadA.ImplantMonth,Mai
+PatientData.LeadA.ImplantYear,2020
+PatientLeadV1Manufacturer,Boston Scientific
+PatientLeadV1ModelNum,0181
+PatientLeadV1SerialNum,654322
+PatientLeadV1Position,Rechter Ventrikel
+PatientVImped,550.0 Ω
+PatientVThreshAmpl,800.0 mV
+PatientVThreshPW,0.4 ms
+PatientData.Lead1.ImplantMonth,Mai
+PatientData.Lead1.ImplantYear,2020
+BatteryStatus.BatteryPhase,Good
+BatteryLongevityParams.RemainingBatteryPercent,95.0 %
+BatteryLongevityParams.TimeToERI,60 months

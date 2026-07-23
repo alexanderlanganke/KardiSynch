@@ -65,6 +65,11 @@ describe('Parsers', () => {
 
     describe('Boston Scientific Parser', () => {
         it('should parse a valid BNK file', () => {
+            // mock_boston.bnk mirrors the real PACEART export format: a '#'
+            // comment header carrying device model/serial + interrogation
+            // date (never key/value lines — the previous fixture invented a
+            // schema no real export actually uses, see #146-style findings
+            // for Boston Scientific), plus flat PatientXxx key/value lines.
             const bnkContent = fs.readFileSync(path.join(fixturesDir, 'mock_boston.bnk'), 'utf-8');
             const result = parseBostonScientificBnk(bnkContent);
 
@@ -72,8 +77,13 @@ describe('Parsers', () => {
             expect(result?.manufacturer).toBe('Boston Scientific');
             expect(result?.patient.first_name).toBe('Max');
             expect(result?.patient.last_name).toBe('Mustermann');
+            expect(result?.patient.dob).toBe('1980-01-01');
+            expect(result?.device.model).toBe('ACCOLADE-MRI');
             expect(result?.device.serial_number).toBe('123456');
-            expect(result?.battery?.voltage?.value).toBe('3.05');
+            expect(result?.interrogation_date).toBe('2023-10-27');
+            expect(result?.battery?.remaining_longevity?.value).toBe(60);
+            expect(result?.leads?.find(l => l.name === 'Atrium')?.serial).toBe('654321');
+            expect(result?.leads?.find(l => l.name === 'RV')?.serial).toBe('654322');
             expect(result?.formatVariant).toBe('boston-scientific-bnk');
             expect(result?.parseStatus).not.toBe('failed');
         });

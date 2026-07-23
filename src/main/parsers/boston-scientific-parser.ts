@@ -1,12 +1,126 @@
-import { UnifiedReport } from '../reports';
+import { UnifiedReport, LeadData, hasLeadData } from '../reports';
 import { normalizeDate } from '../../lib/dates';
 import { DiagnosticsCollector, safeExtract, deriveParseStatus } from './parseDiagnostics';
 
 /**
  * --- Boston Scientific BNK Parser ---
- * This file reads the proprietary Boston Scientific BNK export and transforms
- * it into our internal, standardized JSON format.
+ * This file reads the proprietary Boston Scientific BNK export (a PACEART
+ * key/value dump) and transforms it into our internal, standardized JSON
+ * format.
  */
+
+/** German "keine Angabe" (no data) sentinel PACEART uses for empty fields. */
+const NO_DATA = 'K.A';
+const hasValue = (v: string | undefined): v is string => !!v && v !== NO_DATA;
+
+/**
+ * Extract a numeric value from a string like "500.0 Ω", "0.4 ms",
+ * ">132 months", "45.2 %". Returns null for missing-data sentinels.
+ */
+function extractBnkNumeric(str: string | undefined): number | null {
+  if (!hasValue(str)) return null;
+  const m = str.match(/(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const val = parseFloat(m[1]);
+  return Number.isNaN(val) ? null : val;
+}
+
+/**
+ * PACEART spells every date in the file as a `{Prefix}Day` / `{Prefix}Month`
+ * / `{Prefix}Year` triplet (DOB, device implant date, per-lead implant
+ * date) rather than one combined field. Per-lead implant dates only ever
+ * carry month+year (no day), so `dayKey` is optional and defaults to the
+ * 1st. Any required part missing or 'K.A' means the date is unknown.
+ */
+function buildPartsDate(dataMap: Map<string, string>, dayKey: string | null, monthKey: string, yearKey: string): string {
+  const month = dataMap.get(monthKey);
+  const year = dataMap.get(yearKey);
+  if (!hasValue(month) || !hasValue(year)) return '';
+  const day = dayKey ? dataMap.get(dayKey) : undefined;
+  return normalizeDate(`${hasValue(day) ? day : '1'} ${month} ${year}`);
+}
+
+/**
+ * Every real PACEART export we've seen (test/boston_bnk) starts with '#'
+ * comment lines carrying the interrogation date and device model/serial —
+ * data the previous parser discarded along with the rest of the comment
+ * lines, expecting model/serial instead (never actually present) as
+ * `Device.Model` / `Device.SerialNumber` key/value lines:
+ *
+ *   # TYPE: PACEART           SAVE DATE: 29 Jun 2026
+ *   # PROGRAMMER      MODEL: 3300 SERIAL: 000000 APP   MODEL: 3868 VERSION: 2.03
+ *   # DEVICE          MODEL: D321-200-0  SERIAL: 000000
+ */
+function parseBnkHeader(bnkData: string, collector: DiagnosticsCollector): { interrogationDate: string; deviceModel: string; deviceSerial: string } {
+  return safeExtract(collector, 'header', () => {
+    const result = { interrogationDate: '', deviceModel: '', deviceSerial: '' };
+    // Month token may itself be corrupted to '?' in the source export (seen
+    // on ~1/3 of real samples, always as literal "M?r" — the export's
+    // encoding step apparently can't round-trip 'ä'). Still capture the raw
+    // token so it can be repaired below, or fail soft through normalizeDate
+    // if it's some other, unrecognized corruption.
+    const saveDateMatch = bnkData.match(/^#\s*TYPE:.*?SAVE DATE:\s*(\d{1,2})\s+([A-Za-zÄäÖöÜü?]+)\s+(\d{4})/mi);
+    if (saveDateMatch) {
+      const month = saveDateMatch[2] === 'M?r' ? 'Mär' : saveDateMatch[2];
+      result.interrogationDate = normalizeDate(`${saveDateMatch[1]} ${month} ${saveDateMatch[3]}`);
+    }
+
+    const deviceMatch = bnkData.match(/^#\s*DEVICE\s+MODEL:\s*(\S+)\s+SERIAL:\s*(\S+)/mi);
+    if (deviceMatch) {
+      result.deviceModel = deviceMatch[1];
+      result.deviceSerial = deviceMatch[2];
+    }
+    return result;
+  }, { interrogationDate: '', deviceModel: '', deviceSerial: '' });
+}
+
+interface BnkLeadSlot {
+  manufacturer?: string;
+  model?: string;
+  serial?: string;
+  position?: string;
+}
+
+/** Reads one `PatientLead{key}*` slot (key is 'A' or 'V1'..'V5'). Returns null if the slot is unpopulated. */
+function readLeadSlot(dataMap: Map<string, string>, key: string): BnkLeadSlot | null {
+  const manufacturer = dataMap.get(`PatientLead${key}Manufacturer`);
+  const model = dataMap.get(`PatientLead${key}ModelNum`);
+  const serial = dataMap.get(`PatientLead${key}SerialNum`);
+  const position = dataMap.get(`PatientLead${key}Position`);
+  if (!hasValue(model) && !hasValue(serial)) return null;
+  return {
+    manufacturer: hasValue(manufacturer) ? manufacturer : undefined,
+    model: hasValue(model) ? model : undefined,
+    serial: hasValue(serial) ? serial : undefined,
+    position: hasValue(position) ? position : undefined,
+  };
+}
+
+/**
+ * Infers the clinical chamber from a lead's Position text ("Rechter Vorhof",
+ * "Rechter Ventrikel", "LV Mitte (poster.)") rather than trusting the slot
+ * key (A vs V1-V5) it was stored under. Real exports don't reliably keep
+ * those in sync: some records have PatientLeadAPosition = "Rechter
+ * Ventrikel" and PatientLeadV1Position = "Rechter Vorhof" — the A/V1 slot
+ * appears to track which physical connector port the lead is plugged into,
+ * not anatomic chamber. Returns null when the position text itself doesn't
+ * say (e.g. "Epikardial" alone, or 'K.A'), so the caller's slot-based
+ * default still applies.
+ */
+function chamberFromPosition(position: string | undefined): 'Atrium' | 'RV' | 'LV' | null {
+  if (!position) return null;
+  if (/\bLV\b/i.test(position)) return 'LV';
+  if (/vorhof|atrial|atrium/i.test(position)) return 'Atrium';
+  if (/ventrikel|ventric/i.test(position)) return 'RV';
+  return null;
+}
+
+/** mV amplitude + ms pulse width -> the "V @ ms" pacing_threshold convention used across parsers. */
+function buildPacingThreshold(amplitudeMv: number | null, pulseWidthMs: number | null): LeadData['pacing_threshold'] {
+  if (amplitudeMv == null) return undefined;
+  const amplitudeV = amplitudeMv / 1000;
+  return { value: pulseWidthMs != null ? `${amplitudeV} @ ${pulseWidthMs}` : amplitudeV, unit: pulseWidthMs != null ? 'V @ ms' : 'V' };
+}
 
 /**
  * The main parser function for BNK files.
@@ -40,9 +154,104 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
       collector.error('parse', 'No "key,value" lines recognized in the .bnk file — likely not the expected key/value export format.');
     }
 
-    // Infer device type from model or explicit key
-    const deviceType = safeExtract(collector, 'device.type', () => {
-      const modelValue = (dataMap.get('Device.Model') || '').toUpperCase();
+    const header = parseBnkHeader(bnkData, collector);
+    const patientLastName = dataMap.get('PatientLastName') || '';
+    const patientDob = buildPartsDate(dataMap, 'PatientBirthDay', 'PatientBirthMonth', 'PatientBirthYear');
+    const deviceModel = header.deviceModel;
+    const deviceSerial = header.deviceSerial;
+
+    if (!patientLastName && !patientDob) {
+      collector.warn('patient', 'No patient identity keys (PatientLastName / PatientBirthDay+Month+Year) found in the .bnk file.');
+    }
+    if (!deviceModel && !deviceSerial) {
+      collector.warn('device', 'No device identity found in the "# DEVICE" header line of the .bnk file.');
+    }
+
+    // Leads. PACEART keys the atrial lead as "A" and the ventricular lead(s)
+    // as "V1".."V5" (CRT devices carry a second/third V-lead for LV, and
+    // occasionally a backup RV lead) — which slot is the LV lead varies
+    // between exports, so it's identified by its Position text ("LV Mitte
+    // (poster.)" etc.) rather than a fixed slot number.
+    const leads: LeadData[] = [];
+
+    const atrialLead = safeExtract(collector, 'leads.atrial', () => {
+      const slot = readLeadSlot(dataMap, 'A');
+      if (!slot) return null;
+      const impedance = extractBnkNumeric(dataMap.get('PatientAtrialImped'));
+      const threshAmpl = extractBnkNumeric(dataMap.get('PatientAtrialThreshAmpl'));
+      const threshPw = extractBnkNumeric(dataMap.get('PatientAtrialThreshPW'));
+      return {
+        name: chamberFromPosition(slot.position) || 'Atrium',
+        manufacturer: slot.manufacturer,
+        model: slot.model,
+        serial: slot.serial,
+        anatomic_location: slot.position,
+        implant_date: buildPartsDate(dataMap, null, 'PatientData.LeadA.ImplantMonth', 'PatientData.LeadA.ImplantYear') || undefined,
+        impedance: impedance != null ? { value: impedance, unit: 'Ohms' } : undefined,
+        pacing_threshold: buildPacingThreshold(threshAmpl, threshPw),
+      };
+    }, null);
+    if (atrialLead && hasLeadData(atrialLead)) leads.push(atrialLead);
+
+    const ventricularLeads = safeExtract(collector, 'leads.ventricular', () => {
+      const result: LeadData[] = [];
+      let attachedGenericV = false; // PatientVImped/VThreshAmpl/PatientShockImped describe one lead only
+      for (let i = 1; i <= 5; i++) {
+        const slot = readLeadSlot(dataMap, `V${i}`);
+        if (!slot) continue;
+        // Default 'RV' when position doesn't say — measurement set below
+        // (generic V vs LV-specific) still keys off isLV either way.
+        const chamber = chamberFromPosition(slot.position) || 'RV';
+        const isLV = chamber === 'LV';
+
+        let impedance: LeadData['impedance'];
+        let pacingThreshold: LeadData['pacing_threshold'];
+        let shockImpedance: LeadData['shock_impedance'];
+
+        if (isLV) {
+          impedance = (v => v != null ? { value: v, unit: 'Ohms' } as const : undefined)(extractBnkNumeric(dataMap.get('PatientData.LVMsmts.LeadImped')));
+          pacingThreshold = buildPacingThreshold(
+            extractBnkNumeric(dataMap.get('PatientData.LVMsmts.PaceThreshAmpl')),
+            extractBnkNumeric(dataMap.get('PatientData.LVMsmts.PaceThreshPW'))
+          );
+        } else if (!attachedGenericV) {
+          attachedGenericV = true;
+          impedance = (v => v != null ? { value: v, unit: 'Ohms' } as const : undefined)(extractBnkNumeric(dataMap.get('PatientVImped')));
+          pacingThreshold = buildPacingThreshold(
+            extractBnkNumeric(dataMap.get('PatientVThreshAmpl')),
+            extractBnkNumeric(dataMap.get('PatientVThreshPW'))
+          );
+          const shock = extractBnkNumeric(dataMap.get('PatientShockImped'));
+          shockImpedance = shock != null ? { value: shock, unit: 'Ohms' } : undefined;
+        }
+
+        result.push({
+          name: chamber,
+          manufacturer: slot.manufacturer,
+          model: slot.model,
+          serial: slot.serial,
+          anatomic_location: slot.position,
+          implant_date: buildPartsDate(dataMap, null, `PatientData.Lead${i}.ImplantMonth`, `PatientData.Lead${i}.ImplantYear`) || undefined,
+          impedance,
+          pacing_threshold: pacingThreshold,
+          shock_impedance: shockImpedance,
+        });
+      }
+      return result;
+    }, [] as LeadData[]);
+    for (const lead of ventricularLeads) {
+      if (hasLeadData(lead)) leads.push(lead);
+    }
+
+    // Device type: real PACEART model codes ("D321-200-0", "G247-200-0") are
+    // internal Boston Scientific part numbers, not marketing names — none of
+    // the keyword checks below (kept for other/future export variants that
+    // might carry a human-readable model or explicit Device.DeviceType key)
+    // will ever match them. So when that yields nothing, fall back to
+    // inferring from what the leads/measurements actually show: an LV lead
+    // means CRT, a DFT/shock-impedance measurement means ICD-capable.
+    let deviceType = safeExtract(collector, 'device.type', () => {
+      const modelValue = deviceModel.toUpperCase();
       const deviceTypeValue = dataMap.get('Device.DeviceType') || '';
       if (deviceTypeValue) return deviceTypeValue;
       if (modelValue.includes('CRT-D')) return 'CRT-D';
@@ -53,44 +262,33 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
       return 'Unknown';
     }, 'Unknown');
 
-    const patientLastName = dataMap.get('Patient.PatientLastName') || '';
-    const patientDob = dataMap.get('Patient.PatientDOB') || '';
-    const deviceModel = dataMap.get('Device.Model') || '';
-    const deviceSerial = dataMap.get('Device.SerialNumber') || '';
-
-    if (!patientLastName && !patientDob) {
-      collector.warn('patient', 'No patient identity keys (Patient.PatientLastName / Patient.PatientDOB) found in the .bnk file.');
-    }
-    if (!deviceModel && !deviceSerial) {
-      collector.warn('device', 'No device identity keys (Device.Model / Device.SerialNumber) found in the .bnk file.');
+    if (deviceType === 'Unknown') {
+      const hasIcdCapability = hasValue(dataMap.get('PatientDFT')) || hasValue(dataMap.get('PatientShockImped'));
+      const hasLvLead = leads.some(l => l.name === 'LV');
+      if (hasLvLead) deviceType = hasIcdCapability ? 'CRT-D' : 'CRT-P';
+      else if (hasIcdCapability) deviceType = 'ICD';
+      else deviceType = 'Pacemaker';
     }
 
     const report: UnifiedReport = {
       manufacturer: 'Boston Scientific',
-      interrogation_date: normalizeDate(dataMap.get('Brady.LastInterrogationDate')),
+      interrogation_date: header.interrogationDate,
       patient: {
-        first_name: dataMap.get('Patient.PatientFirstName') || '',
+        first_name: dataMap.get('PatientFirstName') || '',
         last_name: patientLastName,
-        dob: normalizeDate(patientDob),
+        dob: patientDob,
       },
       device: {
         type: deviceType,
         model: deviceModel,
         serial_number: deviceSerial,
-        implant_date: dataMap.get('Device.ImplantDate') || '',
+        implant_date: buildPartsDate(dataMap, 'PatientData.ImplantDay', 'PatientData.ImplantMonth', 'PatientData.ImplantYear') || undefined,
       },
       battery: {
-        voltage: {
-          value: dataMap.get('BatteryStatus.BatteryVoltage') || '',
-          unit: 'V',
-        },
-        remaining_longevity: {
-          value: dataMap.get('BatteryStatus.EstLongevity') || '',
-          unit: 'months',
-        },
+        remaining_longevity: (v => v != null ? { value: v, unit: 'months' } as const : undefined)(extractBnkNumeric(dataMap.get('BatteryLongevityParams.TimeToERI'))),
         status: dataMap.get('BatteryStatus.BatteryPhase') || 'Unknown',
       },
-      leads: [], // Lead information is not typically in the BNK file
+      leads,
       raw_text: bnkData,
       formatVariant: 'boston-scientific-bnk',
       parseWarnings: collector.list,
