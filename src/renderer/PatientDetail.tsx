@@ -493,6 +493,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         open={isAssignmentOpen}
         mode="move"
         sourceItem={visitToMove}
+        excludePatientId={patientId}
         onResolve={handleMoveConfirm}
         onCancel={() => { setIsAssignmentOpen(false); setVisitToMove(null); }}
       />

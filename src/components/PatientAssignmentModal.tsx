@@ -22,11 +22,15 @@ interface PatientAssignmentModalProps {
     open: boolean;
     mode: 'import' | 'move';
     sourceItem: any; // FileInfo (import) or VisitInfo (move)
+    // In move mode, the patient the visit is currently filed under — offering
+    // it as a move target would be a confusing no-op (or, if a different
+    // visit slot were picked, a pointless same-patient shuffle).
+    excludePatientId?: string;
     onResolve: (decision: any) => void;
     onCancel: () => void;
 }
 
-const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, mode, sourceItem, onResolve, onCancel }) => {
+const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, mode, sourceItem, excludePatientId, onResolve, onCancel }) => {
     const { showAlert, showConfirm } = useAppDialog();
     const [activeTab, setActiveTab] = useState('existing');
     const [searchTerm, setSearchTerm] = useState('');
@@ -122,8 +126,9 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     }, [selectedPatientId, mode]);
 
     const filteredPatients = patients.filter(p =>
-        String(p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        String(p.patientId || '').toLowerCase().includes(searchTerm.toLowerCase())
+        p.id !== excludePatientId &&
+        (String(p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+            String(p.patientId || '').toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
     const handleConfirm = () => {
