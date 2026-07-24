@@ -383,6 +383,15 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
     const hasPatientIdentity = !!(lastName || dob);
     const hasDeviceIdentity = !!(deviceModel !== 'Unknown' && deviceModel || (deviceSerial && deviceSerial !== 'Unknown'));
 
+    // Fields with no dedicated UnifiedReport slot — captured verbatim rather
+    // than dropped. Ejection Fraction and Indications for Implant are
+    // baseline facts recorded at implant, not re-measured per visit.
+    const additionalFields: Record<string, string | number> = {};
+    const ejectionFraction = fields.get('EjectionFraction');
+    if (ejectionFraction) additionalFields.ejection_fraction = ejectionFraction;
+    const indicationsForImplant = fields.get('IndicationsForImplant');
+    if (indicationsForImplant) additionalFields.indications_for_implant = indicationsForImplant;
+
     return {
         manufacturer: 'Abbott',
         interrogation_date: normalizeDate(interrogationDate, 'us'),
@@ -408,6 +417,7 @@ function buildReportFromCodedLog(fields: Map<string, string>, filePath: string, 
         formatVariant: 'abbott-coded-log',
         parseWarnings: collector.list,
         parseStatus: deriveParseStatus(collector, hasPatientIdentity, hasDeviceIdentity),
+        ...(Object.keys(additionalFields).length > 0 ? { additional_fields: additionalFields } : {}),
     };
 }
 

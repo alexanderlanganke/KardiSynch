@@ -79,6 +79,27 @@ describe('Boston Scientific .bnk parser (real PACEART export format)', () => {
     expect(bySlotV1?.name).toBe('Atrium');
   });
 
+  it('still builds a lead slot with a known position but no model/serial (older/partial exports)', () => {
+    // readLeadSlot used to return null unless model or serial was present,
+    // even when the position (chamber) was known — which short-circuited the
+    // caller before its separate impedance/threshold lookups for that slot
+    // ever ran, discarding real measurement data.
+    const content = [
+      header('15 Apr 2026', 'D233-000-0'),
+      'PatientLastName,Smith',
+      'PatientLeadAPosition,Rechter Vorhof',
+      'PatientLeadV1Position,Rechter Ventrikel',
+      'PatientVImped,550.0 Ω',
+    ].join('\n');
+
+    const result = parseBostonScientificBnk(content);
+    const rv = result?.leads?.find(l => l.name === 'RV');
+    expect(rv).toBeDefined();
+    expect(rv?.model).toBeUndefined();
+    expect(rv?.serial).toBeUndefined();
+    expect(rv?.impedance?.value).toBe(550.0);
+  });
+
   it('infers CRT-P from an LV lead with no ICD-capability signal, and CRT-D when DFT/shock impedance is also present', () => {
     const crtPContent = [
       header('29 Jun 2026', 'G141-200-0'), // real internal model code, no "CRT" text anywhere
@@ -119,6 +140,25 @@ describe('Boston Scientific .bnk parser (real PACEART export format)', () => {
     expect(rv?.pacing_threshold?.value).toBe('0.8 @ 0.4');
     expect(lv?.impedance?.value).toBe(1400.0);
     expect(lv?.pacing_threshold?.value).toBe('1.5 @ 0.4');
+  });
+
+  it('captures Ejection Fraction / NYHA class into additional_fields (no dedicated schema slot)', () => {
+    // PatientLeftVentEjectFraction / PatientFuncHeartClass are already present
+    // in real .bnk exports but were never read at all. PatientHospital is
+    // deliberately NOT wired in — ambiguous whether it means implant
+    // hospital or clinic of record.
+    const content = [
+      header('29 Jun 2026', 'D321-200-0'),
+      'PatientLastName,Doe',
+      'PatientLeftVentEjectFraction,35',
+      'PatientFuncHeartClass,II',
+      'PatientHospital,General Hospital',
+    ].join('\n');
+
+    const result = parseBostonScientificBnk(content);
+    expect(result?.additional_fields?.ejection_fraction).toBe('35');
+    expect(result?.additional_fields?.nyha_class).toBe('II');
+    expect(result?.additional_fields?.hospital).toBeUndefined();
   });
 
   it('reports remaining longevity in months from BatteryLongevityParams.TimeToERI (no voltage field exists in real exports)', () => {

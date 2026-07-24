@@ -129,6 +129,33 @@ describe('Medtronic XML Parser (Leads)', () => {
         expect(report!.device.type).toBe(expected);
     });
 
+    it('still extracts electrical measurements for a lead with a known location but no model/serial', () => {
+        // Real-world gap: some exports report Lead1Location ("RV") but leave
+        // Lead1Model/Lead1SerialNumber blank. The lead-builder used to require
+        // model or serial before building the lead object at all, which
+        // skipped the RV sensing/pacing extraction below it — discarding real
+        // measurement data even though the outer gate already confirmed the
+        // slot was in use via its location.
+        const noModelSerialXml = sampleXML
+            .replace('<Field name="Current"><String charset="UCS-2">6935 SprintQuattroSecureS MRI</String></Field>', '<Field name="Current"><String charset="UCS-2"></String></Field>')
+            .replace('<Field name="Current"><String charset="UCS-2">LEAD123456</String></Field>', '<Field name="Current"><String charset="UCS-2"></String></Field>')
+            .replace(
+                '<!-- Device Data -->',
+                `<Composite domain="NormalizedParameter">
+<Field name="Name"><String charset="UCS-2">VSEventDetectionRVSensingThreshold</String></Field>
+<Field name="Current"><Real>8.5</Real></Field>
+</Composite>
+<!-- Device Data -->`
+            );
+
+        const report = parseMedtronicXML(noModelSerialXml);
+        const rvLead = report.leads?.find(l => l.anatomic_location === 'RV');
+        expect(rvLead).toBeDefined();
+        expect(rvLead?.model).toBe('');
+        expect(rvLead?.serial).toBe('');
+        expect(rvLead?.sensing?.value).toBe(8.5);
+    });
+
     it('falls back to model-based inference when the XML has no DeviceType parameter at all', () => {
         // Real sample: an older-schema "Astra S DR MRI X3DR01" export had no
         // DeviceType parameter, and previously came back device.type

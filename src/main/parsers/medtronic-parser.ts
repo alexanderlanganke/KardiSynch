@@ -876,8 +876,13 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
                 if (val) leadImplantDate = val;
             }
 
-            // Only add if we have some minimal info (e.g. Model or Serial)
-            if (leadModel || serial) {
+            // Build the lead unconditionally (the outer gate above already
+            // confirmed a known location or model) — a lead with a known
+            // location but no model/serial would otherwise skip the
+            // electrical-measurement extraction below entirely, discarding
+            // real sensing/pacing data. hasLeadData() below is the correct
+            // place to decide whether there's anything worth keeping.
+            {
                 const lead: LeadData = {
                     name: `${leadLocation} Lead`,
                     anatomic_location: leadLocation,

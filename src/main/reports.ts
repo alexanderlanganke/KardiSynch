@@ -76,6 +76,14 @@ export interface UnifiedReport {
     [key: string]: any;
   };
 
+  // --- Manufacturer-specific fields with no dedicated schema slot ---
+  // Captured verbatim (no unit conversion/reformatting) rather than dropped
+  // just because the unified schema has nowhere purpose-built to put them
+  // (e.g. Ejection Fraction, NYHA class, Indications for Implant). Values
+  // here are one-time/baseline facts as often as they are per-visit data —
+  // callers must not assume they change across visits.
+  additional_fields?: Record<string, string | number>;
+
   // --- Raw Data ---
   raw_text?: string;
   generatedFiles?: string[]; // Paths to files generated during parsing (e.g. extracted PDFs)

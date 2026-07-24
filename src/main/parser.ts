@@ -157,6 +157,17 @@ export const parseFile = async (filePath: string): Promise<UnifiedReport | null>
           }));
         }
 
+        if (visit.additional_fields && visit.additional_fields.field) {
+          const fields = Array.isArray(visit.additional_fields.field) ? visit.additional_fields.field : [visit.additional_fields.field];
+          const additionalFields: Record<string, string | number> = {};
+          for (const f of fields) {
+            const name = f?.name;
+            const value = typeof f === 'object' ? f['#text'] : f;
+            if (name && value !== undefined && value !== null) additionalFields[name] = value;
+          }
+          if (Object.keys(additionalFields).length > 0) report.additional_fields = additionalFields;
+        }
+
         return report;
       } catch (error) {
         console.warn(`Failed to parse visit.xml file ${filePath}:`, error);

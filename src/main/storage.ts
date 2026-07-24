@@ -198,9 +198,37 @@ const generateVisitXML = (report: UnifiedReport, reportId: string): string => {
   </leads>`;
   }
 
+  if (report.additional_fields && Object.keys(report.additional_fields).length > 0) {
+    xml += `
+  <additional_fields>`;
+    for (const [key, value] of Object.entries(report.additional_fields)) {
+      xml += `
+    <field name="${escapeXml(key)}">${escapeXml(String(value))}</field>`;
+    }
+    xml += `
+  </additional_fields>`;
+  }
+
   xml += `
 </visit>`;
   return xml;
+};
+
+/**
+ * Reads the <additional_fields><field name="...">value</field>...</additional_fields>
+ * block back from a parsed (fast-xml-parser) visit.xml document into a plain map.
+ */
+const parseAdditionalFieldsXml = (additionalFieldsNode: any): Record<string, string | number> => {
+  if (!additionalFieldsNode || !additionalFieldsNode.field) return {};
+  const fields = Array.isArray(additionalFieldsNode.field) ? additionalFieldsNode.field : [additionalFieldsNode.field];
+  const result: Record<string, string | number> = {};
+  for (const f of fields) {
+    const name = f?.['@_name'];
+    if (!name) continue;
+    const value = typeof f === 'object' ? f['#text'] : f;
+    if (value !== undefined && value !== null) result[name] = value;
+  }
+  return result;
 };
 
 /**
@@ -252,11 +280,16 @@ const writeMergedPatientXML = async (
     if (e.code !== 'ENOENT') console.error('Error reading existing patient.xml:', e);
   }
 
-  // Append new device if from a report
-  if (report && report.device && report.device.serial_number && report.manufacturer !== 'Unknown') {
+  // Append new device if from a report. A device without a serial number
+  // (a parser's identity extraction can miss it while model/manufacturer
+  // still resolve) used to be dropped entirely — mirrors the lead-merge fix
+  // below: build it whenever a model is known, and dedupe/refresh by
+  // (manufacturer, model) instead of serial when serial is missing.
+  if (report && report.device && (report.device.model || report.device.serial_number) && report.manufacturer !== 'Unknown') {
+    const hasSerial = !!(report.device.serial_number && report.device.serial_number !== 'Unknown' && report.device.serial_number !== '');
     const newDevice: any = {
       model: report.device.model,
-      serial: report.device.serial_number,
+      serial: hasSerial ? report.device.serial_number : undefined,
       manufacturer: report.manufacturer,
       implant_date: report.device.implant_date || 'Unknown',
       // Only carry the type key when the report actually knows it — an
@@ -264,13 +297,20 @@ const writeMergedPatientXML = async (
       ...(report.device.type && report.device.type !== 'Unknown' ? { type: report.device.type } : {})
     };
 
-    // Sanity check: Don't add if THIS device is Unknown
-    if (newDevice.serial !== 'Unknown' && newDevice.serial !== '') {
-      // 1. CLEANUP: Remove any existing "Unknown" placeholders
-      existingDevices = existingDevices.filter(d => d.serial && String(d.serial) !== 'Unknown');
+    if (hasSerial || newDevice.model) {
+      // 1. CLEANUP: drop stale "Unknown"-serial entries for this same
+      //    (manufacturer, model) — left alone for any other model so an
+      //    unrelated serial-less device isn't wiped out.
+      existingDevices = existingDevices.filter(d =>
+        (d.serial && String(d.serial) !== 'Unknown') ||
+        !(d.manufacturer === newDevice.manufacturer && d.model === newDevice.model)
+      );
 
-      // 2. DEDUPLICATE: Check if already exists (by serial)
-      const index = existingDevices.findIndex(d => String(d.serial) === String(newDevice.serial));
+      // 2. DEDUPLICATE
+      const index = existingDevices.findIndex(d => hasSerial
+        ? String(d.serial) === String(newDevice.serial)
+        : (!d.serial || String(d.serial) === 'Unknown') && d.manufacturer === newDevice.manufacturer && d.model === newDevice.model
+      );
       if (index !== -1) {
         // Update existing entry with potentially newer metadata (e.g. better model name)
         existingDevices[index] = { ...existingDevices[index], ...newDevice };
@@ -504,6 +544,7 @@ export const storeFile = async (
     const visitXmlPath = path.join(visitDir, 'visit.xml');
     let finalReport = report;
     let existingLeads: any[] = [];
+    let existingAdditionalFields: Record<string, string | number> = {};
 
     // Read existing visit.xml to merge logic
     try {
@@ -515,6 +556,7 @@ export const storeFile = async (
           ? parsed.visit.leads.lead
           : [parsed.visit.leads.lead];
       }
+      existingAdditionalFields = parseAdditionalFieldsXml(parsed.visit?.additional_fields);
     } catch (e: any) {
       if (e.code !== 'ENOENT') console.error('Error reading existing visit.xml for merge:', e);
     }
@@ -536,6 +578,13 @@ export const storeFile = async (
     } else if (existingLeads.length > 0) {
       // If current report has no leads but existing one did, preserve them
       finalReport = { ...report, leads: existingLeads };
+    }
+
+    // Merge new additional_fields with existing ones — a second file imported
+    // into the same visit must not wipe out fields the first file contributed.
+    const mergedAdditionalFields = { ...existingAdditionalFields, ...(report.additional_fields || {}) };
+    if (Object.keys(mergedAdditionalFields).length > 0) {
+      finalReport = { ...finalReport, additional_fields: mergedAdditionalFields };
     }
 
     // Force the visit.xml date to match the directory's date (see effectiveDate
@@ -785,15 +834,24 @@ const parseJsonArray = (value: any): any[] => {
 };
 
 /**
- * Union two device/lead lists, deduplicating by serial number. Entries from
- * `incoming` fill in fields missing on an existing entry with the same serial;
- * serials of "Unknown"/empty are dropped.
+ * Union two device/lead lists, deduplicating by serial number where
+ * available. An entry with no usable serial (real logs sometimes lack one —
+ * issue #152) is deduped/merged by (manufacturer, model) instead of being
+ * dropped: this is shared between devices and leads, so it's less precise
+ * than the chamber-name key writeMergedPatientXML uses for leads
+ * specifically, but still preserves real data instead of discarding it.
+ * Entries from `incoming` fill in fields missing on an existing entry with
+ * the same key.
  */
 const unionBySerial = (existing: any[], incoming: any[]): any[] => {
-  const merged = existing.filter(d => d && d.serial && String(d.serial) !== 'Unknown');
+  const hasSerial = (d: any) => !!(d && d.serial && String(d.serial) !== 'Unknown');
+  const hasIdentity = (d: any) => !!(d && (hasSerial(d) || d.model || d.manufacturer || d.name));
+  const sameFallbackKey = (a: any, b: any) => !hasSerial(a) && !hasSerial(b) && a.manufacturer === b.manufacturer && a.model === b.model && (a.model || a.manufacturer);
+
+  const merged = existing.filter(hasIdentity);
   for (const item of incoming) {
-    if (!item || !item.serial || String(item.serial) === 'Unknown') continue;
-    const idx = merged.findIndex(d => String(d.serial) === String(item.serial));
+    if (!hasIdentity(item)) continue;
+    const idx = merged.findIndex(d => hasSerial(item) ? String(d.serial) === String(item.serial) : sameFallbackKey(d, item));
     if (idx !== -1) {
       merged[idx] = { ...item, ...merged[idx] };
     } else {
@@ -1023,6 +1081,13 @@ export const aggregateVisitFiles = async (visitPath: string): Promise<UnifiedRep
     }
   }
 
+  // Union additional_fields across every file in the visit — different
+  // source files can each contribute different manufacturer-specific fields.
+  const additionalFields: Record<string, string | number> = {};
+  for (const r of reports) {
+    if (r.additional_fields) Object.assign(additionalFields, r.additional_fields);
+  }
+
   return {
     patient,
     device,
@@ -1030,6 +1095,7 @@ export const aggregateVisitFiles = async (visitPath: string): Promise<UnifiedRep
     interrogation_date,
     battery,
     leads: Array.from(leadMap.values()),
+    ...(Object.keys(additionalFields).length > 0 ? { additional_fields: additionalFields } : {}),
   };
 };
 
@@ -1061,6 +1127,15 @@ export const refreshVisitMetadata = async (
       if (parsed.visit.source_manufacturer) remote.source_manufacturer = parsed.visit.source_manufacturer;
       if (Object.keys(remote).length > 0) {
         (aggregated as any)._remoteSource = remote;
+      }
+
+      // Preserve any additional_fields the existing visit.xml carries that the
+      // fresh re-parse didn't recover (e.g. an older parser version extracted
+      // them but the current one's field name/wiring differs) — freshly
+      // re-parsed values win when both sides have the same key.
+      const existingAdditionalFields = parseAdditionalFieldsXml(parsed.visit.additional_fields);
+      if (Object.keys(existingAdditionalFields).length > 0) {
+        aggregated.additional_fields = { ...existingAdditionalFields, ...(aggregated.additional_fields || {}) };
       }
 
       // Preserve existing date/manufacturer/device if aggregation produced empty values
@@ -1125,20 +1200,31 @@ export const refreshVisitMetadata = async (
     if (e.code !== 'ENOENT') console.warn('[refreshVisitMetadata] Error reading existing patient.xml:', e);
   }
 
-  // Merge device from aggregated report
-  if (aggregated.device?.serial_number && aggregated.device.serial_number !== 'Unknown' && aggregated.manufacturer !== 'Unknown') {
-    const newDevice = {
+  // Merge device from aggregated report. Same fallback as
+  // writeMergedPatientXML above: dedupe/refresh by (manufacturer, model)
+  // when serial is missing, instead of dropping the device entirely.
+  if (aggregated.device && (aggregated.device.model || aggregated.device.serial_number) && aggregated.manufacturer !== 'Unknown') {
+    const hasSerial = !!(aggregated.device.serial_number && aggregated.device.serial_number !== 'Unknown' && aggregated.device.serial_number !== '');
+    const newDevice: any = {
       model: aggregated.device.model,
-      serial: aggregated.device.serial_number,
+      serial: hasSerial ? aggregated.device.serial_number : undefined,
       manufacturer: aggregated.manufacturer,
       implant_date: aggregated.device.implant_date || 'Unknown'
     };
-    existingDevices = existingDevices.filter(d => d.serial && String(d.serial) !== 'Unknown');
-    const idx = existingDevices.findIndex(d => String(d.serial) === String(newDevice.serial));
-    if (idx !== -1) {
-      existingDevices[idx] = { ...existingDevices[idx], ...newDevice };
-    } else {
-      existingDevices.push(newDevice);
+    if (hasSerial || newDevice.model) {
+      existingDevices = existingDevices.filter(d =>
+        (d.serial && String(d.serial) !== 'Unknown') ||
+        !(d.manufacturer === newDevice.manufacturer && d.model === newDevice.model)
+      );
+      const idx = existingDevices.findIndex(d => hasSerial
+        ? String(d.serial) === String(newDevice.serial)
+        : (!d.serial || String(d.serial) === 'Unknown') && d.manufacturer === newDevice.manufacturer && d.model === newDevice.model
+      );
+      if (idx !== -1) {
+        existingDevices[idx] = { ...existingDevices[idx], ...newDevice };
+      } else {
+        existingDevices.push(newDevice);
+      }
     }
   }
 

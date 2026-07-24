@@ -87,7 +87,10 @@ function readLeadSlot(dataMap: Map<string, string>, key: string): BnkLeadSlot | 
   const model = dataMap.get(`PatientLead${key}ModelNum`);
   const serial = dataMap.get(`PatientLead${key}SerialNum`);
   const position = dataMap.get(`PatientLead${key}Position`);
-  if (!hasValue(model) && !hasValue(serial)) return null;
+  // A lead with a known chamber position but no model/serial (older/partial
+  // exports) must still be built — otherwise the caller's impedance/
+  // threshold lookups for that slot never run at all.
+  if (!hasValue(model) && !hasValue(serial) && !hasValue(position)) return null;
   return {
     manufacturer: hasValue(manufacturer) ? manufacturer : undefined,
     model: hasValue(model) ? model : undefined,
@@ -270,6 +273,17 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
       else deviceType = 'Pacemaker';
     }
 
+    // Fields with no dedicated UnifiedReport slot — captured verbatim rather
+    // than dropped. Ejection Fraction and NYHA class are baseline facts
+    // recorded at implant, not re-measured per visit. (PatientHospital is
+    // deliberately excluded — ambiguous whether it means implant hospital or
+    // clinic of record.)
+    const additionalFields: Record<string, string | number> = {};
+    const ejectionFraction = dataMap.get('PatientLeftVentEjectFraction');
+    if (hasValue(ejectionFraction)) additionalFields.ejection_fraction = ejectionFraction;
+    const nyhaClass = dataMap.get('PatientFuncHeartClass');
+    if (hasValue(nyhaClass)) additionalFields.nyha_class = nyhaClass;
+
     const report: UnifiedReport = {
       manufacturer: 'Boston Scientific',
       interrogation_date: header.interrogationDate,
@@ -293,6 +307,7 @@ export function parseBostonScientificBnk(bnkData: string): UnifiedReport | null 
       formatVariant: 'boston-scientific-bnk',
       parseWarnings: collector.list,
       parseStatus: deriveParseStatus(collector, !!(patientLastName || patientDob), !!(deviceModel || deviceSerial)),
+      ...(Object.keys(additionalFields).length > 0 ? { additional_fields: additionalFields } : {}),
     };
 
     console.log('BNK file parsed successfully.');

@@ -41,6 +41,10 @@ describe('Abbott parser diagnostics', () => {
         expect(report!.formatVariant).toContain('abbott-coded-log');
         expect(report!.parseStatus).not.toBe('failed');
         expect(report!.patient.last_name).toBe('Doe');
+        // Ejection Fraction / Indications for Implant have no dedicated
+        // schema slot — captured into additional_fields instead of dropped.
+        expect(report!.additional_fields?.ejection_fraction).toBe('35%');
+        expect(report!.additional_fields?.indications_for_implant).toBe('Primary Prevention');
     });
 
     it('fails soft when lines look coded but no known codes match (unrecognized revision)', async () => {

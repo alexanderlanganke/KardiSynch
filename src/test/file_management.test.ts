@@ -5,6 +5,7 @@ import fs from 'fs';
 import { initializeDatabase, closeDatabase, setSettings } from '../main/database';
 import { storeReport, storeFile, initializeStorage } from '../main/storage';
 import { UnifiedReport } from '../main/reports';
+import { parseFile } from '../main/parser';
 
 // Mock electron
 vi.mock('electron', () => ({
@@ -107,5 +108,102 @@ describe('File Management', () => {
         expect(xmlContent).toContain('<leads>');
         expect(xmlContent).toContain('2088TC Tendril STS');
         expect(xmlContent).toContain('St. Jude Medical');
+    });
+
+    it('adds a device to the patient device list even without a serial number', async () => {
+        // Same gap as the lead fix above, but for the device itself: a
+        // parser can resolve model/manufacturer without a serial (e.g. a
+        // header/regex miss) — requiring one used to drop the device
+        // entirely instead of recording it and refreshing by
+        // (manufacturer, model) on a later, better-identified import.
+        const mockReport: UnifiedReport = {
+            manufacturer: 'Medtronic',
+            interrogation_date: '2023-01-01',
+            patient: { first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' },
+            device: { model: 'Astra S DR MRI', serial_number: '', type: 'Pacemaker' },
+            battery: {},
+            leads: [],
+            raw_text: 'raw data'
+        };
+
+        const sourceFile = path.join(testDataPath, 'source_no_device_serial.pdd');
+        fs.writeFileSync(sourceFile, 'content');
+
+        const reportId = 'test-report-id-3';
+        const patientId = 'test-patient-id-3';
+
+        await storeFile(sourceFile, reportId, patientId, 'Patient', '2023-01-01', { id: patientId, ...mockReport.patient }, mockReport);
+
+        const patientXmlPath = path.join(testDataPath, 'Reports', `${patientId}_Patient`, 'patient.xml');
+        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+
+        expect(xmlContent).toContain('<devices>');
+        expect(xmlContent).toContain('Astra S DR MRI');
+    });
+
+    it('persists additional_fields to visit.xml and round-trips them back via parseFile', async () => {
+        const mockReport: UnifiedReport = {
+            manufacturer: 'Abbott',
+            interrogation_date: '2023-01-01',
+            patient: { first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' },
+            device: { model: 'Entrant DR', serial_number: 'DEV12345', type: 'Pacemaker' },
+            battery: {},
+            leads: [],
+            raw_text: 'raw data',
+            additional_fields: { ejection_fraction: '35%', indications_for_implant: 'AV Block' }
+        };
+
+        const sourceFile = path.join(testDataPath, 'source_additional_fields.log');
+        fs.writeFileSync(sourceFile, 'content');
+
+        const reportId = 'test-report-id-4';
+        const patientId = 'test-patient-id-4';
+
+        await storeFile(sourceFile, reportId, patientId, 'Patient', '2023-01-01', { id: patientId, ...mockReport.patient }, mockReport);
+
+        const visitXmlPath = path.join(testDataPath, 'Reports', `${patientId}_Patient`, '2023_01_01_test-report-id-4', 'visit.xml');
+        const xmlContent = fs.readFileSync(visitXmlPath, 'utf-8');
+        expect(xmlContent).toContain('<additional_fields>');
+        expect(xmlContent).toContain('35%');
+        expect(xmlContent).toContain('AV Block');
+
+        const roundTripped = await parseFile(visitXmlPath);
+        expect(roundTripped?.additional_fields?.ejection_fraction).toBe('35%');
+        expect(roundTripped?.additional_fields?.indications_for_implant).toBe('AV Block');
+    });
+
+    it('merges additional_fields from a second file imported into the same visit instead of overwriting', async () => {
+        const patientId = 'test-patient-id-5';
+        const reportId = 'test-report-id-5';
+        const patient = { id: patientId, first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' };
+
+        const firstReport: UnifiedReport = {
+            manufacturer: 'Boston Scientific',
+            interrogation_date: '2023-01-01',
+            patient: { first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' },
+            device: { model: 'D321-200-0', serial_number: 'DEV1', type: 'Pacemaker' },
+            battery: {},
+            leads: [],
+            raw_text: 'raw data 1',
+            additional_fields: { ejection_fraction: '40%' }
+        };
+        const secondReport: UnifiedReport = {
+            ...firstReport,
+            raw_text: 'raw data 2',
+            additional_fields: { nyha_class: 'II' }
+        };
+
+        const firstSource = path.join(testDataPath, 'source_1.bnk');
+        fs.writeFileSync(firstSource, 'content1');
+        await storeFile(firstSource, reportId, patientId, 'Patient', '2023-01-01', patient, firstReport);
+
+        const secondSource = path.join(testDataPath, 'source_2.bnk');
+        fs.writeFileSync(secondSource, 'content2');
+        await storeFile(secondSource, reportId, patientId, 'Patient', '2023-01-01', patient, secondReport);
+
+        const visitXmlPath = path.join(testDataPath, 'Reports', `${patientId}_Patient`, '2023_01_01_test-report-id-5', 'visit.xml');
+        const roundTripped = await parseFile(visitXmlPath);
+        expect(roundTripped?.additional_fields?.ejection_fraction).toBe('40%');
+        expect(roundTripped?.additional_fields?.nyha_class).toBe('II');
     });
 });
