@@ -49,6 +49,39 @@ function findTable(data: any, tableName: string): any[] | null {
 }
 
 /**
+* Like findTable, but returns ALL tables matching tableName instead of just
+* the first. Most Biotronik tables appear once, but TBU_HSM_IMPLANT_SO (an
+* alternate per-lead identity schema seen on some exports — Ecuro/Entovis/
+* Evia/Effecta families) repeats once per implanted lead.
+*/
+function findAllTables(data: any, tableName: string): any[][] {
+    try {
+        const examination = data['InterfaceData']?.['Examination'];
+        if (!examination) return [];
+
+        let tables: any[] = [];
+        if (examination['Measurements']?.['Table']) {
+            const mTables = examination['Measurements']['Table'];
+            tables = tables.concat(Array.isArray(mTables) ? mTables : [mTables]);
+        }
+        if (examination['AdditionalMeasurements']?.['Table']) {
+            const amTables = examination['AdditionalMeasurements']['Table'];
+            tables = tables.concat(Array.isArray(amTables) ? amTables : [amTables]);
+        }
+
+        return tables
+            .filter((t: any) => String(t['TableName']) === tableName)
+            .map((t: any) => {
+                const entries = t['TableEntry'];
+                return Array.isArray(entries) ? entries : (entries ? [entries] : []);
+            });
+    } catch (e) {
+        console.error(`Error finding tables: ${tableName}`, e);
+        return [];
+    }
+}
+
+/**
 * Finds a value from a table entry
 * E.g., findTableEntry(table, 'SERHSM') -> '88763967'
 */
@@ -334,13 +367,35 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         return aligned;
     }, channels);
 
+    // Third fallback: some exports (seen on Enticos/Enitra/Evity families)
+    // leave every Kanäle/Kanal-N entry as a '.' placeholder even though
+    // Elektrodenmodell carries real per-lead data — there's no channel-
+    // identity field anywhere in these files. Infer position from the
+    // canonical atrial-then-ventricular(-then-LV) ordering already relied
+    // on for the other manufacturers' parsers in this codebase, since
+    // placeholder-padding is always trailing (real entries come first).
+    // A single real lead is left generically named: single-chamber devices
+    // are genuinely ambiguous between atrial-only and ventricular-only.
+    if (channels.length > 0 && !channels.some(c => c && c !== '.' && c !== 'Unknown')) {
+        const realModelCount = models.filter(m => m && m !== '.' && m !== 'Unknown').length;
+        const positional = realModelCount === 3 ? ['RA', 'RV', 'LV']
+            : realModelCount === 2 ? ['RA', 'RV']
+                : realModelCount === 1 ? ['Lead']
+                    : null;
+        if (positional) {
+            channels = positional;
+            channelVariant = 'channels=positional';
+            console.log(`[Biotronik Parser] No channel labels found; inferring positional order: ${channels.join(', ')}`);
+        }
+    }
+
     // Dynamic Lead Construction
     //
     // We iterate through the 'Kanäle' array as it defines the installed slots.
     // We assume the other arrays (manufacturers, models, serials) start at the same index
     // and align with the channels.
     // NOTE: The XML often ends with a "." or empty entry for unused slots, we must filter those.
-    const leads: LeadData[] = safeExtract(collector, 'leads', () => {
+    const leadsFromSettings: LeadData[] = safeExtract(collector, 'leads', () => {
         const built: LeadData[] = [];
         for (let i = 0; i < channels.length; i++) {
             const channel = channels[i];
@@ -351,7 +406,7 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
             const lead: LeadData = safeExtract(collector, `leads[${channel}]`, () => {
                 // Basic Lead Object
                 const built_lead: LeadData = {
-                    name: `${channel}-Lead`,
+                    name: channel === 'Lead' ? 'Lead' : `${channel}-Lead`,
                     manufacturer: manufacturers[i] && manufacturers[i] !== '.' ? manufacturers[i] : 'Unknown',
                     model: models[i] && models[i] !== '.' ? models[i] : undefined,
                     serial: serials[i] && serials[i] !== '.' ? serials[i] : undefined
@@ -404,13 +459,81 @@ export function parseBiotronikXML(xmlData: string): UnifiedReport | null {
         return built;
     }, []);
 
+    // Alternate schema: some exports (Ecuro/Entovis/Evia/Effecta families)
+    // carry no Elektrodenmodell/Kanäle/LeadModel/Channels attributes at all
+    // (settingsTable never resolves), and instead repeat a TBU_HSM_IMPLANT_SO
+    // table once per implanted lead, each with an explicit LOKALISATION
+    // (RA/RV/LV) — no positional guessing needed here, unlike the fallback
+    // above. Per-lead measurements (impedance/sensing/threshold/pulse width)
+    // live in a separate shared table ('9115' on every real sample seen)
+    // whose repeated attribute entries are positionally aligned with the
+    // TBU_HSM_IMPLANT_SO table order.
+    const leadsFromImplantTables: LeadData[] = leadsFromSettings.length > 0 ? [] : safeExtract(collector, 'leads.implantTables', () => {
+        const implantTables = findAllTables(xml, 'TBU_HSM_IMPLANT_SO');
+        if (implantTables.length === 0) return [];
+
+        const measurementEntries = findTable(xml, '9115') || [];
+        const byAttribute = (name: string): string[] => {
+            const list = Array.isArray(measurementEntries) ? measurementEntries : [measurementEntries];
+            return list
+                .filter((e: any) => String(e['AttributeName'] ?? '').trim().toLowerCase() === name.toLowerCase())
+                .map((e: any) => e['CharValue']);
+        };
+        const impedances = byAttribute('Elektrodenimpedanz');
+        const sensings = byAttribute('P-/R-Wellenamplitude');
+        const thresholds = byAttribute('Reizschwelle');
+        const pulseWidths = byAttribute('Impulsdauer');
+
+        const built: LeadData[] = [];
+        implantTables.forEach((table, i) => {
+            const location = findEntry(table, 'LOKALISATION'); // RA / RV / LV
+            if (!location || location === '.' || location === 'Unknown') return;
+
+            const lead: LeadData = safeExtract(collector, `leads[${location}]`, () => {
+                const built_lead: LeadData = {
+                    name: `${location}-Lead`,
+                    manufacturer: findEntry(table, 'MANUFACTURERDESCR') || findEntry(table, 'MANUFACTURER') || 'Unknown',
+                    model: findEntry(table, 'CATLEADDESCR') || findEntry(table, 'CATLEAD') || undefined,
+                    // No per-lead serial field in this schema variant.
+                };
+
+                const imped = impedances[i];
+                if (imped && imped !== '.' && imped !== '-----') built_lead.impedance = { value: imped, unit: 'Ohms' };
+
+                const sense = sensings[i];
+                if (sense && sense !== '.' && sense !== '-----') built_lead.sensing = { value: sense, unit: 'mV' };
+
+                const amp = thresholds[i];
+                const pulse = pulseWidths[i];
+                if (amp && amp !== '.' && amp !== '-----') {
+                    built_lead.pacing_threshold = pulse && pulse !== '.' && pulse !== '-----'
+                        ? { value: `${amp} @ ${pulse}`, unit: 'V @ ms' }
+                        : { value: amp, unit: 'V' };
+                }
+                return built_lead;
+            }, { name: `${location}-Lead` });
+
+            if (hasLeadData(lead)) built.push(lead);
+        });
+        return built;
+    }, [] as LeadData[]);
+
+    if (leadsFromImplantTables.length > 0) {
+        channelVariant = 'channels=TBU_HSM_IMPLANT_SO';
+    }
+    const leads: LeadData[] = leadsFromSettings.length > 0 ? leadsFromSettings : leadsFromImplantTables;
+
     // Infer device type from model name
     const deviceModelStr = safeExtract(collector, 'device.model', () => findEntry(summaryTable, 'CATAGGREGATDESCR') || '', '');
     const deviceType = safeExtract(collector, 'device.type', () => {
         const deviceModelUpper = deviceModelStr.toUpperCase();
         if (deviceModelUpper.includes('CRT-D') || deviceModelUpper.includes('HF-T')) return 'CRT-D';
         if (deviceModelUpper.includes('CRT-P') || deviceModelUpper.includes('HF-P')) return 'CRT-P';
-        if (deviceModelUpper.includes('ICD') || deviceModelUpper.includes('DEFI') || deviceModelUpper.includes('LUMAX') || deviceModelUpper.includes('IFORIA') || deviceModelUpper.includes('ILIVIA')) return 'ICD';
+        if (deviceModelUpper.includes('ICD') || deviceModelUpper.includes('DEFI') || deviceModelUpper.includes('LUMAX') || deviceModelUpper.includes('IFORIA') || deviceModelUpper.includes('ILIVIA') || deviceModelUpper.includes('RIVACOR') || deviceModelUpper.includes('INTICA')) return 'ICD';
+        // Insertable cardiac monitor — leadless, checked before the
+        // FunctionalDomain=HSM Pacemaker fallback below since real
+        // BIOMONITOR exports are also tagged FunctionalDomain 'HSM'.
+        if (deviceModelUpper.includes('BIOMONITOR')) return 'ICM';
         if (deviceModelUpper.includes('HSM') || deviceModelUpper.includes('ENTOVIS') || deviceModelUpper.includes('EDORA') || deviceModelUpper.includes('EFFECTA') || deviceModelUpper.includes('AMVIA')) return 'Pacemaker';
         // FunctionalDomain is the source system's own device-category code —
         // 'HSM' (Herzschrittmacher/pacemaker) is the one value confirmed

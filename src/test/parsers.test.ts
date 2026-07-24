@@ -193,6 +193,122 @@ describe('Parsers', () => {
             expect(result?.battery?.remaining_longevity?.value).toBe('95');
             expect(result?.battery?.remaining_longevity?.unit).toBe('%');
         });
+
+        // Helper for the tests below: a minimal-but-valid summary table so
+        // manufacturer/model/serial resolve, with room to inject extra
+        // Measurements/AdditionalMeasurements XML per test.
+        const withSummary = (model: string, extraXml: string) => `<?xml version="1.0" encoding="UTF-8"?>
+<carddas:InterfaceData xmlns:carddas="http://www.biotronik.com/carddas">
+    <carddas:Examination>
+        <carddas:ExaminationDate>2026-07-24</carddas:ExaminationDate>
+        <carddas:Measurements>
+            <carddas:Table>
+                <carddas:TableName>TBU_HSM_DATEN</carddas:TableName>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName>
+                    <carddas:CharValue>Biotronik</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>CATAGGREGATDESCR</carddas:AttributeName>
+                    <carddas:CharValue>${model}</carddas:CharValue>
+                </carddas:TableEntry>
+                <carddas:TableEntry>
+                    <carddas:AttributeName>SERHSM</carddas:AttributeName>
+                    <carddas:CharValue>0000000000</carddas:CharValue>
+                </carddas:TableEntry>
+            </carddas:Table>
+            ${extraXml}
+        </carddas:Measurements>
+    </carddas:Examination>
+    <carddas:Patient>
+        <carddas:PersonalData />
+    </carddas:Patient>
+</carddas:InterfaceData>`;
+
+        it.each([
+            ['Rivacor 7 VR-T', 'ICD'],
+            ['Rivacor 5 DR-T', 'ICD'],
+            ['Intica Neo 5 VR-T DX', 'ICD'],
+            ['BIOMONITOR IIIm', 'ICM'],
+        ])('classifies %s as %s', (model, expectedType) => {
+            const result = parseBiotronikXML(withSummary(model, ''));
+            expect(result?.device.type).toBe(expectedType);
+        });
+
+        it('infers RA/RV lead order positionally when Kanäle/Kanal-N are all placeholders but Elektrodenmodell has real data', () => {
+            // Real pattern (Enticos/Enitra/Evity families): 4 padded slots,
+            // only the first 2 populated, and Kanäle carries no usable label
+            // at all (both entries are '.').
+            const extra = `<carddas:Table>
+                <carddas:TableName>9002</carddas:TableName>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenmodell</carddas:AttributeName><carddas:CharValue>Solia S53</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenmodell</carddas:AttributeName><carddas:CharValue>Solia S60</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenmodell</carddas:AttributeName><carddas:CharValue>.</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenmodell</carddas:AttributeName><carddas:CharValue>.</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Kanäle</carddas:AttributeName><carddas:CharValue>.</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Kanäle</carddas:AttributeName><carddas:CharValue>.</carddas:CharValue></carddas:TableEntry>
+            </carddas:Table>`;
+            const result = parseBiotronikXML(withSummary('Enticos 4 DR', extra));
+
+            expect(result?.formatVariant).toContain('channels=positional');
+            expect(result?.leads?.map(l => l.name)).toEqual(['RA-Lead', 'RV-Lead']);
+            expect(result?.leads?.map(l => l.model)).toEqual(['Solia S53', 'Solia S60']);
+        });
+
+        it('names a single unlabeled lead generically rather than guessing RA vs RV', () => {
+            const extra = `<carddas:Table>
+                <carddas:TableName>9002</carddas:TableName>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenmodell</carddas:AttributeName><carddas:CharValue>Isoflex1948</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Kanäle</carddas:AttributeName><carddas:CharValue>.</carddas:CharValue></carddas:TableEntry>
+            </carddas:Table>`;
+            const result = parseBiotronikXML(withSummary('Enitra 6 SR', extra));
+
+            expect(result?.leads?.map(l => l.name)).toEqual(['Lead']);
+            expect(result?.leads?.[0].model).toBe('Isoflex1948');
+        });
+
+        it('extracts leads from the TBU_HSM_IMPLANT_SO per-lead table schema (Ecuro/Entovis/Evia/Effecta families)', () => {
+            // Real pattern: no Elektrodenmodell/Kanäle anywhere at all — one
+            // TBU_HSM_IMPLANT_SO table per lead with an explicit LOKALISATION,
+            // plus a shared '9115' table with measurements positionally
+            // aligned to the TBU_HSM_IMPLANT_SO table order.
+            const extra = `<carddas:Table>
+                <carddas:TableName>TBU_HSM_IMPLANT_SO</carddas:TableName>
+                <carddas:TableEntry><carddas:AttributeName>LOKALISATION</carddas:AttributeName><carddas:CharValue>RA</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName><carddas:CharValue>BIOTRONIK</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>CATLEADDESCR</carddas:AttributeName><carddas:CharValue>Solia S 53</carddas:CharValue></carddas:TableEntry>
+            </carddas:Table>
+            <carddas:Table>
+                <carddas:TableName>TBU_HSM_IMPLANT_SO</carddas:TableName>
+                <carddas:TableEntry><carddas:AttributeName>LOKALISATION</carddas:AttributeName><carddas:CharValue>RV</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>MANUFACTURERDESCR</carddas:AttributeName><carddas:CharValue>BIOTRONIK</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>CATLEADDESCR</carddas:AttributeName><carddas:CharValue>Solia T 60</carddas:CharValue></carddas:TableEntry>
+            </carddas:Table>
+            <carddas:Table>
+                <carddas:TableName>9115</carddas:TableName>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenimpedanz</carddas:AttributeName><carddas:CharValue>468</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Elektrodenimpedanz</carddas:AttributeName><carddas:CharValue>585</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Reizschwelle</carddas:AttributeName><carddas:CharValue>0.7</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Reizschwelle</carddas:AttributeName><carddas:CharValue>0.8</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Impulsdauer</carddas:AttributeName><carddas:CharValue>0.4</carddas:CharValue></carddas:TableEntry>
+                <carddas:TableEntry><carddas:AttributeName>Impulsdauer</carddas:AttributeName><carddas:CharValue>0.4</carddas:CharValue></carddas:TableEntry>
+            </carddas:Table>`;
+            const result = parseBiotronikXML(withSummary('Ecuro DR', extra));
+
+            expect(result?.formatVariant).toContain('channels=TBU_HSM_IMPLANT_SO');
+            expect(result?.leads?.length).toBe(2);
+
+            const ra = result?.leads?.find(l => l.name === 'RA-Lead');
+            expect(ra?.model).toBe('Solia S 53');
+            expect(ra?.manufacturer).toBe('BIOTRONIK');
+            expect(ra?.impedance?.value).toBe('468');
+            expect(ra?.pacing_threshold?.value).toBe('0.7 @ 0.4');
+
+            const rv = result?.leads?.find(l => l.name === 'RV-Lead');
+            expect(rv?.model).toBe('Solia T 60');
+            expect(rv?.impedance?.value).toBe('585');
+            expect(rv?.pacing_threshold?.value).toBe('0.8 @ 0.4');
+        });
     });
 
     describe('Boston Scientific Parser', () => {
