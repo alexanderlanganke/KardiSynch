@@ -739,6 +739,11 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           //      with the candidate suggested, instead of creating a double
           //   4. no similar patient at all → genuinely new, create as before
           const exactMatch = await findPatient(report.patient.last_name, report.patient.dob, report.patient.first_name);
+          // Tracks the patient ID once we KNOW this isn't a brand-new patient
+          // (exact match, or an adopted identity below) — used after the
+          // ladder to check for a same-day visit to merge into instead of
+          // minting a duplicate (issue #151).
+          let resolvedPatientId: string | null = exactMatch?.id || null;
           if (!exactMatch) {
             const serial = report.device?.serial_number;
             const serialKnown = serial && serial !== 'Unknown';
@@ -760,6 +765,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                   report.patient.dob = bySerial.dob;
                   report.patient.hospitalPatientId = bySerial.hospitalPatientId;
                   identityAdopted = true;
+                  resolvedPatientId = bySerial.id;
                 } else {
                   // Serial says patient X, demographics say someone else
                   // entirely — never guess; let the user decide.
@@ -805,10 +811,32 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             }
           }
 
-          // Store the report (creates patient/visit if needed)
-          const result = await storeReport(report);
-          reportId = result.reportId;
-          patient = result.patient;
+          // A known patient (exact match, or identity adopted above) may
+          // already have a matching visit for this date — e.g. a resumed/
+          // retried import of the same file after the in-batch activeVisits
+          // cache above has expired (2 minutes of import-dir quiet). Mirrors
+          // STEP 4's standalone-PDF same-day reuse (pickSameDayReport,
+          // issue #145's serial/timestamp guards against merging genuinely
+          // distinct same-day visits), which structured files never had
+          // (issue #151) — so reprocessing silently minted a duplicate visit
+          // instead of merging into the existing one.
+          let existingSameDayReport: any = null;
+          if (resolvedPatientId && report.interrogation_date) {
+            const datePrefix = report.interrogation_date.split('T')[0];
+            const sameDayReports = await findReportsByDate(resolvedPatientId, datePrefix);
+            existingSameDayReport = pickSameDayReport(sameDayReports, report, false);
+          }
+
+          if (existingSameDayReport) {
+            console.log(`[Watcher] Matched existing same-day visit ${existingSameDayReport.id} for ${path.basename(file)} — merging instead of creating a duplicate.`);
+            reportId = existingSameDayReport.id;
+            patient = await getPatientById(resolvedPatientId!);
+          } else {
+            // Store the report (creates patient/visit if needed)
+            const result = await storeReport(report);
+            reportId = result.reportId;
+            patient = result.patient;
+          }
 
           // Store the structured file itself
           await storeFile(file, reportId, patient.id, `${patient.last_name}_${patient.first_name}`, report.interrogation_date, patient, report);
@@ -820,6 +848,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             status: 'imported',
             patient_id: patient.id,
             report_id: reportId,
+            message: existingSameDayReport ? 'Matched existing same-day visit' : undefined,
             details: buildEventDetails(report)
           });
           sessionSummary.imported++;
