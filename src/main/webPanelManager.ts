@@ -750,7 +750,7 @@ class WebPanelManager {
             const config = this.loadDownloadConfig();
             let domain = '';
             if (parentUrl) try { domain = new URL(parentUrl).hostname; } catch { /* noop */ }
-            const manufacturer = config.domain_manufacturer_map?.[domain] || 'Medtronic';
+            const manufacturer = this.resolveManufacturerForDomain(domain, config);
             dbg('handleChildWindow() notifying renderer — file:', tempPath, 'domain:', domain, 'manufacturer:', manufacturer);
             const win = getMainWindow();
             if (win && !win.isDestroyed()) {
@@ -812,7 +812,7 @@ class WebPanelManager {
         item.on('done', (_e, state) => {
           dbg('setupDownloadInterception() download done, state:', state, 'file:', tempPath);
           if (state === 'completed') {
-            const manufacturer = config.domain_manufacturer_map?.[sourceDomain] || 'Unknown';
+            const manufacturer = this.resolveManufacturerForDomain(sourceDomain, config);
             dbg('setupDownloadInterception() notifying renderer — manufacturer:', manufacturer);
             const win = getMainWindow();
             if (win && !win.isDestroyed()) {
@@ -855,6 +855,32 @@ class WebPanelManager {
     const match = domains.some((d: string) => domain === d || domain.endsWith('.' + d));
     dbg('isDomainWhitelisted()', domain, '→', match, '(checked against', domains.length, 'domains)');
     return match;
+  }
+
+  /**
+   * Resolves which manufacturer a whitelisted domain belongs to, matching
+   * subdomains the same way isDomainWhitelisted does (a session-specific
+   * host like "home.latitude.bostonscientific.com" must still resolve to
+   * the base "latitude.bostonscientific.com" entry, not just an exact key).
+   * Falls back to 'Unknown' rather than defaulting to any one manufacturer —
+   * this used to default to 'Medtronic' in a couple of call sites (a
+   * leftover from when this code only handled CareLink), which silently
+   * misattributed intercepted PDFs from any domain that didn't exactly
+   * match a map key (#149).
+   */
+  private resolveManufacturerForDomain(domain: string, config: any): string {
+    if (!domain) return 'Unknown';
+    const map: Record<string, string> = config.domain_manufacturer_map || {};
+    if (map[domain]) return map[domain];
+    let best: string | null = null;
+    let bestSuffixLen = -1;
+    for (const [d, manufacturer] of Object.entries(map)) {
+      if (domain.endsWith('.' + d) && d.length > bestSuffixLen) {
+        best = manufacturer;
+        bestSuffixLen = d.length;
+      }
+    }
+    return best || 'Unknown';
   }
 
   private isWhitelistedContext(currentUrl: string, targetUrl: string): boolean {
@@ -908,12 +934,15 @@ class WebPanelManager {
   private savePdfAndNotify(pdfBytes: Buffer, sourceDomain: string, config: any) {
     const tempDir = path.join(app.getPath('userData'), 'temp_downloads');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-    const filename = `CareLink_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+    // Was hardcoded "CareLink_Report_..." regardless of source portal — a
+    // leftover from when this path only handled Medtronic CareLink (#149).
+    const manufacturer = this.resolveManufacturerForDomain(sourceDomain, config);
+    const filenamePrefix = manufacturer !== 'Unknown' ? manufacturer.replace(/\s+/g, '_') : 'Remote_Monitoring';
+    const filename = `${filenamePrefix}_Report_${new Date().toISOString().split('T')[0]}.pdf`;
     const tempPath = path.join(tempDir, `${Date.now()}_${filename}`);
     dbg('savePdfAndNotify() writing', pdfBytes.length, 'bytes to', tempPath);
     fs.writeFileSync(tempPath, pdfBytes);
 
-    const manufacturer = config.domain_manufacturer_map?.[sourceDomain] || 'Medtronic';
     dbg('savePdfAndNotify() domain:', sourceDomain, 'manufacturer:', manufacturer,
       'domain_manufacturer_map has key:', sourceDomain in (config.domain_manufacturer_map || {}));
     const win = getMainWindow();
