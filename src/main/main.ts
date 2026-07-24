@@ -557,6 +557,25 @@ ipcMain.handle('find-orphaned-visits', async () => {
   }
 });
 
+ipcMain.handle('reparse-everything', async () => {
+  try {
+    assertNoImportInProgress('reparse all visits');
+    const mainWindow = getMainWindow();
+    const { reparseEverything } = await import('./watcher');
+    const result = await reparseEverything((status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('process-status', { ...status, taskId: 'reparse-everything' });
+      }
+    });
+    const { sendPatientListUpdate } = await import('./windowManager');
+    sendPatientListUpdate();
+    return result;
+  } catch (error) {
+    console.error('Failed to reparse all visits:', error);
+    throw error;
+  }
+});
+
 ipcMain.handle('move-orphaned-visits', async (_event, reportIds: string[]) => {
   try {
     assertNoImportInProgress('repair misplaced visits');
@@ -966,7 +985,13 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
 
     const patientPath = path.join(reportsDir, patientDir);
     const visitDirs = await fs.readdir(patientPath, { withFileTypes: true });
-    const parser = new XMLParser();
+    // ignoreAttributes must be false — this handler reads battery/lead values
+    // out of value="..."/unit="..." attributes (e.g. battery.voltage['@_value']).
+    // fast-xml-parser defaults ignoreAttributes to true, which was silently
+    // discarding every attribute-based field (battery voltage, battery
+    // longevity, and all per-lead impedance/sensing/threshold/pulse-width/
+    // shock-impedance values) before it ever reached the renderer.
+    const parser = new XMLParser({ ignoreAttributes: false });
 
     const visitPromises = visitDirs
       .filter(d => d.isDirectory())
@@ -1010,6 +1035,21 @@ ipcMain.handle('get-visit-directories', async (event, patientId: string) => {
           if (interrogationDate === undefined || interrogationDate === null || interrogationDate === '') {
             const m = dir.name.match(/^(\d{4})_(\d{2})_(\d{2})_/);
             if (m) interrogationDate = `${m[1]}-${m[2]}-${m[3]}`;
+          }
+
+          // Manufacturer-specific fields with no dedicated schema slot (e.g.
+          // Ejection Fraction, NYHA class) — see additional_fields on UnifiedReport.
+          let additionalFields: Record<string, string> | undefined;
+          if (visitData.additional_fields?.field) {
+            const rawFields = Array.isArray(visitData.additional_fields.field)
+              ? visitData.additional_fields.field
+              : [visitData.additional_fields.field];
+            additionalFields = {};
+            for (const f of rawFields) {
+              const name = f?.['@_name'];
+              const value = typeof f === 'object' ? f['#text'] : f;
+              if (name && value !== undefined && value !== null) additionalFields[name] = String(value);
+            }
           }
 
           return {

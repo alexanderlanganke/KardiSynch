@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   createPatient: (patient: any) => ipcRenderer.invoke('create-patient', patient),
   updatePatient: (patient: any) => ipcRenderer.invoke('update-patient', patient),
   rebuildDatabase: () => ipcRenderer.invoke('rebuild-database'),
+  reparseEverything: () => ipcRenderer.invoke('reparse-everything'),
   dedupReports: () => ipcRenderer.invoke('dedup-reports'),
   findDuplicatePatients: () => ipcRenderer.invoke('find-duplicate-patients'),
   mergePatients: (keeperId: string, loserIds: string[]) => ipcRenderer.invoke('merge-patients', keeperId, loserIds),

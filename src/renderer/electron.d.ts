@@ -62,6 +62,13 @@ export interface IElectronAPI {
   onPatientListUpdate: (callback: () => void) => () => void;
   updatePatient: (patient: any) => Promise<any>;
   rebuildDatabase: () => Promise<any>;
+  reparseEverything: () => Promise<{
+    visitsTotal: number;
+    visitsSucceeded: number;
+    visitsEmpty: number;
+    visitsFailed: number;
+    failures: { patientDir: string; visitDir: string; error: string }[];
+  }>;
   dedupReports: () => Promise<{ groupsFound: number; reportsRemoved: number; directoriesRemoved: number }>;
   findDuplicatePatients: () => Promise<PatientDupGroup[]>;
   mergePatients: (keeperId: string, loserIds: string[]) => Promise<PatientMergeResult>;

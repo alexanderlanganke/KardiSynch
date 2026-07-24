@@ -3,9 +3,15 @@ import { ErrorBoundary } from '../renderer/components/ErrorBoundary';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import ReportViewer from './ReportViewer';
 import FormattedReport from '@/renderer/components/FormattedReport';
-import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from 'lucide-react';
+import SummaryReport from '@/renderer/components/SummaryReport';
+import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LayoutDashboard } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn, formatDate } from '@/lib/utils';
+
+// Pinned pseudo-report id for the Summary entry at the top of the visit
+// selector — not a real visit, so it's never present in `availableReports`.
+export const SUMMARY_REPORT_ID = '__summary__';
+export const SUMMARY_REPORT = { id: SUMMARY_REPORT_ID };
 
 interface ViewPaneProps {
     paneId: number;
@@ -40,7 +46,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     const loadRequestRef = React.useRef(0);
     React.useEffect(() => {
         const loadFiles = async () => {
-            if (selectedReport && selectedReport.directoryName) {
+            if (selectedReport && selectedReport.id !== SUMMARY_REPORT_ID && selectedReport.directoryName) {
                 const requestId = ++loadRequestRef.current;
                 const reportChanged = prevReportIdRef.current !== selectedReport.id;
                 prevReportIdRef.current = selectedReport.id;
@@ -191,6 +197,8 @@ const ViewPane: React.FC<ViewPaneProps> = ({
         (f: string) => f.toLowerCase().match(/\.(pdd|pkg|bnk)$/)
     );
 
+    const isSummary = selectedReport?.id === SUMMARY_REPORT_ID;
+
     // Find previous report for trend comparison
     const previousReport = React.useMemo(() => {
         if (!selectedReport || !availableReports.length) return undefined;
@@ -222,24 +230,34 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                         onClick={() => setIsControlsExpanded(true)}
                     >
                         <div className="flex items-center gap-2 text-xs text-muted-foreground flex-1 min-w-0">
-                            <FileText className="h-3 w-3 flex-shrink-0" />
-                            <span className="font-medium text-foreground whitespace-nowrap">
-                                {formatDate(selectedReport.interrogation_date)}
-                            </span>
-                            <span>-</span>
-                            <span className="whitespace-nowrap">{selectedReport.manufacturer}</span>
-                            {effectiveSelectedFile && viewMode === 'raw' && (
+                            {isSummary ? (
                                 <>
-                                    <span>-</span>
-                                    <span className="truncate max-w-[150px]">
-                                        {effectiveSelectedFile.split(/[/\\]/).pop()}
+                                    <LayoutDashboard className="h-3 w-3 flex-shrink-0" />
+                                    <span className="font-medium text-foreground whitespace-nowrap">Summary</span>
+                                </>
+                            ) : (
+                                <>
+                                    <FileText className="h-3 w-3 flex-shrink-0" />
+                                    <span className="font-medium text-foreground whitespace-nowrap">
+                                        {formatDate(selectedReport.interrogation_date)}
                                     </span>
+                                    <span>-</span>
+                                    <span className="whitespace-nowrap">{selectedReport.manufacturer}</span>
+                                    {effectiveSelectedFile && viewMode === 'raw' && (
+                                        <>
+                                            <span>-</span>
+                                            <span className="truncate max-w-[150px]">
+                                                {effectiveSelectedFile.split(/[/\\]/).pop()}
+                                            </span>
+                                        </>
+                                    )}
                                 </>
                             )}
                         </div>
 
                         <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                             {/* View Mode Toggle */}
+                            {!isSummary && (
                             <div className="flex items-center bg-muted rounded-md p-0.5 mr-1">
                                 <button
                                     className={cn(
@@ -262,8 +280,9 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                     Formatted
                                 </button>
                             </div>
+                            )}
 
-                            {displayFiles.length > 1 && viewMode === 'raw' && (
+                            {!isSummary && displayFiles.length > 1 && viewMode === 'raw' && (
                                 <>
                                     <Button variant="ghost" size="icon" className="h-6 w-6" onClick={(e) => { e.stopPropagation(); cycleFile('prev'); }} title="Previous Document">
                                         <ChevronLeft className="h-3 w-3" />
@@ -291,6 +310,8 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                 onValueChange={(value) => {
                                     if (value === 'none') {
                                         onReportSelect(paneId, null);
+                                    } else if (value === SUMMARY_REPORT_ID) {
+                                        onReportSelect(paneId, SUMMARY_REPORT);
                                     } else {
                                         const report = availableReports.find(r => r.id === value);
                                         onReportSelect(paneId, report || null);
@@ -302,6 +323,11 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="none">None</SelectItem>
+                                    <SelectItem value={SUMMARY_REPORT_ID}>
+                                        <span className="flex items-center gap-1.5">
+                                            <LayoutDashboard className="h-3 w-3" /> Summary
+                                        </span>
+                                    </SelectItem>
                                     {availableReports.map((report) => (
                                         <SelectItem key={report.id} value={report.id}>
                                             {formatDate(report.interrogation_date)} - {report.manufacturer}
@@ -311,7 +337,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
                             </Select>
 
                             {/* View Mode Toggle */}
-                            {selectedReport && (
+                            {selectedReport && selectedReport.id !== SUMMARY_REPORT_ID && (
                                 <div className="flex items-center bg-muted rounded-md p-0.5">
                                     <button
                                         className={cn(
@@ -384,7 +410,9 @@ const ViewPane: React.FC<ViewPaneProps> = ({
             {/* Content area */}
             <div className="flex-1 overflow-hidden relative flex flex-col">
                 {selectedReport ? (
-                    viewMode === 'formatted' || (effectiveSelectedFile && getFileType(effectiveSelectedFile) === 'binary') ? (
+                    isSummary ? (
+                        <SummaryReport availableReports={availableReports} />
+                    ) : viewMode === 'formatted' || (effectiveSelectedFile && getFileType(effectiveSelectedFile) === 'binary') ? (
                         <FormattedReport report={selectedReport} previousReport={previousReport} />
                     ) : (
                         <ErrorBoundary>

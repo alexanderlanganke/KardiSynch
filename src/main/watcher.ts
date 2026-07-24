@@ -1733,6 +1733,96 @@ export const rescanVisitDirectory = async (visitPath: string, visitId?: string) 
 };
 
 /**
+ * Walks every patient/visit directory on disk and re-runs rescanVisitDirectory
+ * on each one, so retroactive parser improvements (new fields, fixed gates)
+ * reach visits that were imported before the fix shipped. Fails soft per
+ * visit — one bad directory doesn't abort the rest of the run.
+ */
+export const reparseEverything = async (
+  onProgress?: (status: any) => void
+): Promise<{
+  visitsTotal: number;
+  visitsSucceeded: number;
+  visitsEmpty: number;
+  visitsFailed: number;
+  failures: { patientDir: string; visitDir: string; error: string }[];
+}> => {
+  if (onProgress) onProgress({ type: 'start', title: 'Reparsing All Visits', message: 'Scanning patient directories...', progress: 0 });
+
+  const { getSettings } = await import('./database');
+  const settings = await getSettings();
+  const { app } = await import('electron');
+  const resolvedDataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
+  const reportsDir = path.join(resolvedDataDir, 'Reports');
+
+  let patientDirNames: string[] = [];
+  try {
+    const entries = await fs.readdir(reportsDir, { withFileTypes: true });
+    patientDirNames = entries.filter(e => e.isDirectory()).map(e => e.name);
+  } catch {
+    if (onProgress) onProgress({ type: 'complete', message: 'No data directory found.', progress: 100 });
+    return { visitsTotal: 0, visitsSucceeded: 0, visitsEmpty: 0, visitsFailed: 0, failures: [] };
+  }
+
+  // Collect every visit directory up front so the progress percentage (and
+  // the "N visits" summary) reflects the true total, not a running guess.
+  const visits: { patientDir: string; visitDir: string; visitPath: string }[] = [];
+  for (const patientDirName of patientDirNames) {
+    const patientPath = path.join(reportsDir, patientDirName);
+    let visitEntries: any[];
+    try {
+      visitEntries = await fs.readdir(patientPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const vDir of visitEntries) {
+      if (!vDir.isDirectory()) continue;
+      visits.push({ patientDir: patientDirName, visitDir: vDir.name, visitPath: path.join(patientPath, vDir.name) });
+    }
+  }
+
+  let succeeded = 0;
+  let empty = 0;
+  let failed = 0;
+  const failures: { patientDir: string; visitDir: string; error: string }[] = [];
+
+  for (let i = 0; i < visits.length; i++) {
+    const { patientDir, visitDir, visitPath } = visits[i];
+    const progress = Math.round(((i + 1) / visits.length) * 100);
+    if (onProgress) onProgress({ type: 'progress', message: `Reparsing ${patientDir}/${visitDir}...`, progress });
+
+    // Resolve the report ID for this visit — the directory-name suffix
+    // ("YYYY_MM_DD_<reportId>") is the normal case; fall back to visit.xml's
+    // own report_id for older/irregular directory names.
+    let visitId = visitDir.split('_').pop();
+    try {
+      const xmlContent = await fs.readFile(path.join(visitPath, 'visit.xml'), 'utf-8');
+      const { XMLParser } = await import('fast-xml-parser');
+      const parsed = new XMLParser().parse(xmlContent);
+      if (parsed.visit?.report_id) visitId = String(parsed.visit.report_id);
+    } catch {
+      // No visit.xml (or unreadable) — keep the directory-derived id.
+    }
+
+    try {
+      const result = await rescanVisitDirectory(visitPath, visitId);
+      if (result.status === 'success') succeeded++;
+      else empty++;
+    } catch (e: any) {
+      failed++;
+      const message = e?.message || String(e);
+      failures.push({ patientDir, visitDir, error: message });
+      console.warn(`[ReparseEverything] Failed to reparse ${patientDir}/${visitDir}:`, e);
+    }
+  }
+
+  const summaryMessage = `Reparsed ${visits.length} visit${visits.length === 1 ? '' : 's'}: ${succeeded} updated, ${empty} empty, ${failed} failed.`;
+  if (onProgress) onProgress({ type: 'complete', message: summaryMessage, progress: 100 });
+
+  return { visitsTotal: visits.length, visitsSucceeded: succeeded, visitsEmpty: empty, visitsFailed: failed, failures };
+};
+
+/**
  * Moves a visit directory to a different patient's folder.
  * @param sourceVisitPath Full path to the current visit directory
  * @param targetPatientId ID of the patient to move to

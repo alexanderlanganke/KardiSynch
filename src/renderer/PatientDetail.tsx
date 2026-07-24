@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ArrowLeft, Activity, Battery, Zap, Pencil, ChevronDown, ChevronUp, ShieldCheck, ShieldAlert, AlertTriangle, Clock, ExternalLink } from 'lucide-react';
-import ViewPane from '@/components/ViewPane';
+import ViewPane, { SUMMARY_REPORT } from '@/components/ViewPane';
 import { ErrorBoundary } from '@/renderer/components/ErrorBoundary';
 import VisitTimeline from '@/components/VisitTimeline';
 import DeviceLeadEditor from '@/components/DeviceLeadEditor';
@@ -52,11 +52,14 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
       // Functional updater: loadPatientData is re-invoked after edits/moves, so
       // reading `selectedReports` from the closure would see a stale snapshot.
+      // Both panes default to the Summary view (not the latest raw visit) —
+      // it's the intended starting point for opening a patient.
       setSelectedReports(prev => {
-        if (visitsData.length > 0 && !prev[0]) {
-          return [visitsData[0], prev[1]];
-        }
-        return prev;
+        if (visitsData.length === 0) return prev;
+        const next: (any | null)[] = [...prev];
+        if (!next[0]) next[0] = SUMMARY_REPORT;
+        if (!next[1]) next[1] = SUMMARY_REPORT;
+        return next;
       });
     } catch (error) {
       console.error('Failed to load patient data:', error);

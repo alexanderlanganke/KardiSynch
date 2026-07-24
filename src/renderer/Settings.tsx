@@ -458,6 +458,33 @@ const Settings: React.FC = () => {
                 <div className="border-t pt-4">
                   <div className="flex items-center justify-between">
                     <div className="space-y-1">
+                      <Label>Reparse Everything</Label>
+                      <p className="text-xs text-muted-foreground">Re-run every patient's every visit through the current parsers and rebuild visit/patient metadata. Use this after a parser update to retroactively apply the fix to visits imported before it shipped. Can take a while on a large database.</p>
+                    </div>
+                    <Button type="button" variant="secondary" onClick={async () => {
+                      if (await showConfirm('This will re-parse every visit for every patient from its original source files and rebuild the metadata. It can take a while on a large database. Continue?')) {
+                        setLoading(true);
+                        try {
+                          const result = await window.electronAPI.reparseEverything();
+                          const failureNote = result.visitsFailed > 0
+                            ? `\n${result.visitsFailed} visit(s) failed — check the console log for details.`
+                            : '';
+                          await showAlert(`Reparse complete.\n${result.visitsTotal} visits processed: ${result.visitsSucceeded} updated, ${result.visitsEmpty} had no parseable data.${failureNote}`);
+                        } catch (error) {
+                          await showAlert(error instanceof Error ? error.message : 'Failed to reparse visits.');
+                        } finally {
+                          setLoading(false);
+                        }
+                      }
+                    }} disabled={loading}>
+                      <RefreshCw className="mr-2 h-4 w-4" /> Reparse Everything
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="border-t pt-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
                       <Label>Deduplicate Reports</Label>
                       <p className="text-xs text-muted-foreground">Find and merge duplicate visit entries (same patient, same date). Keeps the most complete report.</p>
                     </div>
