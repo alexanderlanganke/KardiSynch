@@ -26,3 +26,22 @@ export function formatDate(dateStr: string | undefined | null, options?: Intl.Da
   if (!isNaN(d.getTime())) return d.toLocaleDateString(undefined, options);
   return str;
 }
+
+/**
+ * Extracts a "HH:MM" time-of-day from a wire date, or null when the value is
+ * date-only (no time component). Distinct same-day visits are otherwise
+ * indistinguishable in the UI (#155) — this is what lets a visit card show
+ * the actual interrogation time instead of just repeating the date.
+ */
+export function formatTime(dateStr: string | undefined | null): string | null {
+  if (!dateStr) return null;
+  const match = /T(\d{2}):(\d{2})/.exec(String(dateStr));
+  return match ? `${match[1]}:${match[2]}` : null;
+}
+
+/** The calendar-date portion of a wire date ("YYYY-MM-DD"), used to group
+ * same-day visits regardless of whether a time component is present. */
+export function dateKey(dateStr: string | undefined | null): string {
+  if (!dateStr) return '';
+  return String(dateStr).split('T')[0];
+}

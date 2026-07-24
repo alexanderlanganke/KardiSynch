@@ -2,8 +2,8 @@ import React from 'react';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi, Scissors } from 'lucide-react';
-import { formatDate } from '@/lib/utils';
+import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi, Scissors, CalendarClock } from 'lucide-react';
+import { formatDate, formatTime, dateKey } from '@/lib/utils';
 
 interface Visit {
     id: string;
@@ -29,6 +29,19 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
         e.dataTransfer.effectAllowed = 'copy';
     };
 
+    // Same-day visits are otherwise indistinguishable on the timeline (#155)
+    // — group by calendar date so each card can flag when it has same-day
+    // siblings and, when available, show the actual interrogation time.
+    const sameDayCounts = React.useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const v of visits) {
+            const key = dateKey(v.interrogation_date);
+            if (!key) continue;
+            counts.set(key, (counts.get(key) || 0) + 1);
+        }
+        return counts;
+    }, [visits]);
+
     return (
         <div className="border-t border-border bg-card">
             <div className="px-4 py-2">
@@ -53,11 +66,16 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                 : isIntraop
                                     ? 'border-amber-500/40 bg-amber-500/5'
                                     : '';
+                            const sameDayCount = sameDayCounts.get(dateKey(visit.interrogation_date)) || 0;
+                            const hasSameDaySiblings = sameDayCount > 1;
+                            const time = formatTime(visit.interrogation_date);
                             const tooltip = isRemote
                                 ? `Remote Monitoring — ${visit.source_manufacturer || visit.manufacturer}`
                                 : isIntraop
                                     ? `Intraoperative — ${visit.source_manufacturer || visit.manufacturer}`
-                                    : undefined;
+                                    : hasSameDaySiblings
+                                        ? `${sameDayCount} visits on this date${time ? ` — this one at ${time}` : ''}`
+                                        : undefined;
                             return (
                             <Card
                                 key={visit.id}
@@ -103,9 +121,16 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                         <div className="text-xs font-semibold flex items-center gap-1">
                                             {isRemote && <Wifi className="h-3 w-3 text-blue-400 flex-shrink-0" />}
                                             {isIntraop && <Scissors className="h-3 w-3 text-amber-400 flex-shrink-0" />}
+                                            {hasSameDaySiblings && <CalendarClock className="h-3 w-3 text-orange-500 flex-shrink-0" />}
                                             {formatDate(visit.interrogation_date)}
+                                            {time && <span className="text-[10px] font-normal text-muted-foreground">{time}</span>}
                                         </div>
                                     </div>
+                                    {hasSameDaySiblings && (
+                                        <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-orange-500/40 text-orange-500">
+                                            {sameDayCount} visits this day
+                                        </Badge>
+                                    )}
                                     {isRemote && (
                                         <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 border-blue-500/40 text-blue-400">
                                             Remote

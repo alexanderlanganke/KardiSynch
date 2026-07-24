@@ -543,48 +543,49 @@ export const storeFile = async (
   if (report) {
     const visitXmlPath = path.join(visitDir, 'visit.xml');
     let finalReport = report;
-    let existingLeads: any[] = [];
-    let existingAdditionalFields: Record<string, string | number> = {};
 
-    // Read existing visit.xml to merge logic
-    try {
-      const xmlContent = await fs.readFile(visitXmlPath, 'utf-8');
-      const parser = new XMLParser({ ignoreAttributes: false });
-      const parsed = parser.parse(xmlContent);
-      if (parsed.visit && parsed.visit.leads && parsed.visit.leads.lead) {
-        existingLeads = Array.isArray(parsed.visit.leads.lead)
-          ? parsed.visit.leads.lead
-          : [parsed.visit.leads.lead];
+    // Read the existing visit.xml (if any) so a second file merged into the
+    // same visit — e.g. a same-day PDF alongside an XML export, or two files
+    // from one same-day-reused interrogation (#155) — doesn't silently wipe
+    // out data the first file already contributed. Previously only
+    // leads/additional_fields were unioned; battery, device identity, and
+    // manufacturer were simply overwritten by whichever file was stored last,
+    // even when that file didn't carry that data at all.
+    const { parseFile } = await import('./parser');
+    const existingReport = await parseFile(visitXmlPath).catch(() => null);
+
+    if (existingReport) {
+      const existingLeads = existingReport.leads || [];
+      let mergedLeads = existingLeads;
+      if (report.leads && report.leads.length > 0) {
+        mergedLeads = [...existingLeads];
+        report.leads.forEach(l => {
+          // Deduplicate by serial/model
+          const exists = mergedLeads.some(ex =>
+            (ex.serial && String(ex.serial) === String(l.serial)) ||
+            (ex.model && String(ex.model) === String(l.model) && ex.name === l.name)
+          );
+          if (!exists) mergedLeads.push(l);
+        });
       }
-      existingAdditionalFields = parseAdditionalFieldsXml(parsed.visit?.additional_fields);
-    } catch (e: any) {
-      if (e.code !== 'ENOENT') console.error('Error reading existing visit.xml for merge:', e);
-    }
 
-    // Merge new leads with existing leads
-    if (report.leads && report.leads.length > 0) {
-      report.leads.forEach(l => {
-        // Deduplicate by serial/model
-        const exists = existingLeads.some(ex =>
-          (ex.serial && String(ex.serial) === String(l.serial)) ||
-          (ex.model && String(ex.model) === String(l.model) && ex.name === l.name)
-        );
-        if (!exists) {
-          existingLeads.push(l);
-        }
-      });
-      // Update the report object used for generation to include ALL leads
-      finalReport = { ...report, leads: existingLeads };
-    } else if (existingLeads.length > 0) {
-      // If current report has no leads but existing one did, preserve them
-      finalReport = { ...report, leads: existingLeads };
-    }
+      const mergedAdditionalFields = { ...(existingReport.additional_fields || {}), ...(report.additional_fields || {}) };
+      const hasBatteryData = (b?: UnifiedReport['battery']) => !!(b && (b.voltage?.value || b.lastChargeTime?.value || b.status));
+      const hasIdentity = (v?: string) => !!(v && v !== 'Unknown');
 
-    // Merge new additional_fields with existing ones — a second file imported
-    // into the same visit must not wipe out fields the first file contributed.
-    const mergedAdditionalFields = { ...existingAdditionalFields, ...(report.additional_fields || {}) };
-    if (Object.keys(mergedAdditionalFields).length > 0) {
-      finalReport = { ...finalReport, additional_fields: mergedAdditionalFields };
+      finalReport = {
+        ...report,
+        leads: mergedLeads,
+        ...(Object.keys(mergedAdditionalFields).length > 0 ? { additional_fields: mergedAdditionalFields } : {}),
+        battery: hasBatteryData(report.battery) ? report.battery : existingReport.battery,
+        manufacturer: hasIdentity(report.manufacturer) ? report.manufacturer : (existingReport.manufacturer || report.manufacturer),
+        device: {
+          ...report.device,
+          type: hasIdentity(report.device?.type) ? report.device.type : (existingReport.device?.type || report.device?.type),
+          model: hasIdentity(report.device?.model) ? report.device.model : (existingReport.device?.model || report.device?.model),
+          serial_number: hasIdentity(report.device?.serial_number) ? report.device.serial_number : (existingReport.device?.serial_number || report.device?.serial_number),
+        },
+      };
     }
 
     // Force the visit.xml date to match the directory's date (see effectiveDate

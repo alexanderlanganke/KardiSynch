@@ -206,4 +206,52 @@ describe('File Management', () => {
         expect(roundTripped?.additional_fields?.ejection_fraction).toBe('40%');
         expect(roundTripped?.additional_fields?.nyha_class).toBe('II');
     });
+
+    it('preserves battery/device data from the first file when a second same-day file merged into the same visit lacks it (#155)', async () => {
+        // Two same-day files (e.g. a device XML export plus a supplementary
+        // PDF) can be matched into the same visit by pickSameDayReport. The
+        // second file storeFile() is called with often won't carry battery or
+        // device-identity data of its own — that must not silently overwrite
+        // what the first file already established.
+        const patientId = 'test-patient-id-6';
+        const reportId = 'test-report-id-6';
+        const patient = { id: patientId, first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' };
+
+        const firstReport: UnifiedReport = {
+            manufacturer: 'Medtronic',
+            interrogation_date: '2023-01-01',
+            patient: { first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' },
+            device: { model: 'Astra S DR MRI', serial_number: 'DEV999', type: 'Pacemaker' },
+            battery: { voltage: { value: 2.95, unit: 'V' }, status: 'OK' },
+            leads: [],
+            raw_text: 'raw data 1'
+        };
+        // A second, weaker parse of a supplementary file for the same visit —
+        // no battery data, and device fields fell back to 'Unknown'.
+        const secondReport: UnifiedReport = {
+            manufacturer: 'Unknown',
+            interrogation_date: '2023-01-01',
+            patient: { first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' },
+            device: { model: 'Unknown', serial_number: 'Unknown', type: 'Unknown' },
+            battery: {},
+            leads: [],
+            raw_text: 'raw data 2'
+        };
+
+        const firstSource = path.join(testDataPath, 'source_a.xml');
+        fs.writeFileSync(firstSource, 'content-a');
+        await storeFile(firstSource, reportId, patientId, 'Patient', '2023-01-01', patient, firstReport);
+
+        const secondSource = path.join(testDataPath, 'source_b.pdf');
+        fs.writeFileSync(secondSource, 'content-b');
+        await storeFile(secondSource, reportId, patientId, 'Patient', '2023-01-01', patient, secondReport);
+
+        const visitXmlPath = path.join(testDataPath, 'Reports', `${patientId}_Patient`, '2023_01_01_test-report-id-6', 'visit.xml');
+        const roundTripped = await parseFile(visitXmlPath);
+        expect(roundTripped?.battery?.voltage?.value).toBe(2.95);
+        expect(roundTripped?.battery?.status).toBe('OK');
+        expect(roundTripped?.device?.model).toBe('Astra S DR MRI');
+        expect(roundTripped?.device?.serial_number).toBe('DEV999');
+        expect(roundTripped?.manufacturer).toBe('Medtronic');
+    });
 });
