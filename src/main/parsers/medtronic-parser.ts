@@ -66,6 +66,38 @@ function parsePersonName(raw: string): { last: string; first: string } | null {
 }
 
 /**
+ * Infers a device type from its model name, using product families whose
+ * line unambiguously implies a type even when the model string is truncated
+ * or doesn't spell it out — e.g. "Amplia MRI Quad" is CRT-D with the "CRT-D"
+ * suffix cut off by the .pdd format's 15-byte field width, and "Visia"/
+ * "Evera" are ICD lines with no literal "ICD" in the name at all. Matching
+ * is case-insensitive: real samples spell some models in all caps
+ * ("REVEAL LINQ LNQ"). Shared between the .pdd path (which has no reliable
+ * structured type field at all) and the .pkg/XML path (as a fallback for
+ * when the XML's own DeviceType parameter is missing).
+ */
+function inferMedtronicDeviceType(modelString: string): string {
+    const modelUpper = modelString.toUpperCase();
+    const familyType: [string, string][] = [
+        ['REVEAL', 'ICM'], ['LINQ', 'ICM'],
+        ['AMPLIA', 'CRT-D'],
+        ['PROTECTA', 'ICD'], ['VISIA', 'ICD'], ['EVERA', 'ICD'],
+    ];
+    const family = familyType.find(([f]) => modelUpper.includes(f));
+    if (family) return family[1];
+    if (modelUpper.includes('CRT-D')) return 'CRT-D';
+    if (modelUpper.includes('CRT-P')) return 'CRT-P';
+    // "CRT" present but the -P/-D suffix was truncated — flag it as CRT
+    // without guessing defibrillation capability.
+    if (modelUpper.includes('CRT')) return 'CRT';
+    if (modelUpper.includes('ICD') || (modelUpper.includes('DR') && modelUpper.includes('PROTECTA'))) return 'ICD';
+    // A model was positively identified but doesn't match any ICD/CRT/ICM
+    // family — real samples confirm this is a basic pacemaker (Ensura,
+    // Astra, Azure), not truly "Unknown".
+    return 'Pacemaker';
+}
+
+/**
  * Parses a legacy Medtronic .pdd file.
  * Extracts header information and measurements using binary structure analysis.
  */
@@ -193,38 +225,7 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
         const modelString = modelResult?.value;
         if (modelString) {
             report.device.model = modelString;
-            const modelUpper = modelString.toUpperCase();
-            // Well-known families whose product line unambiguously implies a
-            // device type even when the (sometimes truncated) model string
-            // doesn't spell it out — e.g. "Amplia MRI Quad" is CRT-D with the
-            // "CRT-D" suffix cut off by the 15-byte field width, and "Visia"/
-            // "Evera" are ICD lines with no literal "ICD" in the name at all.
-            // Matching is case-insensitive: real samples spell some models
-            // in all caps ("REVEAL LINQ LNQ").
-            const familyType: [string, string][] = [
-                ['REVEAL', 'ICM'], ['LINQ', 'ICM'],
-                ['AMPLIA', 'CRT-D'],
-                ['PROTECTA', 'ICD'], ['VISIA', 'ICD'], ['EVERA', 'ICD'],
-            ];
-            const family = familyType.find(([f]) => modelUpper.includes(f));
-            if (family) {
-                report.device.type = family[1];
-            } else if (modelUpper.includes('CRT-D')) {
-                report.device.type = 'CRT-D';
-            } else if (modelUpper.includes('CRT-P')) {
-                report.device.type = 'CRT-P';
-            } else if (modelUpper.includes('CRT')) {
-                // "CRT" present but the -P/-D suffix was truncated — flag it
-                // as CRT without guessing defibrillation capability.
-                report.device.type = 'CRT';
-            } else if (modelUpper.includes('ICD') || (modelUpper.includes('DR') && modelUpper.includes('PROTECTA'))) {
-                report.device.type = 'ICD';
-            } else {
-                // A model was positively identified but doesn't match any
-                // ICD/CRT/ICM family — real samples confirm this is a basic
-                // pacemaker (Ensura, Astra, Azure), not truly "Unknown".
-                report.device.type = 'Pacemaker';
-            }
+            report.device.type = inferMedtronicDeviceType(modelString);
         }
         return undefined;
     }, undefined);
@@ -688,6 +689,24 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
     if (deviceTypeParam) {
         const val = findValueInComposite(deviceTypeParam, 'Current');
         if (val) deviceType = val;
+    }
+
+    // Normalize the raw XML DeviceType vocabulary ('IPG', 'CRT_D', 'CRT_P')
+    // to the app's canonical device-type set ('Pacemaker', 'CRT-D', 'CRT-P',
+    // 'ICD', 'ICM') — used everywhere else (Settings.tsx's device-type
+    // editor, the .pdd path's own inference). Real samples confirm these
+    // four raw values cover every .pkg export seen; anything else is left
+    // as-is, or — when the XML has no DeviceType parameter at all — falls
+    // back to the same model-based inference the .pdd path uses.
+    const rawDeviceTypeMap: Record<string, string> = {
+        'CRT_D': 'CRT-D',
+        'CRT_P': 'CRT-P',
+        'IPG': 'Pacemaker',
+    };
+    if (rawDeviceTypeMap[deviceType]) {
+        deviceType = rawDeviceTypeMap[deviceType];
+    } else if (deviceType === 'Unknown' && deviceModel) {
+        deviceType = inferMedtronicDeviceType(deviceModel);
     }
 
     if (deviceStatusParam) {

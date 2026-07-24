@@ -107,4 +107,37 @@ describe('Medtronic XML Parser (Leads)', () => {
         expect(report!.leads?.length).toBeGreaterThan(0);
         expect(report!.formatVariant).toContain('context=first-with-params');
     });
+
+    // Real .pkg samples (test/medtronic pkg/, gitignored, not committed) use
+    // an underscore vocabulary ('CRT_D', 'CRT_P', 'IPG') for the XML's own
+    // DeviceType parameter — not the app's canonical 'CRT-D'/'CRT-P'/
+    // 'Pacemaker' set used everywhere else (Settings.tsx's device-type
+    // editor, the .pdd path). Every real sample's raw value was one of
+    // these four.
+    const withDeviceType = (rawType: string) => sampleXML.replace(
+        '<Composite domain="NormalizedParameter">\n<Field name="Name"><String charset="UCS-2">DeviceSerialNumber</String></Field>',
+        `<Composite domain="NormalizedParameter">\n<Field name="Name"><String charset="UCS-2">DeviceType</String></Field>\n<Field name="Current"><String charset="UCS-2">${rawType}</String></Field>\n</Composite>\n<Composite domain="NormalizedParameter">\n<Field name="Name"><String charset="UCS-2">DeviceSerialNumber</String></Field>`
+    );
+
+    it.each([
+        ['CRT_D', 'CRT-D'],
+        ['CRT_P', 'CRT-P'],
+        ['IPG', 'Pacemaker'],
+        ['ICD', 'ICD'],
+    ])('normalizes raw XML DeviceType %s to the canonical %s', (raw, expected) => {
+        const report = parseMedtronicXML(withDeviceType(raw));
+        expect(report!.device.type).toBe(expected);
+    });
+
+    it('falls back to model-based inference when the XML has no DeviceType parameter at all', () => {
+        // Real sample: an older-schema "Astra S DR MRI X3DR01" export had no
+        // DeviceType parameter, and previously came back device.type
+        // 'Unknown' despite the model resolving correctly.
+        const noDeviceTypeXml = sampleXML.replace(
+            '<String charset="UCS-2">Evera MRI S VR DVMC3D4</String>',
+            '<String charset="UCS-2">Astra S DR MRI X3DR01</String>'
+        );
+        const report = parseMedtronicXML(noDeviceTypeXml);
+        expect(report!.device.type).toBe('Pacemaker');
+    });
 });

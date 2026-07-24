@@ -52,6 +52,7 @@ test/boston bnk/
 test/microport xml/
 test/medtronic pdd files/
 test/Biotronik xml/
+test/medtronic pkg/
 
 # IDE & System
 .DS_Store
