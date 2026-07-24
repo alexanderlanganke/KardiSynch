@@ -266,14 +266,25 @@ export const parseMedtronicPdd = async (filePath: string): Promise<UnifiedReport
 
     // --- 2. Measurements (Binary Structure) ---
 
-    // Battery Voltage (Type 4, 2.0-3.5V)
+    // Battery Voltage (Type 4, 2.0-3.5V).
+    //
+    // This byte layout has no field names — a "type 4, value in range" match
+    // is the only signal available, and real .pdd files consistently carry
+    // SEVERAL type-4 entries in this range (current voltage alongside fixed
+    // BOL/ERI/EOL reference constants, which fall in the same numeric band).
+    // Picking "whichever one happens to be last in the file" when several
+    // candidates disagree is a guess, not an extraction — and for a battery
+    // trend, a wrong guess is worse than no data point (it can silently
+    // fabricate an "increasing" voltage series). So: only assert a voltage
+    // when every in-range type-4 entry agrees on the same value; otherwise
+    // record the ambiguity and leave voltage unset.
     safeExtract(collector, 'battery.voltage', () => {
-        const batteryEntries = entries.filter(e => e.type === 4).reverse();
-        for (const entry of batteryEntries) {
-            if (entry.value >= 2000 && entry.value <= 3500) {
-                report.battery.voltage = { value: entry.value / 1000, unit: 'V' };
-                break;
-            }
+        const candidates = entries.filter(e => e.type === 4 && e.value >= 2000 && e.value <= 3500);
+        const distinctValues = new Set(candidates.map(c => c.value));
+        if (distinctValues.size === 1) {
+            report.battery.voltage = { value: candidates[0].value / 1000, unit: 'V' };
+        } else if (distinctValues.size > 1) {
+            collector.warn('battery.voltage', `${distinctValues.size} disagreeing type-4 candidates in the plausible voltage range — leaving voltage unset rather than guessing.`, [...distinctValues].map(v => v / 1000).join(', '));
         }
         return undefined;
     }, undefined);

@@ -53,6 +53,22 @@ describe('buildTrendPoints', () => {
       { date: '2024-01-01', value: 2.9 },
     ]);
   });
+
+  it('collapses multiple visits on the same date into one averaged point (#154/#155)', () => {
+    // Two visits sharing a date land on the same x-position in a time-based
+    // chart — plotting them as separate points draws a meaningless zigzag
+    // that can look like the value jumped up and back down for no reason.
+    const chronological = [
+      { interrogation_date: '2023-01-01', batteryVoltage: '3.0' },
+      { interrogation_date: '2023-01-01', batteryVoltage: '3.2' },
+      { interrogation_date: '2024-01-01', batteryVoltage: '2.9' },
+    ];
+    const points = buildTrendPoints(chronological, r => r.batteryVoltage);
+    expect(points).toEqual([
+      { date: '2023-01-01', value: 3.1 },
+      { date: '2024-01-01', value: 2.9 },
+    ]);
+  });
 });
 
 describe('getLeadLocations', () => {

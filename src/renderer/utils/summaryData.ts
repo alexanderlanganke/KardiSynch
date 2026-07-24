@@ -17,12 +17,26 @@ export function sortChronological(reports: any[]): any[] {
     .sort((a, b) => String(a.interrogation_date).localeCompare(String(b.interrogation_date)));
 }
 
+// Two visits can legitimately share a calendar date (issue #155) — since the
+// chart's x-axis is time-based, they'd otherwise land on the exact same pixel
+// column and draw a meaningless zigzag between them. Collapsing same-date
+// readings to their average keeps the trend line meaningful without silently
+// preferring one arbitrary reading over the other.
 export function buildTrendPoints(chronological: any[], extractor: (report: any) => unknown): TrendPoint[] {
-  const points: TrendPoint[] = [];
+  const byDate = new Map<string, number[]>();
   for (const r of chronological) {
     const value = toNumber(extractor(r));
-    if (value !== undefined) points.push({ date: r.interrogation_date, value });
+    if (value === undefined) continue;
+    const date = r.interrogation_date;
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date)!.push(value);
   }
+  const points: TrendPoint[] = [];
+  for (const [date, values] of byDate) {
+    const average = values.reduce((sum, v) => sum + v, 0) / values.length;
+    points.push({ date, value: average });
+  }
+  points.sort((a, b) => a.date.localeCompare(b.date));
   return points;
 }
 
