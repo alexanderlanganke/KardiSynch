@@ -49,6 +49,15 @@ export const initializeStorage = async () => {
   const settings = await getSettings();
   dataDir = settings.dataPath || path.join(app.getPath('userData'), '_DATA');
   await fs.mkdir(dataDir, { recursive: true });
+
+  // Idempotent/additive — safe to run every time storage (re-)points at a
+  // dataPath, including a freshly chosen one.
+  try {
+    const { seedDeviceTypeAliases } = await import('./deviceTypeAliases');
+    await seedDeviceTypeAliases();
+  } catch (e) {
+    console.warn('[Storage] Failed to seed device type aliases:', e);
+  }
 };
 
 /**

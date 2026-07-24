@@ -8,7 +8,7 @@ import { Trash2, Plus, Activity, Zap } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAppDialog } from '@/renderer/components/AppDialogProvider';
-import { suggestLeadConnector } from '@/lib/leadConnectorLookup';
+import { findLeadAlias, DeviceTypeAliasLike } from '@/lib/leadConnectorLookup';
 
 // Types for our editor
 interface Device {
@@ -46,9 +46,10 @@ interface DeviceLeadEditorProps {
     onOpenChange: (open: boolean) => void;
     patient: PatientData;
     onSave: (data: PatientData) => Promise<void>;
+    deviceTypeAliases: DeviceTypeAliasLike[];
 }
 
-const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange, patient, onSave }) => {
+const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange, patient, onSave, deviceTypeAliases }) => {
     const { showAlert } = useAppDialog();
     const [formData, setFormData] = useState<PatientData>(patient);
     const [saving, setSaving] = useState(false);
@@ -325,14 +326,14 @@ const DeviceLeadEditor: React.FC<DeviceLeadEditorProps> = ({ open, onOpenChange,
                                                         </SelectContent>
                                                     </Select>
                                                     {(!lead.connector || lead.connector === 'Unknown') && (() => {
-                                                        const suggestion = suggestLeadConnector(lead.manufacturer, lead.model);
-                                                        if (!suggestion) return null;
+                                                        const suggestion = findLeadAlias(deviceTypeAliases, lead.manufacturer, lead.model);
+                                                        if (!suggestion?.connector) return null;
                                                         return (
                                                             <button
                                                                 type="button"
                                                                 className="text-[10px] text-amber-600 hover:underline text-left"
-                                                                title={`Based on lead model (${suggestion.family}) — not verified. Click to fill in, then confirm it's correct before saving.`}
-                                                                onClick={() => handleLeadChange(idx, 'connector', suggestion.connector)}
+                                                                title="Based on the lead model, from public manufacturer documentation — not verified for this clinic. Click to fill in, then confirm it's correct before saving."
+                                                                onClick={() => handleLeadChange(idx, 'connector', suggestion.connector!)}
                                                             >
                                                                 Suggested: {suggestion.connector} (unverified)
                                                             </button>

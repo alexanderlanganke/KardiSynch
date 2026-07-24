@@ -13,7 +13,7 @@ import { hasActiveWarning, daysSinceLastVisit } from './utils/clinicalPriority';
 import { getMriCheckUrl } from './utils/mriCheckUrls';
 import { cn, formatDate } from '@/lib/utils';
 import { useAppDialog } from './components/AppDialogProvider';
-import { getConnectorFlag } from '@/lib/leadConnectorLookup';
+import { getConnectorFlag, DeviceTypeAliasLike } from '@/lib/leadConnectorLookup';
 
 interface PatientDetailProps {
   patientId: string;
@@ -24,6 +24,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
   const { showAlert } = useAppDialog();
   const [patient, setPatient] = useState<any>(null);
   const [reports, setReports] = useState<any[]>([]);
+  const [deviceTypeAliases, setDeviceTypeAliases] = useState<DeviceTypeAliasLike[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedReports, setSelectedReports] = useState<(any | null)[]>([null, null]);
@@ -47,6 +48,10 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
       setLoadError(null);
       const patientData = await window.electronAPI.getPatientById(patientId);
       const visitsData = await window.electronAPI.getVisitDirectories(patientId);
+      // For the DF-1 / IS-1-in-LV-port highlight (#153) — a lead's role
+      // (shock vs LV) only ever comes from this list, even for a lead whose
+      // connector is already confirmed in patient.xml.
+      window.electronAPI.listDeviceTypeAliases().then(setDeviceTypeAliases).catch(() => setDeviceTypeAliases([]));
 
       setPatient(patientData);
       setReports(visitsData);
@@ -377,7 +382,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                 {patient?.leads && patient.leads.length > 0 ? (
                   <div className="space-y-2">
                     {patient.leads.map((lead: any, idx: number) => {
-                      const flag = getConnectorFlag(lead);
+                      const flag = getConnectorFlag(lead, deviceTypeAliases);
                       return (
                       <div
                         key={`lead-${idx}`}
@@ -501,6 +506,7 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
           onOpenChange={setIsEditorOpen}
           patient={patient}
           onSave={handlePatientUpdate}
+          deviceTypeAliases={deviceTypeAliases}
         />
       )}
 
