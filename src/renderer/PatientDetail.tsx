@@ -13,6 +13,7 @@ import { hasActiveWarning, daysSinceLastVisit } from './utils/clinicalPriority';
 import { getMriCheckUrl } from './utils/mriCheckUrls';
 import { cn, formatDate } from '@/lib/utils';
 import { useAppDialog } from './components/AppDialogProvider';
+import { getConnectorFlag } from '@/lib/leadConnectorLookup';
 
 interface PatientDetailProps {
   patientId: string;
@@ -375,22 +376,43 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                 </h3>
                 {patient?.leads && patient.leads.length > 0 ? (
                   <div className="space-y-2">
-                    {patient.leads.map((lead: any, idx: number) => (
-                      <div key={`lead-${idx}`} className="flex items-start gap-3 p-2.5 bg-muted border border-border rounded-lg text-xs">
+                    {patient.leads.map((lead: any, idx: number) => {
+                      const flag = getConnectorFlag(lead);
+                      return (
+                      <div
+                        key={`lead-${idx}`}
+                        className={cn(
+                          "flex items-start gap-3 p-2.5 border rounded-lg text-xs",
+                          flag ? "border-amber-400 bg-amber-50 dark:border-amber-700 dark:bg-amber-950" : "bg-muted border-border"
+                        )}
+                      >
                         <div className="flex-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-semibold text-foreground">{lead.model || 'Unknown'}</span>
                             {lead.location && <Badge variant="outline" className="text-[9px] h-4 px-1">{lead.location}</Badge>}
                             {lead.type && <Badge variant="outline" className="text-[9px] h-4 px-1">{lead.type}</Badge>}
+                            {flag && (
+                              <Badge
+                                className="text-[9px] h-4 px-1.5 bg-amber-500 text-white hover:bg-amber-500 gap-1"
+                                title={flag.confirmed
+                                  ? `Confirmed ${flag.connector} lead — verify compatibility before a generator change.`
+                                  : `Suggested ${flag.connector} based on lead model (not yet confirmed) — verify against the implant record, then confirm in Edit Patient & Devices.`}
+                              >
+                                <AlertTriangle className="h-2.5 w-2.5" />
+                                {flag.connector}{flag.connector === 'IS-1' && ' (LV)'}
+                                {!flag.confirmed && '?'}
+                              </Badge>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-1 text-muted-foreground">
                             <span>SN: {lead.serial || 'Unknown'}</span>
-                            {lead.connector && <span>{lead.connector}</span>}
+                            {lead.connector && lead.connector !== 'Unknown' && <span>{lead.connector}</span>}
                             {lead.implant_date && <span>Implanted: {formatDate(lead.implant_date)}</span>}
                           </div>
                         </div>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-xs text-muted-foreground italic">No leads recorded</p>
