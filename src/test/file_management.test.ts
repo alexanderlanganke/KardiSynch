@@ -75,4 +75,37 @@ describe('File Management', () => {
 
         expect(fs.existsSync(expectedFile)).toBe(true);
     });
+
+    it('adds a lead to the patient device/lead list even without a serial number (#152)', async () => {
+        // Some real Abbott coded logs report a lead's model/manufacturer/
+        // measurements but not its serial number (an older code revision
+        // missing that field) — requiring a serial silently dropped such
+        // leads from the patient's device list entirely.
+        const mockReport: UnifiedReport = {
+            manufacturer: 'Abbott',
+            interrogation_date: '2023-01-01',
+            patient: { first_name: 'Test', last_name: 'Patient', dob: '1980-01-01' },
+            device: { model: 'Entrant DR', serial_number: 'DEV12345', type: 'Pacemaker' },
+            battery: {},
+            leads: [
+                { name: 'RV', model: '2088TC Tendril STS', manufacturer: 'St. Jude Medical', impedance: { value: 500, unit: 'Ohm' } },
+            ],
+            raw_text: 'raw data'
+        };
+
+        const sourceFile = path.join(testDataPath, 'source_no_serial.log');
+        fs.writeFileSync(sourceFile, 'content');
+
+        const reportId = 'test-report-id-2';
+        const patientId = 'test-patient-id-2';
+
+        await storeFile(sourceFile, reportId, patientId, 'Patient', '2023-01-01', { id: patientId, ...mockReport.patient }, mockReport);
+
+        const patientXmlPath = path.join(testDataPath, 'Reports', `${patientId}_Patient`, 'patient.xml');
+        const xmlContent = fs.readFileSync(patientXmlPath, 'utf-8');
+
+        expect(xmlContent).toContain('<leads>');
+        expect(xmlContent).toContain('2088TC Tendril STS');
+        expect(xmlContent).toContain('St. Jude Medical');
+    });
 });

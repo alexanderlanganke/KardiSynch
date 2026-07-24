@@ -282,42 +282,67 @@ const writeMergedPatientXML = async (
 
   // Append new leads if from a report
   if (report && report.leads) {
+    // Some real logs (e.g. certain Abbott coded-log revisions) don't report
+    // a lead's serial number even though model/manufacturer/measurements
+    // are present — requiring a serial here silently dropped those leads
+    // from the patient record entirely, sometimes the device's *only* lead
+    // (issue #152). Leads without a usable serial are deduped/refreshed by
+    // chamber name instead (a patient has at most one active lead per
+    // chamber) rather than being skipped.
+    const incomingChamberNames = new Set(
+      report.leads
+        .filter(l => !(l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.'))
+        .map(l => l.name)
+        .filter(Boolean)
+    );
+
+    // 1. CLEANUP (once, before the loop below — doing this per-lead would
+    //    wipe out a same-report lead's serial-less entry on the very next
+    //    iteration): drop existing "Unknown"-serial entries for chambers
+    //    this import is about to refresh; leave alone serial-less entries
+    //    for chambers this import doesn't mention.
+    existingLeads = existingLeads.filter(lead =>
+      (lead.serial && String(lead.serial) !== 'Unknown') || !incomingChamberNames.has(lead.name)
+    );
+
     for (const l of report.leads) {
-      if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
-        const newLead: any = {
-          model: l.model,
-          serial: l.serial,
-          manufacturer: l.manufacturer || report.manufacturer,
-          implant_date: l.implant_date || 'Unknown'
-        };
+      const hasSerial = !!(l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.');
+      if (!hasSerial && !l.name) continue; // nothing to identify this lead by at all
 
-        // 1. CLEANUP: Remove "Unknown" leads? (Less critical for leads, but consistency is good)
-        existingLeads = existingLeads.filter(lead => lead.serial && String(lead.serial) !== 'Unknown');
+      const newLead: any = {
+        model: l.model,
+        serial: hasSerial ? l.serial : undefined,
+        manufacturer: l.manufacturer || report.manufacturer,
+        implant_date: l.implant_date || 'Unknown',
+        ...(hasSerial ? {} : { name: l.name })
+      };
 
-        // 2. DEDUPLICATE
-        const index = existingLeads.findIndex(existing => String(existing.serial) === String(newLead.serial));
-        if (index !== -1) {
-          existingLeads[index] = { ...existingLeads[index], ...newLead };
-        } else {
-          existingLeads.push(newLead);
-        }
+      // 2. DEDUPLICATE
+      const index = existingLeads.findIndex(existing => hasSerial
+        ? String(existing.serial) === String(newLead.serial)
+        : (!existing.serial || String(existing.serial) === 'Unknown') && existing.name === newLead.name
+      );
+      if (index !== -1) {
+        existingLeads[index] = { ...existingLeads[index], ...newLead };
+      } else {
+        existingLeads.push(newLead);
+      }
 
-        // 3. ENRICH: parsers don't emit lead type/connector, so fill them from
-        //    the shared alias store — a correction made once on any patient's
-        //    editor (issue #142) then applies to every future import of the
-        //    same lead model.
-        const merged = index !== -1 ? existingLeads[index] : existingLeads[existingLeads.length - 1];
-        if ((!merged.type || merged.type === 'Unknown') || (!merged.connector || merged.connector === 'Unknown')) {
-          try {
-            const { lookupLeadAlias } = await import('./deviceTypeAliases');
-            const alias = await lookupLeadAlias(merged.manufacturer, merged.model);
-            if (alias) {
-              if (alias.type && (!merged.type || merged.type === 'Unknown')) merged.type = alias.type;
-              if (alias.connector && (!merged.connector || merged.connector === 'Unknown')) merged.connector = alias.connector;
-            }
-          } catch (e) {
-            console.warn('[Storage] Lead alias lookup failed:', e);
+      // 3. ENRICH: parsers don't emit lead type/connector, so fill them from
+      //    the shared alias store — a correction made once on any patient's
+      //    editor (issue #142) then applies to every future import of the
+      //    same lead model.
+      const merged = index !== -1 ? existingLeads[index] : existingLeads[existingLeads.length - 1];
+      if ((!merged.type || merged.type === 'Unknown') || (!merged.connector || merged.connector === 'Unknown')) {
+        try {
+          const { lookupLeadAlias } = await import('./deviceTypeAliases');
+          const alias = await lookupLeadAlias(merged.manufacturer, merged.model);
+          if (alias) {
+            if (alias.type && (!merged.type || merged.type === 'Unknown')) merged.type = alias.type;
+            if (alias.connector && (!merged.connector || merged.connector === 'Unknown')) merged.connector = alias.connector;
           }
+        } catch (e) {
+          console.warn('[Storage] Lead alias lookup failed:', e);
         }
       }
     }
@@ -1117,23 +1142,40 @@ export const refreshVisitMetadata = async (
     }
   }
 
-  // Merge leads from aggregated report
+  // Merge leads from aggregated report. Leads without a usable serial (see
+  // writeMergedPatientXML above for why real logs sometimes lack one,
+  // issue #152) are deduped/refreshed by chamber name instead of being
+  // skipped entirely.
   if (aggregated.leads) {
+    const incomingChamberNames = new Set(
+      aggregated.leads
+        .filter((l: any) => !(l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.'))
+        .map((l: any) => l.name)
+        .filter(Boolean)
+    );
+    existingLeads = existingLeads.filter(lead =>
+      (lead.serial && String(lead.serial) !== 'Unknown') || !incomingChamberNames.has(lead.name)
+    );
+
     for (const l of aggregated.leads) {
-      if (l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.') {
-        const newLead = {
-          model: l.model,
-          serial: l.serial,
-          manufacturer: l.manufacturer || aggregated.manufacturer,
-          implant_date: l.implant_date || 'Unknown'
-        };
-        existingLeads = existingLeads.filter(lead => lead.serial && String(lead.serial) !== 'Unknown');
-        const idx = existingLeads.findIndex(ex => String(ex.serial) === String(newLead.serial));
-        if (idx !== -1) {
-          existingLeads[idx] = { ...existingLeads[idx], ...newLead };
-        } else {
-          existingLeads.push(newLead);
-        }
+      const hasSerial = !!(l.serial && String(l.serial) !== 'Unknown' && l.serial !== '.');
+      if (!hasSerial && !l.name) continue;
+
+      const newLead = {
+        model: l.model,
+        serial: hasSerial ? l.serial : undefined,
+        manufacturer: l.manufacturer || aggregated.manufacturer,
+        implant_date: l.implant_date || 'Unknown',
+        ...(hasSerial ? {} : { name: l.name })
+      };
+      const idx = existingLeads.findIndex(ex => hasSerial
+        ? String(ex.serial) === String(newLead.serial)
+        : (!ex.serial || String(ex.serial) === 'Unknown') && ex.name === newLead.name
+      );
+      if (idx !== -1) {
+        existingLeads[idx] = { ...existingLeads[idx], ...newLead };
+      } else {
+        existingLeads.push(newLead);
       }
     }
   }
