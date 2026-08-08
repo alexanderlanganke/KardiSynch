@@ -6,6 +6,7 @@ import ViewPane, { SUMMARY_REPORT } from '@/components/ViewPane';
 import { ErrorBoundary } from '@/renderer/components/ErrorBoundary';
 import VisitTimeline from '@/components/VisitTimeline';
 import DeviceLeadEditor from '@/components/DeviceLeadEditor';
+import QrExportButton from '@/components/QrExportButton';
 import PatientAssignmentModal from '@/components/PatientAssignmentModal';
 import DataMergeModal from '@/components/DataMergeModal';
 import { calculateAge } from './utils/trendDelta';
@@ -328,7 +329,15 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
         {isExpanded && (
           <div className="px-4 pb-4 pt-2 border-t border-border animate-accordion-down">
             {/* Edit button - inside expanded area */}
-            <div className="flex justify-end mb-3">
+            <div className="flex justify-end items-center gap-1.5 mb-3">
+              {reports.length > 0 && (
+                <QrExportButton
+                  patient={patient}
+                  report={reports[0]}
+                  title="Export latest visit QR for CardioPal onboarding"
+                  className="h-7 w-7"
+                />
+              )}
               <Button
                 variant="outline" size="sm"
                 className="h-7 text-xs gap-1.5"
@@ -484,14 +493,10 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
 
       {/* Timeline */}
       <VisitTimeline
+        patient={patient}
         visits={reports.map(r => ({
-          id: r.id,
-          interrogation_date: r.interrogation_date,
-          manufacturer: r.manufacturer,
+          ...r,
           fileCount: r.files?.length,
-          visit_type: r.visit_type,
-          source_domain: r.source_domain,
-          source_manufacturer: r.source_manufacturer,
         }))}
         onVisitSelect={handleVisitSelect}
         onRescan={handleRescan}

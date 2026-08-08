@@ -4,6 +4,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Calendar, FileText, RefreshCw, FolderInput, Download, Wifi, Scissors, CalendarClock } from 'lucide-react';
 import { formatDate, formatTime, dateKey } from '@/lib/utils';
+import QrExportButton from './QrExportButton';
 
 interface Visit {
     id: string;
@@ -13,17 +14,27 @@ interface Visit {
     visit_type?: string;
     source_domain?: string;
     source_manufacturer?: string;
+    // Clinical fields — present when the caller passes full report objects
+    // (needed for the per-visit QR export, not just timeline display).
+    device_type?: string;
+    deviceModel?: string;
+    deviceSerial?: string;
+    batteryVoltage?: string;
+    batteryStatus?: string;
+    batteryLongevity?: string;
+    leads?: any[];
 }
 
 interface VisitTimelineProps {
     visits: Visit[];
+    patient?: any;
     onVisitSelect: (visit: Visit) => void;
     onRescan: (visit: Visit) => void;
     onMove: (visit: Visit) => void;
     onExport: (visit: Visit) => void;
 }
 
-const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, onRescan, onMove, onExport }) => {
+const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, patient, onVisitSelect, onRescan, onMove, onExport }) => {
     const handleDragStart = (e: React.DragEvent, visit: Visit) => {
         e.dataTransfer.setData('visitId', visit.id);
         e.dataTransfer.effectAllowed = 'copy';
@@ -114,6 +125,12 @@ const VisitTimeline: React.FC<VisitTimelineProps> = ({ visits, onVisitSelect, on
                                     >
                                         <Download className="h-3 w-3" />
                                     </Button>
+                                    <QrExportButton
+                                        patient={patient}
+                                        report={visit}
+                                        title="Export this visit as QR for CardioPal"
+                                        className="h-6 w-6"
+                                    />
                                 </div>
 
                                 <div className="space-y-2 pt-1">

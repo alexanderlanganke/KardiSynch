@@ -10,6 +10,7 @@ import { usePatientStore, Patient } from './store/PatientStore';
 import { getPatientFlags, daysSinceLastVisit } from './utils/clinicalPriority';
 import { getMriCheckUrl } from './utils/mriCheckUrls';
 import { cn, formatDate } from '@/lib/utils';
+import QrExportButton from '@/components/QrExportButton';
 
 // Manufacturer Logos
 import medtronicLogo from './assets/logos/medtronic.svg';
@@ -319,6 +320,15 @@ const PatientDashboard: React.FC<{ onPatientSelect: (patientId: string) => void 
 
             {/* Actions */}
             <div className="w-[8%] flex justify-end gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+              <QrExportButton
+                patient={patient}
+                loadReport={async () => {
+                  const visits = await window.electronAPI.getVisitDirectories(patient.id);
+                  return visits[0] || null;
+                }}
+                title="Export latest visit QR for CardioPal onboarding"
+                className="h-8 w-8"
+              />
               <Button
                 variant="ghost" size="icon"
                 className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-background shadow-none hover:shadow-sm rounded-full"

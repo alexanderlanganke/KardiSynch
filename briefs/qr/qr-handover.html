@@ -1,0 +1,533 @@
+<title>KardiSync QR Export — Handover</title>
+<style>
+  @font-face {
+    font-family: 'Display';
+    src: local('Georgia'), local('Times New Roman');
+  }
+
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --text-secondary: #57534e;
+    --accent: #0d9488;
+    --accent-light: #ccfbf1;
+    --code-bg: #f5f5f4;
+    --tag-bg: #f0fdfa;
+    --tag-border: #99f6e4;
+    --tag-text: #0f766e;
+    --warn-bg: #fffbeb;
+    --warn-border: #fde68a;
+    --warn-text: #92400e;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0a09;
+      --surface: #1c1917;
+      --border: #292524;
+      --text: #e7e5e4;
+      --text-secondary: #a8a29e;
+      --accent: #2dd4bf;
+      --accent-light: #042f2e;
+      --code-bg: #1c1917;
+      --tag-bg: #042f2e;
+      --tag-border: #115e59;
+      --tag-text: #5eead4;
+      --warn-bg: #451a0320;
+      --warn-border: #78350f;
+      --warn-text: #fcd34d;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --bg: #0c0a09;
+    --surface: #1c1917;
+    --border: #292524;
+    --text: #e7e5e4;
+    --text-secondary: #a8a29e;
+    --accent: #2dd4bf;
+    --accent-light: #042f2e;
+    --code-bg: #1c1917;
+    --tag-bg: #042f2e;
+    --tag-border: #115e59;
+    --tag-text: #5eead4;
+    --warn-bg: #451a0320;
+    --warn-border: #78350f;
+    --warn-text: #fcd34d;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+
+  :root[data-theme="light"] {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --text-secondary: #57534e;
+    --accent: #0d9488;
+    --accent-light: #ccfbf1;
+    --code-bg: #f5f5f4;
+    --tag-bg: #f0fdfa;
+    --tag-border: #99f6e4;
+    --tag-text: #0f766e;
+    --warn-bg: #fffbeb;
+    --warn-border: #fde68a;
+    --warn-text: #92400e;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 3rem 1.5rem 4rem;
+  }
+
+  .header {
+    margin-bottom: 2.5rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header h1 {
+    font-family: 'Display', Georgia, serif;
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-wrap: balance;
+    margin-bottom: 0.5rem;
+  }
+
+  .header .subtitle {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+  }
+
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    border: 1px solid var(--tag-border);
+    margin-bottom: 0.75rem;
+  }
+
+  h2 {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin: 2.25rem 0 0.75rem;
+    text-wrap: balance;
+  }
+
+  h3 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin: 1.5rem 0 0.5rem;
+    color: var(--text);
+  }
+
+  p, li {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+  }
+
+  p + p { margin-top: 0.75rem; }
+
+  ul, ol {
+    padding-left: 1.25rem;
+    margin: 0.5rem 0;
+  }
+
+  li { margin: 0.3rem 0; }
+  li + li { margin-top: 0.35rem; }
+
+  a {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  a:hover { text-decoration: underline; }
+
+  code {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+    font-size: 0.82em;
+    background: var(--code-bg);
+    padding: 0.15em 0.35em;
+    border-radius: 3px;
+    word-break: break-word;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 0.75rem 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+  }
+
+  pre code {
+    background: none;
+    padding: 0;
+    font-size: inherit;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem 0;
+    box-shadow: var(--shadow);
+  }
+
+  .file-list {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0.75rem 0;
+  }
+
+  .file-item {
+    display: flex;
+    gap: 0.75rem;
+    align-items: baseline;
+    font-size: 0.85rem;
+  }
+
+  .file-item .path {
+    font-family: 'SF Mono', 'Cascadia Code', monospace;
+    font-size: 0.8rem;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+
+  .file-item .desc {
+    color: var(--text-secondary);
+    font-size: 0.82rem;
+  }
+
+  .file-item .badge {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 0.1em 0.45em;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  .badge-new {
+    background: var(--tag-bg);
+    color: var(--tag-text);
+    border: 1px solid var(--tag-border);
+  }
+
+  .badge-mod {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border: 1px solid var(--warn-border);
+  }
+
+  .diagram {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+  }
+
+  .diagram pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    font-size: 0.78rem;
+    line-height: 1.4;
+  }
+
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin: 1rem 0;
+    font-size: 0.82rem;
+    color: var(--warn-text);
+  }
+
+  .note strong { font-weight: 600; }
+
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2rem 0;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+    margin: 0.75rem 0;
+  }
+
+  th {
+    text-align: left;
+    font-weight: 600;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 2px solid var(--border);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+  }
+
+  td {
+    padding: 0.45rem 0.75rem;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    vertical-align: top;
+  }
+
+  td code {
+    font-size: 0.78rem;
+  }
+
+  .overflow-wrap {
+    overflow-x: auto;
+  }
+</style>
+
+<div class="page">
+  <header class="header">
+    <span class="tag">Feature Handover</span>
+    <h1>QR Code Export — KardiSync to CardioPal</h1>
+    <p class="subtitle">Encodes visit follow-up data as a scannable QR code in CardioPal's HCP envelope format, enabling direct patient import from the clinic screen.</p>
+  </header>
+
+  <h2>What was built</h2>
+  <p>A third view mode (<code>qr</code>) in ViewPane's Raw/Formatted toggle. Selecting it renders an inline QR code containing the visit's clinical data — battery status, lead measurements, thresholds — in the JSON format that CardioPal's HCP QR scanner expects. The patient scans the code with CardioPal to import their follow-up record.</p>
+
+  <p>The implementation is entirely renderer-side. No IPC changes, no main-process modifications. The mapping logic is a pure function with full unit-test coverage.</p>
+
+  <hr class="section-divider">
+
+  <h2>Files changed</h2>
+  <div class="file-list">
+    <div class="file-item">
+      <span class="badge badge-new">new</span>
+      <span class="path">src/renderer/utils/visitToFuPayload.ts</span>
+    </div>
+    <div class="file-item" style="padding-left: 4.5rem;">
+      <span class="desc">Core mapping: visit report → CardioPal HCP JSON envelope. Lead-to-channel classification, battery/longevity extraction, compact measurement encoding.</span>
+    </div>
+
+    <div class="file-item">
+      <span class="badge badge-new">new</span>
+      <span class="path">src/components/QrCodeView.tsx</span>
+    </div>
+    <div class="file-item" style="padding-left: 4.5rem;">
+      <span class="desc">Presentation component. Centered QR SVG (280px, EC level M), summary caption, empty-state handling. Forces white background for dark-mode scanability.</span>
+    </div>
+
+    <div class="file-item">
+      <span class="badge badge-new">new</span>
+      <span class="path">src/test/visitToFuPayload.test.ts</span>
+    </div>
+    <div class="file-item" style="padding-left: 4.5rem;">
+      <span class="desc">13 unit tests covering envelope shape, all manufacturer lead-naming conventions, threshold/pulse-width parsing, battery longevity, minimal payloads, and size limits.</span>
+    </div>
+
+    <div class="file-item">
+      <span class="badge badge-mod">mod</span>
+      <span class="path">src/components/ViewPane.tsx</span>
+    </div>
+    <div class="file-item" style="padding-left: 4.5rem;">
+      <span class="desc">Extended <code>viewMode</code> state to <code>'raw' | 'formatted' | 'qr'</code>. Added QR icon button in both collapsed and expanded toolbar states. Inserted QR view branch in content area.</span>
+    </div>
+
+    <div class="file-item">
+      <span class="badge badge-mod">mod</span>
+      <span class="path">package.json</span>
+    </div>
+    <div class="file-item" style="padding-left: 4.5rem;">
+      <span class="desc">Added <code>qrcode.react ^4.2.0</code> dependency (SVG-based QR renderer).</span>
+    </div>
+
+    <div class="file-item">
+      <span class="badge badge-mod">mod</span>
+      <span class="path">package-lock.json</span>
+    </div>
+    <div class="file-item" style="padding-left: 4.5rem;">
+      <span class="desc">Lock file updated for qrcode.react.</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>Diff available:</strong> An isolated diff containing only these 6 files (no patient data or unrelated changes) is at <code>scratchpad/qr-feature.diff</code> — 468 lines.
+  </div>
+
+  <hr class="section-divider">
+
+  <h2>Data flow</h2>
+  <div class="diagram">
+    <pre><code>visit.xml  →  main.ts (IPC: get-visit-directories)  →  report object
+                                                            │
+                  ┌─────────────────────────────────────────┘
+                  ▼
+         visitToFuPayload.ts
+         ├─ classifyLead(lead) → 'a' | 'rv' | 'lv'
+         ├─ buildMeasurement(lead) → { ta, tp, se, im }
+         └─ buildFuQrPayload(report) → JSON string
+                  │
+                  ▼
+         { v:1, t:'fu', ts:1722300000, d: {
+             date: '2025-06-10',
+             a:  { ta:0.75, tp:0.4, se:2.5, im:490 },
+             rv: { ta:0.5,  tp:0.4, se:11.2, im:505 },
+             bv: 3.18, bs: 'BOL', lo: 8.5
+         }}
+                  │
+                  ▼
+         QrCodeView.tsx → &lt;QRCodeSVG&gt; → scannable QR
+                  │
+                  ▼
+         CardioPal  →  hcpQr.ts decodeHcpPayload()  →  FollowUpRecord</code></pre>
+  </div>
+
+  <hr class="section-divider">
+
+  <h2>Lead-to-channel mapping</h2>
+  <p>The key challenge is classifying leads across 5+ manufacturer naming conventions into three channels: atrial (<code>a</code>), right ventricle (<code>rv</code>), and left ventricle (<code>lv</code>). Classification uses the lead's <code>type</code> first, falling back to <code>location</code>.</p>
+
+  <div class="overflow-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Type patterns</th>
+          <th>Location patterns</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>a</code></td>
+          <td><code>/atri|^A$|^RA$|A-Lead/i</code></td>
+          <td><code>/right\s*atri|\bRA\b|\bA\b/i</code></td>
+        </tr>
+        <tr>
+          <td><code>rv</code></td>
+          <td><code>/^RV$|RV-Lead|^RV\s/i</code></td>
+          <td><code>/right\s*ventri|\bRV\b/i</code></td>
+        </tr>
+        <tr>
+          <td><code>lv</code></td>
+          <td><code>/^LV$|LV-Lead|^LV\s/i</code></td>
+          <td><code>/left\s*ventri|\bLV\b|coronary\s*sinus/i</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>Covers: Biotronik ("A-Lead", "RV-Lead"), Medtronic ("Atrial Lead", "RV Lead"), Abbott ("Atrium"), CIEDocR ("RA", "RV", "LV"), and location-based fallback ("Right Atrial Appendage", "Coronary Sinus").</p>
+
+  <hr class="section-divider">
+
+  <h2>CardioPal HCP envelope format</h2>
+  <p>Defined in <code>CardioPal/src/utils/hcpQr.ts</code>. The envelope wraps all HCP-generated QR payloads:</p>
+
+  <pre><code>{
+  "v": 1,              // version — must be 1
+  "t": "fu",           // type: "fu" (follow-up), "params", or "icm"
+  "ts": 1722300000,    // creation timestamp (Unix seconds)
+  "d": { ... }         // FuPayload — channel measurements + battery
+}</code></pre>
+
+  <h3>FuPayload keys</h3>
+  <div class="overflow-wrap">
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Type</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>date</code></td><td>string</td><td><code>report.interrogation_date</code></td></tr>
+        <tr><td><code>a</code> / <code>rv</code> / <code>lv</code></td><td>CompactMeasurement</td><td>Classified leads</td></tr>
+        <tr><td><code>bv</code></td><td>number</td><td><code>report.batteryVoltage</code> (volts)</td></tr>
+        <tr><td><code>bs</code></td><td>string</td><td><code>report.batteryStatus</code> (BOL/MOL/ERI/EOL)</td></tr>
+        <tr><td><code>lo</code></td><td>number</td><td>Parsed from <code>batteryLongevity</code> or <code>additionalFields["Estimated Longevity"]</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>CompactMeasurement</h3>
+  <div class="overflow-wrap">
+    <table>
+      <thead>
+        <tr><th>Key</th><th>Unit</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ta</code></td><td>V</td><td><code>lead.threshold</code></td></tr>
+        <tr><td><code>tp</code></td><td>ms</td><td><code>lead.pulseWidth</code></td></tr>
+        <tr><td><code>se</code></td><td>mV</td><td><code>lead.sensing</code></td></tr>
+        <tr><td><code>im</code></td><td>&Omega;</td><td><code>lead.impedance</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p>All measurement keys are optional — omitted when the source value is empty, NaN, or undefined. Typical payloads are 200–500 bytes, well within the QR v40 limit of ~2,953 bytes.</p>
+
+  <hr class="section-divider">
+
+  <h2>Verification</h2>
+  <div class="card">
+    <h3>Automated</h3>
+    <ul>
+      <li><code>npx vitest run src/test/visitToFuPayload</code> — 13 tests, all passing</li>
+      <li><code>npx vite build</code> — renderer builds clean, no type errors</li>
+      <li><code>npx tsc -p tsconfig.node.json --noEmit</code> — main process type-checks clean</li>
+    </ul>
+
+    <h3 style="margin-top: 1rem;">Manual</h3>
+    <ul>
+      <li>Start dev app, open a patient visit, toggle to QR view in collapsed and expanded toolbar</li>
+      <li>Scan QR with phone camera — verify valid JSON appears</li>
+      <li>Scan with CardioPal HCP scanner — confirm data routes to follow-up import</li>
+      <li>Test dark mode — QR must remain scannable (white background forced)</li>
+      <li>Open Summary pseudo-report — QR toggle should not appear (guarded by <code>!isSummary</code>)</li>
+      <li>Verify visits with no clinical data show the "No clinical data available" empty state</li>
+    </ul>
+  </div>
+
+  <hr class="section-divider">
+
+  <h2>Known pre-existing issues</h2>
+  <p><code>npx tsc --noEmit</code> (full project) shows type errors in <code>e2e/app.spec.ts</code> and <code>src/main/tests/parser.test.ts</code>. These are pre-existing and unrelated to the QR feature — both the renderer build and main-process type-check pass independently.</p>
+
+  <hr class="section-divider">
+
+  <h2>Not included in this change</h2>
+  <ul>
+    <li>Patient data XML files (9 visit.xml + 3 patient.xml in <code>patientdata/</code>) — created separately</li>
+    <li><code>reports.ts</code> device_serial addition — unrelated change</li>
+    <li>CIEDocR adapter files (<code>ciedocr-adapter.ts</code>, <code>ciedocrClient.ts</code>) — unrelated</li>
+  </ul>
+</div>

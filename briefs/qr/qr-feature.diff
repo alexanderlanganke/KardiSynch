@@ -1,0 +1,468 @@
+diff --git a/package-lock.json b/package-lock.json
+index 4ba956a..1436afe 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -32,6 +32,7 @@
+         "pdf-lib": "^1.17.1",
+         "pdf-parse": "^2.4.5",
+         "pdfjs-dist": "^5.4.296",
++        "qrcode.react": "^4.2.0",
+         "react": "^18.2.0",
+         "react-dom": "^18.2.0",
+         "react-pdf": "^10.2.0",
+@@ -11564,6 +11565,15 @@
+         "node": ">=6"
+       }
+     },
++    "node_modules/qrcode.react": {
++      "version": "4.2.0",
++      "resolved": "https://registry.npmjs.org/qrcode.react/-/qrcode.react-4.2.0.tgz",
++      "integrity": "sha512-QpgqWi8rD9DsS9EP3z7BT+5lY5SFhsqGjpgW5DY/i3mK4M9DTBNz3ErMi8BWYEfI3L0d8GIbGmcdFAS1uIRGjA==",
++      "license": "ISC",
++      "peerDependencies": {
++        "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
++      }
++    },
+     "node_modules/quick-lru": {
+       "version": "5.1.1",
+       "resolved": "https://registry.npmjs.org/quick-lru/-/quick-lru-5.1.1.tgz",
+diff --git a/package.json b/package.json
+index 72a8192..e71368b 100644
+--- a/package.json
++++ b/package.json
+@@ -125,6 +125,7 @@
+     "pdf-lib": "^1.17.1",
+     "pdf-parse": "^2.4.5",
+     "pdfjs-dist": "^5.4.296",
++    "qrcode.react": "^4.2.0",
+     "react": "^18.2.0",
+     "react-dom": "^18.2.0",
+     "react-pdf": "^10.2.0",
+diff --git a/src/components/ViewPane.tsx b/src/components/ViewPane.tsx
+index a1ccccd..442a2db 100644
+--- a/src/components/ViewPane.tsx
++++ b/src/components/ViewPane.tsx
+@@ -4,7 +4,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
+ import ReportViewer from './ReportViewer';
+ import FormattedReport from '@/renderer/components/FormattedReport';
+ import SummaryReport from '@/renderer/components/SummaryReport';
+-import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LayoutDashboard } from 'lucide-react';
++import QrCodeView from './QrCodeView';
++import { FileText, X, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, LayoutDashboard, QrCode } from 'lucide-react';
+ import { Button } from './ui/button';
+ import { cn, formatDate } from '@/lib/utils';
+ 
+@@ -36,7 +37,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
+     const [availableFiles, setAvailableFiles] = useState<string[]>([]);
+     const [isDragOver, setIsDragOver] = useState(false);
+     const [isControlsExpanded, setIsControlsExpanded] = useState(true);
+-    const [viewMode, setViewMode] = useState<'raw' | 'formatted'>('raw');
++    const [viewMode, setViewMode] = useState<'raw' | 'formatted' | 'qr'>('raw');
+ 
+     // Fetch files when selected report changes
+     const prevReportIdRef = React.useRef<string | null>(null);
+@@ -279,6 +280,16 @@ const ViewPane: React.FC<ViewPaneProps> = ({
+                                 >
+                                     Formatted
+                                 </button>
++                                <button
++                                    className={cn(
++                                        "px-2 py-0.5 text-[10px] rounded transition-colors",
++                                        viewMode === 'qr' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
++                                    )}
++                                    onClick={(e) => { e.stopPropagation(); setViewMode('qr'); }}
++                                    aria-label="QR code view"
++                                >
++                                    <QrCode className="h-3 w-3" />
++                                </button>
+                             </div>
+                             )}
+ 
+@@ -359,6 +370,16 @@ const ViewPane: React.FC<ViewPaneProps> = ({
+                                     >
+                                         Formatted
+                                     </button>
++                                    <button
++                                        className={cn(
++                                            "px-2.5 py-1 text-xs rounded transition-colors",
++                                            viewMode === 'qr' ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
++                                        )}
++                                        onClick={() => setViewMode('qr')}
++                                        aria-label="QR code view"
++                                    >
++                                        <QrCode className="h-3.5 w-3.5" />
++                                    </button>
+                                 </div>
+                             )}
+ 
+@@ -412,6 +433,8 @@ const ViewPane: React.FC<ViewPaneProps> = ({
+                 {selectedReport ? (
+                     isSummary ? (
+                         <SummaryReport availableReports={availableReports} />
++                    ) : viewMode === 'qr' ? (
++                        <QrCodeView report={selectedReport} />
+                     ) : viewMode === 'formatted' || (effectiveSelectedFile && getFileType(effectiveSelectedFile) === 'binary') ? (
+                         <FormattedReport report={selectedReport} previousReport={previousReport} />
+                     ) : (
+diff --git a/src/components/QrCodeView.tsx b/src/components/QrCodeView.tsx
+new file mode 100644
+index 0000000..cbb42e4
+--- /dev/null
++++ b/src/components/QrCodeView.tsx
+@@ -0,0 +1,62 @@
++import React, { useMemo } from 'react';
++import { QRCodeSVG } from 'qrcode.react';
++import { buildFuQrPayload, hasClinicalData } from '@/renderer/utils/visitToFuPayload';
++import { QrCode } from 'lucide-react';
++
++interface QrCodeViewProps {
++  report: any;
++}
++
++const QrCodeView: React.FC<QrCodeViewProps> = ({ report }) => {
++  const payload = useMemo(() => buildFuQrPayload(report), [report]);
++
++  const summary = useMemo(() => {
++    const parts: string[] = [];
++    if (report.interrogation_date) parts.push(report.interrogation_date);
++    if (report.batteryVoltage && report.batteryStatus) {
++      parts.push(`Battery: ${report.batteryVoltage}V ${report.batteryStatus}`);
++    } else if (report.batteryVoltage) {
++      parts.push(`Battery: ${report.batteryVoltage}V`);
++    } else if (report.batteryStatus) {
++      parts.push(`Battery: ${report.batteryStatus}`);
++    }
++    const leadNames = (report.leads || [])
++      .map((l: any) => l.type || l.location)
++      .filter(Boolean);
++    if (leadNames.length > 0) parts.push(leadNames.join(', '));
++    return parts.join(' · ');
++  }, [report]);
++
++  if (!hasClinicalData(report)) {
++    return (
++      <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
++        <QrCode className="h-12 w-12 mb-4 opacity-10" />
++        <div className="text-sm">No clinical data available for QR export</div>
++      </div>
++    );
++  }
++
++  return (
++    <div className="h-full overflow-y-auto flex flex-col items-center justify-center gap-4 p-6">
++      <div className="bg-white p-4 rounded-lg shadow-sm">
++        <QRCodeSVG
++          value={payload}
++          size={280}
++          level="M"
++          bgColor="#ffffff"
++          fgColor="#000000"
++        />
++      </div>
++      <div className="text-center space-y-1">
++        <p className="text-sm text-muted-foreground">
++          Scan with CardioPal to import follow-up data
++        </p>
++        {summary && (
++          <p className="text-xs text-muted-foreground/70">{summary}</p>
++        )}
++      </div>
++    </div>
++  );
++};
++
++export default QrCodeView;
+diff --git a/src/renderer/utils/visitToFuPayload.ts b/src/renderer/utils/visitToFuPayload.ts
+new file mode 100644
+index 0000000..25a4675
+--- /dev/null
++++ b/src/renderer/utils/visitToFuPayload.ts
+@@ -0,0 +1,120 @@
++interface LeadInput {
++  location?: string;
++  type?: string;
++  impedance?: string;
++  sensing?: string;
++  threshold?: string;
++  pulseWidth?: string;
++}
++
++interface ReportInput {
++  interrogation_date?: string;
++  batteryVoltage?: string;
++  batteryStatus?: string;
++  batteryLongevity?: string;
++  additionalFields?: Record<string, string>;
++  leads?: LeadInput[];
++}
++
++interface CompactMeasurement {
++  ta?: number;
++  tp?: number;
++  se?: number;
++  im?: number;
++}
++
++interface FuPayload {
++  date: string;
++  a?: CompactMeasurement;
++  rv?: CompactMeasurement;
++  lv?: CompactMeasurement;
++  bv?: number;
++  bs?: string;
++  lo?: number;
++}
++
++type Channel = 'a' | 'rv' | 'lv';
++
++const CHANNEL_PATTERNS: Array<{ channel: Channel; type: RegExp; location: RegExp }> = [
++  {
++    channel: 'a',
++    type: /atri|^A$|^RA$|A-Lead/i,
++    location: /right\s*atri|\bRA\b|\bA\b/i,
++  },
++  {
++    channel: 'rv',
++    type: /^RV$|RV-Lead|^RV\s/i,
++    location: /right\s*ventri|\bRV\b/i,
++  },
++  {
++    channel: 'lv',
++    type: /^LV$|LV-Lead|^LV\s/i,
++    location: /left\s*ventri|\bLV\b|coronary\s*sinus/i,
++  },
++];
++
++function classifyLead(lead: LeadInput): Channel | null {
++  for (const { channel, type, location } of CHANNEL_PATTERNS) {
++    if ((lead.type && type.test(lead.type)) || (lead.location && location.test(lead.location))) {
++      return channel;
++    }
++  }
++  return null;
++}
++
++function num(v: string | undefined): number | undefined {
++  if (v === undefined || v === null || v === '') return undefined;
++  const n = parseFloat(v);
++  return Number.isFinite(n) ? n : undefined;
++}
++
++function buildMeasurement(lead: LeadInput): CompactMeasurement | undefined {
++  const m: CompactMeasurement = {};
++  const ta = num(lead.threshold);
++  if (ta !== undefined) m.ta = ta;
++  const tp = num(lead.pulseWidth);
++  if (tp !== undefined) m.tp = tp;
++  const se = num(lead.sensing);
++  if (se !== undefined) m.se = se;
++  const im = num(lead.impedance);
++  if (im !== undefined) m.im = im;
++  return Object.keys(m).length > 0 ? m : undefined;
++}
++
++function parseLongevity(report: ReportInput): number | undefined {
++  const raw = report.batteryLongevity
++    || report.additionalFields?.['Estimated Longevity'];
++  if (!raw) return undefined;
++  const n = parseFloat(raw);
++  return Number.isFinite(n) ? n : undefined;
++}
++
++export function buildFuQrPayload(report: ReportInput): string {
++  const d: FuPayload = {
++    date: report.interrogation_date || '',
++  };
++
++  if (report.leads) {
++    for (const lead of report.leads) {
++      const ch = classifyLead(lead);
++      if (!ch) continue;
++      const m = buildMeasurement(lead);
++      if (m) d[ch] = m;
++    }
++  }
++
++  const bv = num(report.batteryVoltage);
++  if (bv !== undefined) d.bv = bv;
++  if (report.batteryStatus) d.bs = report.batteryStatus;
++
++  const lo = parseLongevity(report);
++  if (lo !== undefined) d.lo = lo;
++
++  return JSON.stringify({ v: 1, t: 'fu', ts: Math.floor(Date.now() / 1000), d });
++}
++
++export function hasClinicalData(report: ReportInput): boolean {
++  if (report.batteryVoltage || report.batteryStatus) return true;
++  if (report.leads?.some(l => l.impedance || l.sensing || l.threshold)) return true;
++  return false;
++}
+diff --git a/src/test/visitToFuPayload.test.ts b/src/test/visitToFuPayload.test.ts
+new file mode 100644
+index 0000000..8eee8f2
+--- /dev/null
++++ b/src/test/visitToFuPayload.test.ts
+@@ -0,0 +1,162 @@
++import { describe, it, expect } from 'vitest';
++import { buildFuQrPayload, hasClinicalData } from '../renderer/utils/visitToFuPayload';
++
++function parseEnvelope(json: string) {
++  const obj = JSON.parse(json);
++  expect(obj.v).toBe(1);
++  expect(obj.t).toBe('fu');
++  expect(typeof obj.ts).toBe('number');
++  expect(obj.d).toBeTruthy();
++  expect(typeof obj.d).toBe('object');
++  return obj;
++}
++
++describe('buildFuQrPayload', () => {
++  it('produces a valid HCP envelope with RA/RV leads and battery', () => {
++    const report = {
++      interrogation_date: '2025-06-10',
++      batteryVoltage: '3.18',
++      batteryStatus: 'BOL',
++      leads: [
++        { type: 'RA', location: 'Right Atrium', impedance: '490', sensing: '2.5', threshold: '0.75', pulseWidth: '0.4' },
++        { type: 'RV', location: 'RV Septum', impedance: '505', sensing: '11.2', threshold: '0.5', pulseWidth: '0.4' },
++      ],
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.date).toBe('2025-06-10');
++    expect(env.d.bv).toBe(3.18);
++    expect(env.d.bs).toBe('BOL');
++    expect(env.d.a).toEqual({ ta: 0.75, tp: 0.4, se: 2.5, im: 490 });
++    expect(env.d.rv).toEqual({ ta: 0.5, tp: 0.4, se: 11.2, im: 505 });
++    expect(env.d.lv).toBeUndefined();
++  });
++
++  it('maps Medtronic lead names (Atrial Lead / RV Lead)', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      leads: [
++        { type: 'Atrial Lead', location: 'A', impedance: '500' },
++        { type: 'RV Lead', location: 'RV', impedance: '480' },
++      ],
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.a).toEqual({ im: 500 });
++    expect(env.d.rv).toEqual({ im: 480 });
++  });
++
++  it('maps Abbott lead names (Atrium / RV / LV)', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      leads: [
++        { type: 'Atrium', impedance: '510' },
++        { type: 'RV', impedance: '482' },
++        { type: 'LV', impedance: '680' },
++      ],
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.a).toEqual({ im: 510 });
++    expect(env.d.rv).toEqual({ im: 482 });
++    expect(env.d.lv).toEqual({ im: 680 });
++  });
++
++  it('maps Biotronik lead names (A-Lead / RV-Lead)', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      leads: [
++        { type: 'A-Lead', impedance: '490' },
++        { type: 'RV-Lead', impedance: '520' },
++      ],
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.a).toEqual({ im: 490 });
++    expect(env.d.rv).toEqual({ im: 520 });
++  });
++
++  it('maps leads by location when type is absent', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      leads: [
++        { location: 'Right Atrial Appendage', impedance: '545' },
++        { location: 'Right Ventricle', impedance: '498' },
++        { location: 'Coronary Sinus (lateral vein)', impedance: '680' },
++      ],
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.a).toEqual({ im: 545 });
++    expect(env.d.rv).toEqual({ im: 498 });
++    expect(env.d.lv).toEqual({ im: 680 });
++  });
++
++  it('produces minimal envelope with just date when no clinical data', () => {
++    const report = { interrogation_date: '2024-01-01' };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.date).toBe('2024-01-01');
++    expect(env.d.a).toBeUndefined();
++    expect(env.d.rv).toBeUndefined();
++    expect(env.d.lv).toBeUndefined();
++    expect(env.d.bv).toBeUndefined();
++  });
++
++  it('parses battery longevity from batteryLongevity string', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      batteryLongevity: '8.5 years',
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.lo).toBe(8.5);
++  });
++
++  it('parses battery longevity from additionalFields', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      additionalFields: { 'Estimated Longevity': '12.5 years' },
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.lo).toBe(12.5);
++  });
++
++  it('omits fields with empty or invalid values', () => {
++    const report = {
++      interrogation_date: '2024-01-01',
++      batteryVoltage: '',
++      batteryStatus: '',
++      leads: [
++        { type: 'RA', impedance: '', sensing: 'invalid', threshold: '', pulseWidth: '' },
++      ],
++    };
++    const env = parseEnvelope(buildFuQrPayload(report));
++    expect(env.d.bv).toBeUndefined();
++    expect(env.d.bs).toBeUndefined();
++    expect(env.d.a).toBeUndefined();
++  });
++
++  it('keeps payload under 2953 bytes for a fully populated report', () => {
++    const report = {
++      interrogation_date: '2025-09-15',
++      batteryVoltage: '3.25',
++      batteryStatus: 'BOL',
++      batteryLongevity: '11.8 years',
++      leads: [
++        { type: 'RA', location: 'Right Atrium', impedance: '510', sensing: '2.6', threshold: '0.5', pulseWidth: '0.4' },
++        { type: 'RV Coil', location: 'RV Septum', impedance: '482', sensing: '8.2', threshold: '0.75', pulseWidth: '0.4' },
++        { type: 'LV', location: 'Coronary Sinus (lateral vein)', impedance: '680', sensing: '12.5', threshold: '1.0', pulseWidth: '0.5' },
++      ],
++    };
++    const payload = buildFuQrPayload(report);
++    expect(payload.length).toBeLessThan(2953);
++  });
++});
++
++describe('hasClinicalData', () => {
++  it('returns true when battery voltage is present', () => {
++    expect(hasClinicalData({ batteryVoltage: '3.2' })).toBe(true);
++  });
++
++  it('returns true when lead impedance is present', () => {
++    expect(hasClinicalData({ leads: [{ type: 'RA', impedance: '500' }] })).toBe(true);
++  });
++
++  it('returns false when no clinical data', () => {
++    expect(hasClinicalData({ interrogation_date: '2024-01-01' })).toBe(false);
++  });
++});

@@ -1,0 +1,334 @@
+<title>QR Onboarding Enrichment — Handover</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --text-secondary: #57534e;
+    --accent: #0d9488;
+    --accent-light: #ccfbf1;
+    --code-bg: #f5f5f4;
+    --tag-bg: #f0fdfa;
+    --tag-border: #99f6e4;
+    --tag-text: #0f766e;
+    --note-bg: #eff6ff;
+    --note-border: #93c5fd;
+    --note-text: #1e40af;
+    --warn-bg: #fffbeb;
+    --warn-border: #fde68a;
+    --warn-text: #92400e;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c0a09;
+      --surface: #1c1917;
+      --border: #292524;
+      --text: #e7e5e4;
+      --text-secondary: #a8a29e;
+      --accent: #2dd4bf;
+      --accent-light: #042f2e;
+      --code-bg: #1c1917;
+      --tag-bg: #042f2e;
+      --tag-border: #115e59;
+      --tag-text: #5eead4;
+      --note-bg: #172554;
+      --note-border: #1e3a5f;
+      --note-text: #93c5fd;
+      --warn-bg: #451a0320;
+      --warn-border: #78350f;
+      --warn-text: #fcd34d;
+      --shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c0a09; --surface: #1c1917; --border: #292524;
+    --text: #e7e5e4; --text-secondary: #a8a29e; --accent: #2dd4bf;
+    --accent-light: #042f2e; --code-bg: #1c1917;
+    --tag-bg: #042f2e; --tag-border: #115e59; --tag-text: #5eead4;
+    --note-bg: #172554; --note-border: #1e3a5f; --note-text: #93c5fd;
+    --warn-bg: #451a0320; --warn-border: #78350f; --warn-text: #fcd34d;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  :root[data-theme="light"] {
+    --bg: #fafaf9; --surface: #ffffff; --border: #e7e5e4;
+    --text: #1c1917; --text-secondary: #57534e; --accent: #0d9488;
+    --accent-light: #ccfbf1; --code-bg: #f5f5f4;
+    --tag-bg: #f0fdfa; --tag-border: #99f6e4; --tag-text: #0f766e;
+    --note-bg: #eff6ff; --note-border: #93c5fd; --note-text: #1e40af;
+    --warn-bg: #fffbeb; --warn-border: #fde68a; --warn-text: #92400e;
+    --shadow: 0 1px 3px rgba(0,0,0,0.06);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem 4rem; }
+
+  .header { margin-bottom: 2.5rem; padding-bottom: 2rem; border-bottom: 1px solid var(--border); }
+  .header h1 {
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 1.75rem; font-weight: 700; line-height: 1.2;
+    text-wrap: balance; margin-bottom: 0.5rem;
+  }
+  .header .subtitle { color: var(--text-secondary); font-size: 0.9rem; }
+
+  .tag {
+    display: inline-block; font-size: 0.7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.06em;
+    padding: 0.2em 0.6em; border-radius: 4px;
+    background: var(--tag-bg); color: var(--tag-text);
+    border: 1px solid var(--tag-border); margin-bottom: 0.75rem;
+  }
+  .tag.scope { background: var(--note-bg); color: var(--note-text); border-color: var(--note-border); }
+
+  h2 { font-size: 1.15rem; font-weight: 700; margin: 2.25rem 0 0.75rem; text-wrap: balance; }
+  h3 { font-size: 0.95rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+  p, li { font-size: 0.9rem; color: var(--text-secondary); }
+  p + p { margin-top: 0.75rem; }
+  ul, ol { padding-left: 1.25rem; margin: 0.5rem 0; }
+  li { margin: 0.3rem 0; }
+
+  code {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    font-size: 0.82em; background: var(--code-bg);
+    padding: 0.15em 0.35em; border-radius: 3px; word-break: break-word;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border);
+    border-radius: 6px; padding: 1rem; overflow-x: auto;
+    margin: 0.75rem 0; font-size: 0.8rem; line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 1rem 1.25rem; margin: 0.75rem 0;
+    box-shadow: var(--shadow);
+  }
+  .note {
+    border-radius: 6px; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.82rem;
+  }
+  .note-info { background: var(--note-bg); border: 1px solid var(--note-border); color: var(--note-text); }
+  .note-warn { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-text); }
+  .note strong { font-weight: 600; }
+
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin: 0.75rem 0; }
+  th {
+    text-align: left; font-weight: 600; padding: 0.5rem 0.75rem;
+    border-bottom: 2px solid var(--border); font-size: 0.75rem;
+    text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-secondary);
+  }
+  td {
+    padding: 0.45rem 0.75rem; border-bottom: 1px solid var(--border);
+    color: var(--text-secondary); vertical-align: top;
+  }
+  .overflow-wrap { overflow-x: auto; }
+
+  .badge {
+    font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.04em; padding: 0.1em 0.45em; border-radius: 3px; white-space: nowrap;
+  }
+  .badge-new { background: var(--tag-bg); color: var(--tag-text); border: 1px solid var(--tag-border); }
+  .badge-mod { background: var(--warn-bg); color: var(--warn-text); border: 1px solid var(--warn-border); }
+
+  .file-item { display: flex; gap: 0.75rem; align-items: baseline; font-size: 0.85rem; margin: 0.4rem 0; }
+  .file-item .path { font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 0.8rem; color: var(--accent); white-space: nowrap; }
+  .file-item .desc { color: var(--text-secondary); font-size: 0.82rem; }
+
+  .diagram pre { background: none; border: none; padding: 0; margin: 0; font-size: 0.78rem; line-height: 1.4; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+  @media (max-width: 600px) { .two-col { grid-template-columns: 1fr; } }
+</style>
+
+<div class="page">
+  <header class="header">
+    <div style="display: flex; gap: 0.5rem; margin-bottom: 0.75rem;">
+      <span class="tag">Handover</span>
+      <span class="tag scope">KardiSync</span>
+    </div>
+    <h1>Enriched Follow-Up QR with Patient + Device Identity</h1>
+    <p class="subtitle">The existing per-visit <code>fu</code> QR now carries patient demographics and device identity alongside clinical measurements, enabling one-scan onboarding in CardioPal.</p>
+  </header>
+
+  <h2>What changed</h2>
+  <p>The <code>buildFuQrPayload</code> function now accepts an optional <code>patient</code> parameter. When provided, the JSON envelope gains patient name, DOB, device type, manufacturer code, model, serial, and implant date. All new fields are additive — existing CardioPal decoders silently ignore them.</p>
+
+  <div class="note note-info">
+    <strong>Backward compatible:</strong> Without a <code>patient</code> argument, the payload is identical to before. All 13 original tests still pass unchanged.
+  </div>
+
+  <hr>
+
+  <h2>Payload before and after</h2>
+  <div class="two-col">
+    <div>
+      <h3>Before (~200–500 B)</h3>
+      <pre><code>{ "v": 1, "t": "fu",
+  "ts": 1722300000, "d": {
+    "date": "2025-06-10",
+    "a":  { "ta":0.75, "se":2.5, "im":490 },
+    "rv": { "ta":0.5,  "se":11.2, "im":505 },
+    "bv": 3.18, "bs": "BOL"
+}}</code></pre>
+    </div>
+    <div>
+      <h3>After (~500–800 B)</h3>
+      <pre><code>{ "v": 1, "t": "fu",
+  "ts": 1722300000, "d": {
+    "date": "2025-06-10",
+    <b>"fn": "Erika", "ln": "Hoffmann",</b>
+    <b>"dob": "1952-09-14",</b>
+    <b>"dt": "PM", "dm": "BIO",</b>
+    <b>"mn": "Edora 8 DR-T ProMRI",</b>
+    <b>"ds": "BIO-2025-78441",</b>
+    <b>"di": "2025-06-10",</b>
+    "a":  { "ta":0.75, "se":2.5, "im":490 },
+    "rv": { "ta":0.5,  "se":11.2, "im":505 },
+    "bv": 3.18, "bs": "BOL"
+}}</code></pre>
+    </div>
+  </div>
+
+  <hr>
+
+  <h2>New fields in <code>d</code></h2>
+  <div class="overflow-wrap">
+    <table>
+      <thead><tr><th>Key</th><th>Field</th><th>Source</th><th>Values</th></tr></thead>
+      <tbody>
+        <tr><td><code>fn</code></td><td>firstName</td><td><code>patient.first_name</code></td><td>string</td></tr>
+        <tr><td><code>ln</code></td><td>lastName</td><td><code>patient.last_name</code></td><td>string</td></tr>
+        <tr><td><code>dob</code></td><td>dateOfBirth</td><td><code>patient.dob</code></td><td>ISO date</td></tr>
+        <tr><td><code>dt</code></td><td>deviceType</td><td><code>report.device_type</code></td><td><code>PM</code> / <code>ICD</code> / <code>CRT-D</code> / <code>CRT-P</code> / <code>S-ICD</code> / <code>LR</code> / <code>CCM</code></td></tr>
+        <tr><td><code>dm</code></td><td>manufacturer</td><td><code>report.manufacturer</code></td><td><code>BIO</code> / <code>MDT</code> / <code>ABT</code> / <code>BSC</code> / <code>MIC</code> / <code>SOR</code></td></tr>
+        <tr><td><code>mn</code></td><td>modelName</td><td><code>report.deviceModel</code></td><td>string</td></tr>
+        <tr><td><code>ds</code></td><td>serialNumber</td><td><code>report.deviceSerial</code></td><td>string</td></tr>
+        <tr><td><code>di</code></td><td>implantDate</td><td><code>patient.devices[]</code> matched by serial</td><td>ISO date</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>All are optional. Omitted when source data is empty. Device type and manufacturer are mapped to compact codes via <code>compactDeviceType()</code> and <code>compactManufacturer()</code>. Unknown values pass through verbatim.</p>
+
+  <hr>
+
+  <h2>Files changed</h2>
+  <div style="display: grid; gap: 0.5rem; margin: 0.75rem 0;">
+    <div class="file-item"><span class="badge badge-mod">mod</span><span class="path">src/renderer/utils/visitToFuPayload.ts</span></div>
+    <div class="file-item" style="padding-left: 4.5rem;"><span class="desc">Extended <code>buildFuQrPayload(report, patient?)</code>. Added <code>PatientInput</code> interface, <code>FuPayload</code> fields, compact enum maps, implant-date resolution from device history.</span></div>
+
+    <div class="file-item"><span class="badge badge-mod">mod</span><span class="path">src/components/QrCodeView.tsx</span></div>
+    <div class="file-item" style="padding-left: 4.5rem;"><span class="desc">Accepts optional <code>patient</code> prop. Summary line now shows patient name + device model. Caption generalized.</span></div>
+
+    <div class="file-item"><span class="badge badge-mod">mod</span><span class="path">src/components/ViewPane.tsx</span></div>
+    <div class="file-item" style="padding-left: 4.5rem;"><span class="desc">Accepts optional <code>patient</code> prop. Passes through to <code>QrCodeView</code>.</span></div>
+
+    <div class="file-item"><span class="badge badge-mod">mod</span><span class="path">src/renderer/PatientDetail.tsx</span></div>
+    <div class="file-item" style="padding-left: 4.5rem;"><span class="desc">Passes <code>patient</code> object to both <code>ViewPane</code> instances.</span></div>
+
+    <div class="file-item"><span class="badge badge-mod">mod</span><span class="path">src/main/database.ts</span></div>
+    <div class="file-item" style="padding-left: 4.5rem;"><span class="desc">Added <code>hospitalPatientId</code> to <code>getPatientById</code> return (was fetched by SQL but omitted from the return object).</span></div>
+
+    <div class="file-item"><span class="badge badge-mod">mod</span><span class="path">src/test/visitToFuPayload.test.ts</span></div>
+    <div class="file-item" style="padding-left: 4.5rem;"><span class="desc">36 tests total: 13 original + 7 enriched payload + 9 <code>compactDeviceType</code> + 4 <code>compactManufacturer</code> + 3 <code>hasClinicalData</code>.</span></div>
+  </div>
+
+  <div class="note note-warn">
+    <strong>Diff:</strong> <code>scratchpad/qr-onboarding-enrich.diff</code> — 713 lines, 6 files. Includes full content of new files (visitToFuPayload.ts, QrCodeView.tsx, test file) plus modifications to existing files.
+  </div>
+
+  <hr>
+
+  <h2>Prop threading</h2>
+  <div class="card">
+    <pre class="diagram"><code>PatientDetail
+  patient = getPatientById(patientId)   ← full patient object
+  │
+  ├─ ViewPane (pane 0)   patient={patient}
+  │    └─ QrCodeView     patient={patient}
+  │         └─ buildFuQrPayload(report, patient)
+  │
+  └─ ViewPane (pane 1)   patient={patient}
+       └─ QrCodeView     patient={patient}
+            └─ buildFuQrPayload(report, patient)</code></pre>
+  </div>
+
+  <hr>
+
+  <h2>Implant date resolution</h2>
+  <p>The report object carries device serial (<code>deviceSerial</code>) but not implant date. The implant date is resolved by matching against <code>patient.devices[]</code>:</p>
+  <pre><code>const matchingDevice = patient.devices.find(
+  dev => dev.serial === report.deviceSerial
+      && dev.status !== 'explanted'
+);
+if (matchingDevice?.implant_date) d.di = matchingDevice.implant_date;</code></pre>
+  <p>Explanted devices are excluded — only the active device's implant date is included.</p>
+
+  <hr>
+
+  <h2>Compact enum maps</h2>
+  <div class="two-col">
+    <div>
+      <h3>Device types</h3>
+      <div class="overflow-wrap">
+        <table>
+          <thead><tr><th>Input</th><th>Code</th></tr></thead>
+          <tbody>
+            <tr><td>Pacemaker</td><td><code>PM</code></td></tr>
+            <tr><td>ICD</td><td><code>ICD</code></td></tr>
+            <tr><td>CRT-D</td><td><code>CRT-D</code></td></tr>
+            <tr><td>CRT-P</td><td><code>CRT-P</code></td></tr>
+            <tr><td>S-ICD</td><td><code>S-ICD</code></td></tr>
+            <tr><td>Leadless Pacemaker</td><td><code>LR</code></td></tr>
+            <tr><td>CCM</td><td><code>CCM</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div>
+      <h3>Manufacturers</h3>
+      <div class="overflow-wrap">
+        <table>
+          <thead><tr><th>Input</th><th>Code</th></tr></thead>
+          <tbody>
+            <tr><td>Biotronik</td><td><code>BIO</code></td></tr>
+            <tr><td>Medtronic</td><td><code>MDT</code></td></tr>
+            <tr><td>Abbott</td><td><code>ABT</code></td></tr>
+            <tr><td>Boston Scientific</td><td><code>BSC</code></td></tr>
+            <tr><td>Microport</td><td><code>MIC</code></td></tr>
+            <tr><td>Sorin</td><td><code>SOR</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <p>Case-insensitive. Unknown values pass through verbatim.</p>
+
+  <hr>
+
+  <h2>Verification</h2>
+  <div class="card">
+    <ul>
+      <li><code>npx vitest run src/test/visitToFuPayload</code> — 36 tests, all passing</li>
+      <li><code>npx vite build</code> — renderer builds clean</li>
+      <li><code>npx tsc -p tsconfig.main.json --noEmit</code> — main process type-checks clean</li>
+    </ul>
+  </div>
+
+  <hr>
+
+  <h2>What's next: CardioPal consumer side</h2>
+  <p>These changes produce the enriched QR payload. CardioPal needs to consume it:</p>
+  <ol>
+    <li>Extend <code>decodeFollowUp()</code> in <code>hcpQr.ts</code> to extract <code>fn/ln/dob/dt/dm/mn/ds/di</code></li>
+    <li>Map compact codes back to CardioPal enums (<code>'PM'</code> → <code>DeviceType.Pacemaker</code>, etc.)</li>
+    <li>Add "Scan from clinic" button in onboarding step 1</li>
+    <li>Pre-fill steps 1–4 from scanned data, skip to step 5 (emergency contacts)</li>
+  </ol>
+</div>
