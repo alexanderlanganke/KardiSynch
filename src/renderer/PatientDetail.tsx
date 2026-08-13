@@ -429,7 +429,11 @@ const PatientDetail: React.FC<PatientDetailProps> = ({ patientId, onBack }) => {
                     })}
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground italic">No leads recorded</p>
+                  <p className="text-xs text-muted-foreground italic">
+                    {patient?.devices?.some((d: any) => d.type === 'Leadless Pacemaker')
+                      ? 'Leadless pacemaker — no separate lead; pacing/sensing data appears here once parsed.'
+                      : 'No leads recorded'}
+                  </p>
                 )}
               </div>
             </div>

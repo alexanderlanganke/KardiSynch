@@ -80,6 +80,7 @@ function inferMedtronicDeviceType(modelString: string): string {
     const modelUpper = modelString.toUpperCase();
     const familyType: [string, string][] = [
         ['REVEAL', 'ICM'], ['LINQ', 'ICM'],
+        ['MICRA', 'Leadless Pacemaker'],
         ['AMPLIA', 'CRT-D'],
         ['PROTECTA', 'ICD'], ['VISIA', 'ICD'], ['EVERA', 'ICD'],
     ];
@@ -719,6 +720,12 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
     } else if (deviceType === 'Unknown' && deviceModel) {
         deviceType = inferMedtronicDeviceType(deviceModel);
     }
+    // A Micra reports its raw DeviceType as 'IPG' like any other pacemaker
+    // (it IS one, just without leads) — the model name is what actually
+    // distinguishes it, so override the generic mapping above (#159).
+    if (/MICRA/i.test(deviceModel)) {
+        deviceType = 'Leadless Pacemaker';
+    }
 
     if (deviceStatusParam) {
         const current = findValueInComposite(deviceStatusParam, 'Current');
@@ -960,6 +967,29 @@ export const parseMedtronicXML = (xmlData: string): UnifiedReport | null => {
                     leads.push(lead);
                 }
             }
+        }
+    }
+
+    // A leadless pacemaker (Micra) has no Lead1-4 params at all — nothing in
+    // the loop above ever matches — but it still paces/senses a single RV
+    // channel, and the Encore XML export carries the exact same RV parameter
+    // IDs a transvenous RV lead would (#159). Reuse them directly rather than
+    // leaving the device with no lead entry and no way to show
+    // threshold/impedance/sensing.
+    if (leads.length === 0 && (deviceType === 'Leadless Pacemaker' || /MICRA/i.test(deviceModel))) {
+        const sense = getNumericParam('VSEventDetectionRVSensingThreshold', 'mV');
+        const amp = getNumericParam('VPacingTherapyRVPacingAmplitude', 'V');
+        const thresh = getStatusParamField('VPacingTherapyAdaptRVPacingAmplitudeStatus', 'PacingThreshold', 'V');
+
+        const virtualLead: LeadData = {
+            name: 'Leadless Pacing/Sensing Channel',
+            anatomic_location: 'RV',
+            sensing: sense,
+            pacing_amplitude: amp,
+            pacing_threshold: thresh,
+        };
+        if (hasLeadData(virtualLead)) {
+            leads.push(virtualLead);
         }
     }
 
