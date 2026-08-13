@@ -1,0 +1,38 @@
+-- Devices/Leads are scoped to reportId, not patientId: insert-only, one row
+-- set per import, never update-in-place. Real device/lead identity data is
+-- routinely incomplete (missing serial/model), which makes cross-visit
+-- identity matching (patient-scoped upsert) unreliable — see the KMP
+-- migration plan's Decision 3. "Current" devices/leads for a patient is a
+-- query against their most recent report's rows, not a separately
+-- maintained table.
+CREATE TABLE Devices (
+    id TEXT NOT NULL PRIMARY KEY,
+    reportId TEXT NOT NULL,
+    type TEXT NOT NULL,
+    model TEXT NOT NULL,
+    serialNumber TEXT NOT NULL,
+    implantDate TEXT,
+    FOREIGN KEY (reportId) REFERENCES Reports(id)
+);
+
+CREATE INDEX idx_devices_report_id ON Devices(reportId);
+
+insertDevice:
+INSERT INTO Devices(id, reportId, type, model, serialNumber, implantDate)
+VALUES (?, ?, ?, ?, ?, ?);
+
+selectDevicesByReportId:
+SELECT * FROM Devices WHERE reportId = ?;
+
+selectLatestDeviceForPatient:
+SELECT Devices.* FROM Devices
+JOIN Reports ON Devices.reportId = Reports.id
+WHERE Reports.patientId = ?
+ORDER BY Reports.interrogationDate DESC
+LIMIT 1;
+
+deleteDevicesForReport:
+DELETE FROM Devices WHERE reportId = ?;
+
+deleteAllDevices:
+DELETE FROM Devices;

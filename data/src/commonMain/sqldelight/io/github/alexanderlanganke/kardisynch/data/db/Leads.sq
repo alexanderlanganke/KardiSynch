@@ -1,0 +1,47 @@
+-- Scoped to reportId, insert-only — see Devices.sq for the rationale
+-- (KMP migration plan Decision 3).
+CREATE TABLE Leads (
+    id TEXT NOT NULL PRIMARY KEY,
+    reportId TEXT NOT NULL,
+    name TEXT NOT NULL,
+    manufacturer TEXT,
+    model TEXT,
+    serial TEXT,
+    anatomicLocation TEXT,
+    implantDate TEXT,
+    pacingThresholdValue REAL,
+    pacingThresholdUnit TEXT,
+    pacingAmplitudeValue REAL,
+    pacingAmplitudeUnit TEXT,
+    sensingValue REAL,
+    sensingUnit TEXT,
+    impedanceValue REAL,
+    impedanceUnit TEXT,
+    shockImpedanceValue REAL,
+    shockImpedanceUnit TEXT,
+    FOREIGN KEY (reportId) REFERENCES Reports(id)
+);
+
+CREATE INDEX idx_leads_report_id ON Leads(reportId);
+
+insertLead:
+INSERT INTO Leads(id, reportId, name, manufacturer, model, serial, anatomicLocation, implantDate, pacingThresholdValue, pacingThresholdUnit, pacingAmplitudeValue, pacingAmplitudeUnit, sensingValue, sensingUnit, impedanceValue, impedanceUnit, shockImpedanceValue, shockImpedanceUnit)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectLeadsByReportId:
+SELECT * FROM Leads WHERE reportId = ?;
+
+-- Trend queries (e.g. impedance over time for the RV location) read
+-- straight off this table joined to Reports, ordered by date — no separate
+-- "current leads" table needed.
+selectLeadTrendByLocation:
+SELECT Leads.*, Reports.interrogationDate FROM Leads
+JOIN Reports ON Leads.reportId = Reports.id
+WHERE Reports.patientId = ? AND Leads.anatomicLocation = ?
+ORDER BY Reports.interrogationDate ASC;
+
+deleteLeadsForReport:
+DELETE FROM Leads WHERE reportId = ?;
+
+deleteAllLeads:
+DELETE FROM Leads;

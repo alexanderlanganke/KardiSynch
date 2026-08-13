@@ -1,0 +1,32 @@
+CREATE TABLE Patients (
+    id TEXT NOT NULL PRIMARY KEY,
+    firstName TEXT,
+    lastName TEXT NOT NULL,
+    lastNameKey TEXT,
+    dob TEXT NOT NULL,
+    hospitalPatientId TEXT,
+    mriStatus TEXT,
+    mriDataHash TEXT,
+    manufacturerWarningStatus TEXT,
+    manufacturerWarningHash TEXT,
+    lastIndexedMtime INTEGER
+);
+
+CREATE INDEX idx_patients_last_name_dob ON Patients(lastName, dob);
+CREATE INDEX idx_patients_last_name_key_dob ON Patients(lastNameKey, dob);
+
+insertPatient:
+INSERT OR REPLACE INTO Patients(id, firstName, lastName, lastNameKey, dob, hospitalPatientId, mriStatus, mriDataHash, manufacturerWarningStatus, manufacturerWarningHash, lastIndexedMtime)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectPatientById:
+SELECT * FROM Patients WHERE id = ?;
+
+selectAllPatients:
+SELECT * FROM Patients ORDER BY lastName, firstName;
+
+deletePatient:
+DELETE FROM Patients WHERE id = ?;
+
+deleteAllPatients:
+DELETE FROM Patients;

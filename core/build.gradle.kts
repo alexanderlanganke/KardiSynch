@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.androidLibrary)
     alias(libs.plugins.kotlinSerialization)
 }
 
@@ -8,11 +9,11 @@ kotlin {
     // first) because this environment's only installed JDK is JRE-only.
     jvmToolchain(21)
 
-    // Android/iOS targets are added once the corresponding SDKs are available
-    // in the build environment (this one has neither). Named "desktop" now,
-    // matching the eventual multi-target source-set layout, so no rename is
-    // needed later.
+    // iOS isn't wired up yet (needs Xcode on Apple hardware — see the KMP
+    // migration plan). Named "desktop" now, matching the eventual
+    // multi-target source-set layout, so no rename is needed later.
     jvm("desktop")
+    androidTarget()
 
     sourceSets {
         commonMain.dependencies {
@@ -21,5 +22,14 @@ kotlin {
         commonTest.dependencies {
             implementation(kotlin("test"))
         }
+    }
+}
+
+android {
+    namespace = "io.github.alexanderlanganke.kardisynch.core"
+    compileSdk = libs.versions.android.compileSdk.get().toInt()
+
+    defaultConfig {
+        minSdk = libs.versions.android.minSdk.get().toInt()
     }
 }

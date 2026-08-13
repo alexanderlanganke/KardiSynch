@@ -30,4 +30,5 @@ dependencyResolutionManagement {
 // (see the KMP migration plan for the full module sequence).
 include(
     ":core",
+    ":data",
 )

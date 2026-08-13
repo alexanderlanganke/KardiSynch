@@ -1,0 +1,38 @@
+CREATE TABLE Reports (
+    id TEXT NOT NULL PRIMARY KEY,
+    patientId TEXT NOT NULL,
+    manufacturer TEXT,
+    interrogationDate TEXT NOT NULL,
+    hospitalVisitId TEXT,
+    deviceType TEXT,
+    deviceModel TEXT,
+    deviceSerialNumber TEXT,
+    rawText TEXT,
+    data TEXT,
+    FOREIGN KEY (patientId) REFERENCES Patients(id)
+);
+
+CREATE INDEX idx_reports_patient_id ON Reports(patientId);
+CREATE INDEX idx_reports_interrogation_date ON Reports(interrogationDate);
+
+insertReport:
+INSERT OR REPLACE INTO Reports(id, patientId, manufacturer, interrogationDate, hospitalVisitId, deviceType, deviceModel, deviceSerialNumber, rawText, data)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectReportsByPatientId:
+SELECT * FROM Reports WHERE patientId = ? ORDER BY interrogationDate DESC;
+
+selectReportById:
+SELECT * FROM Reports WHERE id = ?;
+
+selectReportsByDatePrefix:
+SELECT * FROM Reports WHERE patientId = ? AND interrogationDate LIKE ? || '%';
+
+deleteReport:
+DELETE FROM Reports WHERE id = ?;
+
+deleteReportsForPatient:
+DELETE FROM Reports WHERE patientId = ?;
+
+deleteAllReports:
+DELETE FROM Reports;

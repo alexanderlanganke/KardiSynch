@@ -1,0 +1,21 @@
+CREATE TABLE ImportEvents (
+    id TEXT NOT NULL PRIMARY KEY,
+    sessionId TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    filePath TEXT NOT NULL,
+    status TEXT NOT NULL,
+    patientId TEXT,
+    reportId TEXT,
+    message TEXT,
+    details TEXT,
+    FOREIGN KEY (sessionId) REFERENCES ImportSessions(id)
+);
+
+CREATE INDEX idx_import_events_session_id ON ImportEvents(sessionId);
+
+insertImportEvent:
+INSERT OR REPLACE INTO ImportEvents(id, sessionId, timestamp, filePath, status, patientId, reportId, message, details)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectImportEventsBySession:
+SELECT * FROM ImportEvents WHERE sessionId = ? ORDER BY timestamp;
