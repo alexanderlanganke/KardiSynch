@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Search, UserPlus, FileText, AlertCircle, AlertTriangle, ArrowRight, FolderInput } from 'lucide-react';
+import { Search, UserPlus, FileText, AlertCircle, AlertTriangle, ArrowRight, FolderInput, Copy, Check, X } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { formatDate } from '@/lib/utils';
 import ReportViewer from './ReportViewer';
@@ -16,6 +16,19 @@ interface Patient {
     patientId: string;
     name: string;
     dob: string;
+}
+
+// One selectable/previewable file within the sorting dialog. Normalized from
+// `sourceItem` below so a single-file legacy caller (ImportHistory's "move
+// file" flow, a remote Web Panel download) and the batched pending-sort queue
+// (issue #158) share one rendering path.
+interface FileEntry {
+    key: string;           // unique within this dialog instance: `${taskId||'na'}::${file}`
+    taskId?: string;       // originating pending-sort task, when applicable
+    file: string;          // basename
+    filePath?: string;     // absolute path for preview
+    previewData: any;
+    isIntraop?: boolean;
 }
 
 interface PatientAssignmentModalProps {
@@ -29,6 +42,26 @@ interface PatientAssignmentModalProps {
     onResolve: (decision: any) => void;
     onCancel: () => void;
 }
+
+const getFileType = (filename: string): 'xml' | 'pdf' | 'text' => {
+    const lower = filename.toLowerCase();
+    if (lower.endsWith('.xml')) return 'xml';
+    if (lower.endsWith('.pdf')) return 'pdf';
+    return 'text';
+};
+
+// Normalized identity used to flag likely-duplicate files within the same
+// batch (issue #157 — a programmer re-exporting its raw-data file more than
+// once). Deliberately excludes files with no serial on either side, since an
+// empty match there would be noise rather than signal.
+const duplicateIdentity = (previewData: any): string | null => {
+    const serial = previewData?.serial;
+    if (!serial || serial === 'Unknown') return null;
+    const name = String(previewData?.patientName || '').trim().toLowerCase();
+    const dob = previewData?.dob || '';
+    const date = (previewData?.date || '').split('T')[0];
+    return `${name}|${dob}|${date}|${serial}`;
+};
 
 const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, mode, sourceItem, excludePatientId, onResolve, onCancel }) => {
     const { showAlert, showConfirm } = useAppDialog();
@@ -53,6 +86,61 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
     // Track previous source item to prevent unnecessary resets
     const [prevSourceItemJson, setPrevSourceItemJson] = useState<string>('');
 
+    // Files available for this sorting pass, and which of them are currently
+    // checked to be included in the confirm action (issue #158: select/
+    // deselect individual files within a batched pending-sort task).
+    const fileEntries: FileEntry[] = useMemo(() => {
+        if (mode !== 'import' || !sourceItem) return [];
+        if (Array.isArray(sourceItem.files) && sourceItem.files.length > 0) {
+            return sourceItem.files.map((f: any) => ({
+                key: `${f.taskId || 'na'}::${f.file}`,
+                taskId: f.taskId,
+                file: f.file,
+                filePath: f.filePath,
+                previewData: f.previewData || {},
+                isIntraop: f.isIntraop,
+            }));
+        }
+        // Legacy single-file callers (ImportHistory "move file", remote Web
+        // Panel download assignment) don't build a `files` array — synthesize
+        // a single entry so the same rendering path covers them.
+        if (sourceItem.filename) {
+            return [{
+                key: `${sourceItem.taskIds?.[0] || 'na'}::${sourceItem.filename}`,
+                taskId: sourceItem.taskIds?.[0],
+                file: sourceItem.filename,
+                filePath: sourceItem.tempPath,
+                previewData: sourceItem.previewData || {},
+            }];
+        }
+        return [];
+    }, [sourceItem, mode]);
+
+    const [checkedKeys, setCheckedKeys] = useState<Set<string>>(new Set());
+    const [activeKey, setActiveKey] = useState<string>('');
+    const [selectedPatientRecord, setSelectedPatientRecord] = useState<any | null>(null);
+
+    const activeEntry = fileEntries.find(f => f.key === activeKey) || fileEntries[0];
+
+    // Files sharing the same normalized patient/date/serial identity are
+    // flagged as possible duplicates so the user can spot (and deselect) a
+    // repeated export instead of importing it twice.
+    const duplicateKeys = useMemo(() => {
+        const byIdentity = new Map<string, string[]>();
+        for (const f of fileEntries) {
+            const id = duplicateIdentity(f.previewData);
+            if (!id) continue;
+            const list = byIdentity.get(id) || [];
+            list.push(f.key);
+            byIdentity.set(id, list);
+        }
+        const flagged = new Set<string>();
+        for (const list of byIdentity.values()) {
+            if (list.length > 1) list.forEach(k => flagged.add(k));
+        }
+        return flagged;
+    }, [fileEntries]);
+
     useEffect(() => {
         if (open && sourceItem) {
             const currentJson = JSON.stringify(sourceItem);
@@ -64,15 +152,22 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
             // new document to the previously chosen patient/visit. When the
             // import gate flagged a likely existing patient (generator change /
             // spelling variant, issue #143), preselect that candidate.
-            setSelectedPatientId((mode === 'import' && sourceItem.previewData?.suggestedPatientId) || null);
+            const entries: FileEntry[] = Array.isArray(sourceItem.files) && sourceItem.files.length > 0
+                ? sourceItem.files
+                : (sourceItem.filename ? [{ key: '', file: sourceItem.filename, previewData: sourceItem.previewData || {} }] : []);
+            const firstPreview = entries[0]?.previewData || {};
+
+            setSelectedPatientId((mode === 'import' && firstPreview?.suggestedPatientId) || null);
             setSelectedVisitId(null);
             setSearchTerm('');
             setActiveTab('existing');
             setVisitMode('existing');
+            setCheckedKeys(new Set(fileEntries.map(f => f.key)));
+            setActiveKey(fileEntries[0]?.key || '');
 
-            // Pre-fill form from preview data
-            if (mode === 'import' && sourceItem.previewData) {
-                const { patientName, dob, date } = sourceItem.previewData;
+            // Pre-fill form from the first file's preview data
+            if (mode === 'import' && firstPreview) {
+                const { patientName, dob, date } = firstPreview;
                 let first = '';
                 let last = '';
 
@@ -107,6 +202,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                 setPatients(data);
             });
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, sourceItem, mode, prevSourceItemJson]);
 
     // Fetch visits when patient selected (Only relevant for Import mode)
@@ -125,14 +221,55 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
         }
     }, [selectedPatientId, mode]);
 
+    // Fetch the selected patient's current record for the comparison panel
+    // (issue #158: "show the current values of the chosen patient... compare
+    // these to the to-be-imported values").
+    useEffect(() => {
+        if (selectedPatientId && mode === 'import') {
+            window.electronAPI.getPatientById(selectedPatientId).then((data: any) => {
+                setSelectedPatientRecord(data || null);
+            }).catch(() => setSelectedPatientRecord(null));
+        } else {
+            setSelectedPatientRecord(null);
+        }
+    }, [selectedPatientId, mode]);
+
     const filteredPatients = patients.filter(p =>
         p.id !== excludePatientId &&
         (String(p.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
             String(p.patientId || '').toLowerCase().includes(searchTerm.toLowerCase()))
     );
 
+    const toggleFileChecked = (key: string) => {
+        setCheckedKeys(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    // Group the checked files by their originating task for resolvePendingSortTasks
+    // (issue #158). Legacy single-file callers have no taskId — those flows
+    // don't consult fileSelection, so it's simply omitted for them.
+    const buildFileSelection = (): Record<string, string[]> | undefined => {
+        if (mode !== 'import' || fileEntries.length === 0) return undefined;
+        const bySource: Record<string, string[]> = {};
+        let hasTaskId = false;
+        for (const f of fileEntries) {
+            if (!checkedKeys.has(f.key) || !f.taskId) continue;
+            hasTaskId = true;
+            (bySource[f.taskId] ||= []).push(f.file);
+        }
+        return hasTaskId ? bySource : undefined;
+    };
+
     const handleConfirm = () => {
         if (selectedPatientId) {
+            if (mode === 'import' && checkedKeys.size === 0) {
+                showAlert('Select at least one file to assign.');
+                return;
+            }
             // Validate "Create New Visit" date
             if (mode === 'import' && visitMode === 'new' && !newVisitDate) {
                 showAlert('Please specify a date for the new visit.');
@@ -150,7 +287,8 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                     patientId: selectedPatientId,
                     visitMode,
                     visitId: visitMode === 'existing' ? selectedVisitId : undefined,
-                    visitDate: visitMode === 'new' ? newVisitDate : undefined
+                    visitDate: visitMode === 'new' ? newVisitDate : undefined,
+                    fileSelection: buildFileSelection()
                 });
             } else {
                 // Move Mode: Just return the target patient ID
@@ -172,11 +310,16 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
             showAlert('Please specify a Visit Date.');
             return;
         }
+        if (mode === 'import' && checkedKeys.size === 0) {
+            showAlert('Select at least one file to assign.');
+            return;
+        }
 
         onResolve({
             action: 'create-patient',
             patientData: newPatient,
-            visitDate: newVisitDate // Used for Import to create visit, for Move it might be unused but passed
+            visitDate: newVisitDate, // Used for Import to create visit, for Move it might be unused but passed
+            fileSelection: buildFileSelection()
         });
     };
 
@@ -184,13 +327,6 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
         // For queued (pending) items, "skip" becomes "move the whole task to the
         // unmatched dir" (issue #136); otherwise keep the legacy unmatched action.
         onResolve({ action: sourceItem?.source === 'pending' ? 'move-unmatched' : 'unmatched' });
-    };
-
-    const getFileType = (filename: string): 'xml' | 'pdf' | 'text' => {
-        const lower = filename.toLowerCase();
-        if (lower.endsWith('.xml')) return 'xml';
-        if (lower.endsWith('.pdf')) return 'pdf';
-        return 'text';
     };
 
     if (!sourceItem) return null;
@@ -209,6 +345,19 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
         onCancel();
     };
 
+    const checkedCount = checkedKeys.size;
+    const totalCount = fileEntries.length;
+
+    // Compare the currently-previewed file's parsed values against the
+    // selected patient's current stored record (issue #158). Read-only — this
+    // is a confirm-you-picked-the-right-patient aid, not a merge tool.
+    const currentDevices = selectedPatientRecord?.devices || [];
+    const incomingSerial = activeEntry?.previewData?.serial;
+    const serialKnown = incomingSerial && incomingSerial !== 'Unknown';
+    const serialMatches = serialKnown && currentDevices.length > 0
+        ? currentDevices.some((d: any) => d.serial === incomingSerial)
+        : null; // null = not enough data to judge
+
     return (
         <Dialog open={open} onOpenChange={(val) => !val && handleDismissAttempt()}>
             <DialogContent
@@ -225,11 +374,15 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                             </div>
                             <div className="flex flex-col">
                                 <span className="flex items-center gap-2">
-                                    {mode === 'import' ? 'Manual Sorting Required' : 'Move Visit to Patient'}
+                                    {mode === 'import'
+                                        ? (totalCount > 1 ? `Sort ${totalCount} Files` : 'Manual Sorting Required')
+                                        : 'Move Visit to Patient'}
                                 </span>
                                 <span className="text-sm font-normal text-muted-foreground mt-0.5">
                                     {mode === 'import'
-                                        ? 'Please identify the patient for this document.'
+                                        ? (totalCount > 1
+                                            ? `${checkedCount} of ${totalCount} selected — identify the patient for the checked file(s).`
+                                            : 'Please identify the patient for this document.')
                                         : 'Select the correct patient to move this visit to.'}
                                 </span>
                             </div>
@@ -248,44 +401,70 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                         <div className="relative z-10 space-y-4">
                                             {mode === 'import' ? (
                                                 <>
-                                                    <h3 className="font-semibold text-lg leading-tight break-all">{sourceItem.filename}</h3>
-                                                    {sourceItem.bulkCount > 1 && (
-                                                        <div className="flex items-center gap-2 rounded-md bg-orange-100 dark:bg-orange-500/15 border border-orange-200 dark:border-orange-500/30 px-3 py-2 text-xs text-orange-800 dark:text-orange-300">
-                                                            <FileText className="h-3.5 w-3.5 shrink-0" />
-                                                            <span>
-                                                                Bulk sort: <strong>{sourceItem.bulkCount}</strong> items
-                                                                {sourceItem.bulkFileCount ? ` (${sourceItem.bulkFileCount} files)` : ''} will be assigned to the same patient &amp; visit.
-                                                            </span>
-                                                        </div>
-                                                    )}
-                                                    {sourceItem.previewData?.note && (
+                                                    {/* File list — one row per file in this batch, selectable for
+                                                        preview and checkable for inclusion (issue #158). */}
+                                                    <div className="space-y-1.5">
+                                                        {fileEntries.map(f => {
+                                                            const isDup = duplicateKeys.has(f.key);
+                                                            return (
+                                                                <div
+                                                                    key={f.key}
+                                                                    onClick={() => setActiveKey(f.key)}
+                                                                    className={`flex items-start gap-2 p-2 rounded-md border cursor-pointer transition-all ${activeKey === f.key ? 'border-primary bg-primary/5' : 'border-transparent hover:bg-muted/50'}`}
+                                                                >
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        className="h-3.5 w-3.5 mt-0.5 accent-primary cursor-pointer shrink-0"
+                                                                        checked={checkedKeys.has(f.key)}
+                                                                        onClick={e => e.stopPropagation()}
+                                                                        onChange={() => toggleFileChecked(f.key)}
+                                                                        aria-label={`Include ${f.file}`}
+                                                                    />
+                                                                    <FileText className="h-3.5 w-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                                                                    <div className="min-w-0 flex-1">
+                                                                        <p className="text-xs font-medium break-all leading-tight">{f.file}</p>
+                                                                        <p className="text-[10px] text-muted-foreground truncate">
+                                                                            {f.previewData?.patientName || 'Unknown'}
+                                                                            {f.previewData?.serial && f.previewData.serial !== 'Unknown' ? ` · ${f.previewData.serial}` : ''}
+                                                                        </p>
+                                                                        {isDup && (
+                                                                            <Badge variant="outline" className="mt-1 text-[9px] h-4 px-1 gap-1 text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-300 dark:border-amber-500/30 dark:bg-amber-500/10">
+                                                                                <Copy className="h-2.5 w-2.5" /> Possible duplicate
+                                                                            </Badge>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                    {activeEntry?.previewData?.note && (
                                                         <div className="flex items-start gap-2 rounded-md bg-amber-100 dark:bg-amber-500/15 border border-amber-200 dark:border-amber-500/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
                                                             <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
-                                                            <span>{sourceItem.previewData.note}</span>
+                                                            <span>{activeEntry.previewData.note}</span>
                                                         </div>
                                                     )}
                                                     <div className="grid grid-cols-2 gap-4 text-sm pt-2 bg-muted -mx-4 -mb-4 p-4 border-t">
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Name</span>
-                                                            <p className="font-medium truncate">{sourceItem.previewData?.patientName || 'Unknown'}</p>
+                                                            <p className="font-medium truncate">{activeEntry?.previewData?.patientName || 'Unknown'}</p>
                                                         </div>
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Serial</span>
-                                                            <p className="font-mono text-xs">{sourceItem.previewData?.serial || 'Unknown'}</p>
+                                                            <p className="font-mono text-xs">{activeEntry?.previewData?.serial || 'Unknown'}</p>
                                                         </div>
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Manufacturer</span>
-                                                            <p className="font-medium truncate">{sourceItem.previewData?.manufacturer || 'Unknown'}</p>
+                                                            <p className="font-medium truncate">{activeEntry?.previewData?.manufacturer || 'Unknown'}</p>
                                                         </div>
                                                         <div>
                                                             <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Model</span>
-                                                            <p className="text-xs truncate">{sourceItem.previewData?.deviceModel || 'Unknown'}</p>
+                                                            <p className="text-xs truncate">{activeEntry?.previewData?.deviceModel || 'Unknown'}</p>
                                                         </div>
-                                                        {sourceItem.previewData?.leads && sourceItem.previewData.leads.length > 0 && (
+                                                        {activeEntry?.previewData?.leads && activeEntry.previewData.leads.length > 0 && (
                                                             <div className="col-span-2 border-t pt-2 mt-2">
                                                                 <span className="text-[10px] uppercase text-muted-foreground font-semibold block mb-1">Leads</span>
                                                                 <div className="space-y-1">
-                                                                    {sourceItem.previewData.leads.map((l: any, i: number) => (
+                                                                    {activeEntry.previewData.leads.map((l: any, i: number) => (
                                                                         <div key={i} className="text-xs flex justify-between">
                                                                             <span className="text-muted-foreground">{l.name || 'Lead'}:</span>
                                                                             <span className="font-mono">{l.model} ({l.serial})</span>
@@ -335,7 +514,7 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                     </div>
 
                                                     {/* Patient List */}
-                                                    <div className="border rounded-lg bg-card shadow-inner overflow-hidden flex flex-col h-[280px]">
+                                                    <div className="border rounded-lg bg-card shadow-inner overflow-hidden flex flex-col h-[220px]">
                                                         <div className="flex-1 overflow-y-auto p-1 space-y-1">
                                                             {filteredPatients.length === 0 && (
                                                                 <div className="flex flex-col items-center justify-center h-full text-center text-muted-foreground text-xs px-4">
@@ -365,6 +544,39 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                                             ))}
                                                         </div>
                                                     </div>
+
+                                                    {/* Current-record vs incoming-file comparison (Import Mode Only,
+                                                        issue #158: confirm-you-picked-the-right-patient aid). */}
+                                                    {mode === 'import' && selectedPatientId && selectedPatientRecord && activeEntry && (
+                                                        <div className="animate-in fade-in slide-in-from-top-2 rounded-md border bg-card p-3 space-y-2">
+                                                            <p className="text-[10px] font-semibold uppercase text-muted-foreground">Current record vs. this file</p>
+                                                            <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+                                                                <div className="text-muted-foreground">Patient on file</div>
+                                                                <div className="font-medium truncate">
+                                                                    {selectedPatientRecord.first_name} {selectedPatientRecord.last_name}
+                                                                    <span className="text-muted-foreground ml-1">({formatDate(selectedPatientRecord.dob)})</span>
+                                                                </div>
+                                                                <div className="text-muted-foreground">Serial (this file)</div>
+                                                                <div className={`font-mono flex items-center gap-1 ${serialMatches === false ? 'text-destructive' : serialMatches === true ? 'text-emerald-600 dark:text-emerald-400' : ''}`}>
+                                                                    {serialMatches === true && <Check className="h-3 w-3 shrink-0" />}
+                                                                    {serialMatches === false && <X className="h-3 w-3 shrink-0" />}
+                                                                    {incomingSerial || 'Unknown'}
+                                                                </div>
+                                                                <div className="text-muted-foreground">Known device serials</div>
+                                                                <div className="font-mono truncate">
+                                                                    {currentDevices.length > 0
+                                                                        ? currentDevices.map((d: any) => d.serial).join(', ')
+                                                                        : <span className="italic text-muted-foreground">None on file</span>}
+                                                                </div>
+                                                            </div>
+                                                            {serialMatches === false && (
+                                                                <div className="flex items-start gap-1.5 text-[11px] text-destructive pt-1 border-t">
+                                                                    <AlertTriangle className="h-3 w-3 shrink-0 mt-0.5" />
+                                                                    <span>This file's serial doesn't match any device on file for the selected patient — double-check before confirming.</span>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
 
                                                     {/* Visit Selection (Import Mode Only) */}
                                                     {mode === 'import' && selectedPatientId && (
@@ -459,10 +671,10 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                         className="flex-1 font-medium shadow-lg"
                                         onClick={activeTab === 'existing' ? handleConfirm : handleCreate}
                                         disabled={activeTab === 'existing'
-                                            ? (!selectedPatientId || (mode === 'import' && visitMode === 'existing' && !selectedVisitId))
-                                            : (!newPatient.last_name || !newPatient.dob)}
+                                            ? (!selectedPatientId || (mode === 'import' && visitMode === 'existing' && !selectedVisitId) || (mode === 'import' && checkedCount === 0))
+                                            : (!newPatient.last_name || !newPatient.dob || (mode === 'import' && checkedCount === 0))}
                                     >
-                                        {mode === 'move' ? 'Move Visit' : 'Confirm Assignment'}
+                                        {mode === 'move' ? 'Move Visit' : (totalCount > 1 ? `Confirm Assignment (${checkedCount} file${checkedCount === 1 ? '' : 's'})` : 'Confirm Assignment')}
                                     </Button>
                                 </div>
                                 {mode === 'import' && (
@@ -480,15 +692,20 @@ const PatientAssignmentModal: React.FC<PatientAssignmentModalProps> = ({ open, m
                                     <>
                                         {/* Import Mode Preview Header */}
                                         <div className="px-4 py-3 border-b bg-muted text-xs font-semibold text-muted-foreground flex justify-between items-center shrink-0">
-                                            <span>File Preview</span>
+                                            <span className="truncate">{activeEntry?.file || 'File Preview'}</span>
+                                            {totalCount > 1 && (
+                                                <span className="text-[10px] font-normal text-muted-foreground shrink-0 ml-2">
+                                                    {fileEntries.findIndex(f => f.key === activeEntry?.key) + 1} of {totalCount}
+                                                </span>
+                                            )}
                                         </div>
                                         {/* Report Viewer for Full Feature Preview */}
                                         <div className="flex-1 overflow-hidden relative">
-                                            {sourceItem.tempPath ? (
+                                            {activeEntry?.filePath ? (
                                                 <ReportViewer
                                                     report={null} // We don't have a report entry yet
-                                                    type={getFileType(sourceItem.filename)}
-                                                    filePath={sourceItem.tempPath}
+                                                    type={getFileType(activeEntry.file)}
+                                                    filePath={activeEntry.filePath}
                                                 />
                                             ) : (
                                                 <div className="flex items-center justify-center h-full text-muted-foreground">

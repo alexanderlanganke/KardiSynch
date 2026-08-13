@@ -164,14 +164,35 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Flatten one or more pending-sort tasks into per-file entries for the
+  // sorting dialog (issue #158): each task's files carry their own
+  // previewData/isIntraop, keyed by basename.
+  const buildFileEntries = (tasks: any[]) => {
+    const entries: Array<{ taskId: string; file: string; filePath?: string; previewData: any; isIntraop: boolean }> = [];
+    for (const t of tasks) {
+      const files: string[] = t.files || [];
+      const filePaths: string[] = t.filePaths || [];
+      files.forEach((file: string, i: number) => {
+        entries.push({
+          taskId: t.id,
+          file,
+          filePath: filePaths[i],
+          previewData: (t.previewData && t.previewData[file]) || {},
+          isIntraop: !!(t.isIntraop && t.isIntraop[file]),
+        });
+      });
+    }
+    return entries;
+  };
+
   // Open the sorting dialog for a queued task (chosen from the notification area).
   const openSortTask = (task: any) => {
     setManualSortingFile({
       source: 'pending',
       taskIds: [task.id],
+      files: buildFileEntries([task]),
       filename: (task.files && task.files[0]) || 'Unknown file',
       tempPath: (task.filePaths && task.filePaths[0]) || undefined,
-      previewData: task.previewData || {},
     });
     setManualSortingOpen(true);
   };
@@ -182,15 +203,15 @@ const App: React.FC = () => {
     if (!tasks || tasks.length === 0) return;
     if (tasks.length === 1) { openSortTask(tasks[0]); return; }
     const first = tasks[0];
-    const totalFiles = tasks.reduce((n, t) => n + ((t.files && t.files.length) || 0), 0);
+    const entries = buildFileEntries(tasks);
     setManualSortingFile({
       source: 'pending',
       taskIds: tasks.map(t => t.id),
+      files: entries,
       bulkCount: tasks.length,
-      bulkFileCount: totalFiles,
+      bulkFileCount: entries.length,
       filename: (first.files && first.files[0]) || 'Unknown file',
       tempPath: (first.filePaths && first.filePaths[0]) || undefined,
-      previewData: first.previewData || {},
     });
     setManualSortingOpen(true);
   };

@@ -43,8 +43,8 @@ interface PendingSortTask {
     createdAt: string;
     files: string[];
     filePaths?: string[];
-    previewData?: any;
-    isIntraop?: boolean;
+    previewData?: Record<string, any>;
+    isIntraop?: Record<string, boolean>;
 }
 
 interface NotificationCenterProps {
@@ -399,8 +399,10 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                             ) : (
                                 <div className="divide-y">
                                     {pendingSortTasks.map(task => {
-                                        const preview = task.previewData || {};
                                         const displayName = (task.files && task.files[0]) || 'Unknown file';
+                                        const preview = (task.previewData && task.previewData[displayName]) || {};
+                                        const isIntraop = !!(task.isIntraop && task.isIntraop[displayName]);
+                                        const fileCount = task.files?.length || 0;
                                         return (
                                             <div key={task.id} className={cn("p-4 space-y-2 overflow-hidden", selectedSortIds.has(task.id) && "bg-orange-50/60 dark:bg-orange-500/5")}>
                                                 <div className="flex items-start gap-3">
@@ -418,9 +420,14 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ onOpenChange, p
                                                             {preview.patientName || 'Unknown patient'}
                                                             {preview.manufacturer ? ` · ${preview.manufacturer}` : ''}
                                                         </p>
-                                                        {task.isIntraop && (
-                                                            <Badge variant="outline" className="text-[9px] h-4 px-1 mt-1 text-purple-600 border-purple-200 bg-purple-50 dark:text-purple-300 dark:border-purple-500/30 dark:bg-purple-500/10">intraop</Badge>
-                                                        )}
+                                                        <div className="flex gap-1 mt-1">
+                                                            {fileCount > 1 && (
+                                                                <Badge variant="outline" className="text-[9px] h-4 px-1 text-orange-600 border-orange-200 bg-orange-50 dark:text-orange-300 dark:border-orange-500/30 dark:bg-orange-500/10">{fileCount} files</Badge>
+                                                            )}
+                                                            {isIntraop && (
+                                                                <Badge variant="outline" className="text-[9px] h-4 px-1 text-purple-600 border-purple-200 bg-purple-50 dark:text-purple-300 dark:border-purple-500/30 dark:bg-purple-500/10">intraop</Badge>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div className="flex gap-2 pl-7">

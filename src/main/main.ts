@@ -1368,11 +1368,21 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
       const succeededFiles: string[] = [];
       const taskFileFailures: { file: string; error: string }[] = [];
 
-      for (const fp of pendingSortTaskFilePaths(task)) {
+      // Per-file selection (issue #158): when the sorting dialog lets the user
+      // deselect individual files within a batched task (e.g. a duplicate
+      // export, or a Boston Scientific PDF meant for a different patient),
+      // only the selected basenames are resolved this pass — the rest are
+      // simply left in the task via the existing partial-success path below.
+      const selectedBasenames: string[] | undefined = decision.fileSelection?.[task.id];
+      const filePaths = selectedBasenames
+        ? pendingSortTaskFilePaths(task).filter(fp => selectedBasenames.includes(path.basename(fp)))
+        : pendingSortTaskFilePaths(task);
+
+      for (const fp of filePaths) {
         try {
           let parsed: any = null;
           try { parsed = await parseFile(fp); } catch { /* tolerate unparseable file */ }
-          if (parsed && task.isIntraop) {
+          if (parsed && task.isIntraop?.[path.basename(fp)]) {
             parsed._remoteSource = { visit_type: 'intraoperative', source_manufacturer: parsed.manufacturer || undefined };
           }
 
@@ -1431,17 +1441,19 @@ async function resolvePendingSortTasks(taskIds: string[], decision: any) {
       }
 
       try {
-        if (taskFileFailures.length === 0) {
-          await removePendingSortTask(task.id, true);
-          resolvedCount++;
-        } else if (succeededFiles.length > 0) {
-          // Partial success: drop only the files that were actually handled
-          // so the task keeps exactly the files that still need attention.
+        // Drop only the files that were actually handled this pass — this
+        // covers both partial failure AND a deliberately partial fileSelection
+        // (files the user left unchecked stay queued, untouched, for a later
+        // pass). removeFilesFromTask already removes the task entirely once
+        // nothing is left in it.
+        if (succeededFiles.length > 0) {
           await removeFilesFromTask(task.id, succeededFiles);
+        }
+        if (taskFileFailures.length > 0) {
           failedTasks.push({ taskId: task.id, files: taskFileFailures });
-        } else {
-          // Nothing in this task succeeded — leave it untouched in the queue.
-          failedTasks.push({ taskId: task.id, files: taskFileFailures });
+        } else if (succeededFiles.length === task.files.length) {
+          // Every file ever staged in this task succeeded this pass.
+          resolvedCount++;
         }
       } catch (taskError) {
         console.error(`[resolvePendingSortTasks] Failed to finalize task ${task.id} after processing its files:`, taskError);

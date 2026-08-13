@@ -153,37 +153,24 @@ export const resolveManualSorting = (response: any) => {
 /**
  * Non-blocking replacement for the old blocking manual-sort modal (issue #136).
  *
- * Stages the file out of the batch temp dir into its own pending-sort task dir
- * and notifies the renderer's notification area. Processing continues
- * immediately — no modal is force-opened and the batch is never stalled waiting
- * for the user. The task is resolved later via the pending-sort IPC handlers.
+ * Rather than staging the file into its own pending-sort task immediately,
+ * this queues it into the current run's batch (see `pendingSortBatch` in
+ * `processTempDirectory`) so every file left unmatched by one import run is
+ * flushed as a SINGLE task at the end of the run — companion files that
+ * arrived together stay together for the user to resolve (#156, #157, #158).
  *
- * Returns true if the file was successfully queued. Falls back to false (caller
- * then routes the file to the unmatched dir) if the queue isn't ready.
+ * Returns true if the file was added to the batch. Falls back to false
+ * (caller then routes the file to the unmatched dir) if the queue isn't ready.
  */
-const enqueueManualSort = async (
+const queueForManualSort = (
+  batch: import('./services/pendingSortService').PendingSortEntry[],
   file: string,
   previewData: any,
-  isIntraop: boolean,
-  sessionId: string
-): Promise<boolean> => {
+  isIntraop: boolean
+): boolean => {
   if (!isPendingSortReady()) return false;
-  try {
-    await enqueuePendingSort([file], { previewData, isIntraop, sessionId });
-    logEvent({
-      id: uuidv4(),
-      session_id: sessionId,
-      file_path: file,
-      status: 'pending_manual_sort',
-      message: 'Queued for manual sorting'
-    });
-    sendPendingSortUpdate(listPendingSortTasks());
-    sendNotification(`${path.basename(file).replace(/^INTRAOP__/, '')} needs manual sorting`, 'warning');
-    return true;
-  } catch (e) {
-    console.error(`[Watcher] Failed to enqueue manual sort for ${file}:`, e);
-    return false;
-  }
+  batch.push({ sourcePath: file, previewData, isIntraop });
+  return true;
 };
 
 export const resolveDeviceSelection = (response: any) => {
@@ -427,6 +414,13 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
   // Collect unique patient IDs for post-import automation checks
   const importedPatientIds = new Set<string>();
 
+  // Files that couldn't be auto-matched during this run, collected across all
+  // steps and enqueued as ONE pending-sort task at the end (instead of one
+  // task per file) so companion files that arrived together — a PDF and its
+  // logfile, a multi-PDF export, duplicate raw-data exports — surface as a
+  // single batch the user can resolve together (#156, #157, #158).
+  const pendingSortBatch: import('./services/pendingSortService').PendingSortEntry[] = [];
+
   try {
 
     sendProcessStatus({ type: 'start', message: `Processing ${allFiles.length} files...` });
@@ -660,7 +654,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           //    ladder below) so the user confirms it with one click rather
           //    than it being applied blind.
           const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
-          const queued = await enqueueManualSort(file, {
+          const queued = queueForManualSort(pendingSortBatch, file, {
             patientName: targetPatient
               ? `${targetPatient.first_name} ${targetPatient.last_name}`
               : (isUnparsedStructured ? "UNKNOWN (could not read file)" : "UNKNOWN (Missing in Log)"),
@@ -674,7 +668,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               ? `Device serial matches ${targetPatient.last_name}, ${targetPatient.first_name} on file, but this report has no name/DOB of its own to confirm it's the same patient (e.g. device explant/reimplant). Confirm or reassign before importing.`
               : undefined,
             suggestedPatientId: targetPatient ? targetPatient.id : undefined
-          }, isIntraopFile, sessionId);
+          }, isIntraopFile);
           if (queued) {
             sessionSummary.pendingSort++;
           } else {
@@ -782,7 +776,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
 
             if (suggested) {
               const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
-              const queued = await enqueueManualSort(file, {
+              const queued = queueForManualSort(pendingSortBatch, file, {
                 patientName: `${report.patient.first_name} ${report.patient.last_name}`,
                 dob: report.patient.dob,
                 date: report.interrogation_date,
@@ -792,7 +786,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
                 leads: report.leads,
                 note: `Similar patient on file: ${suggested.last_name}, ${suggested.first_name} (DOB ${suggested.dob}). Possible generator change or spelling variant — assign to the existing patient or confirm this is a new one.`,
                 suggestedPatientId: suggested.id
-              }, isIntraopFile, sessionId);
+              }, isIntraopFile);
               if (queued) {
                 sessionSummary.pendingSort++;
               } else {
@@ -1080,7 +1074,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             // (or create a new one) on demand instead of being interrupted by a
             // modal mid-import.
             const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
-            const queued = await enqueueManualSort(file, {
+            const queued = queueForManualSort(pendingSortBatch, file, {
               patientName: `${patient.first_name} ${patient.last_name}`,
               dob: patient.dob,
               date: report.interrogation_date,
@@ -1088,7 +1082,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               manufacturer: report.manufacturer,
               deviceModel: report.device?.model,
               leads: report.leads
-            }, isIntraopFile, sessionId);
+            }, isIntraopFile);
             if (queued) {
               sessionSummary.pendingSort++;
             } else {
@@ -1112,7 +1106,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           // (issue #136) instead of force-opening a modal. The user assigns or
           // creates a patient/visit on demand from the notification area.
           const isIntraopFile = (report as any)._remoteSource?.visit_type === 'intraoperative';
-          const queued = await enqueueManualSort(file, {
+          const queued = queueForManualSort(pendingSortBatch, file, {
             patientName: `${report.patient.first_name} ${report.patient.last_name}`,
             dob: report.patient.dob,
             date: report.interrogation_date,
@@ -1120,7 +1114,7 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
             manufacturer: report.manufacturer,
             deviceModel: report.device?.model,
             leads: report.leads
-          }, isIntraopFile, sessionId);
+          }, isIntraopFile);
           if (queued) {
             sessionSummary.pendingSort++;
           } else {
@@ -1163,6 +1157,45 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
           }
         } catch (e) {
           console.warn(`[Watcher] Post-import aggregation failed for visit ${visitReportId}:`, e);
+        }
+      }
+    }
+
+    // Flush this run's batched manual-sort files as ONE pending-sort task
+    // (#156, #157, #158) instead of one task per file.
+    if (pendingSortBatch.length > 0) {
+      try {
+        await enqueuePendingSort(pendingSortBatch, { sessionId });
+        for (const entry of pendingSortBatch) {
+          logEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: entry.sourcePath,
+            status: 'pending_manual_sort',
+            message: 'Queued for manual sorting'
+          });
+        }
+        sendPendingSortUpdate(listPendingSortTasks());
+        const fileNames = pendingSortBatch.map(e => path.basename(e.sourcePath).replace(/^INTRAOP__/, ''));
+        sendNotification(
+          pendingSortBatch.length === 1
+            ? `${fileNames[0]} needs manual sorting`
+            : `${pendingSortBatch.length} files need manual sorting`,
+          'warning'
+        );
+      } catch (e) {
+        console.error(`[Watcher] Failed to enqueue manual sort batch (${pendingSortBatch.length} file(s)):`, e);
+        for (const entry of pendingSortBatch) {
+          unmatchedFiles.push(entry.sourcePath);
+          sessionSummary.pendingSort--;
+          sessionSummary.unmatched++;
+          logEvent({
+            id: uuidv4(),
+            session_id: sessionId,
+            file_path: entry.sourcePath,
+            status: 'unmatched',
+            message: 'Could not queue for manual sorting'
+          });
         }
       }
     }

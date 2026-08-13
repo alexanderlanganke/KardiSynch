@@ -21,11 +21,11 @@ import { v4 as uuidv4 } from 'uuid';
 export interface PendingSortTask {
   id: string;
   createdAt: string;
-  dir: string;          // absolute per-task directory holding the staged file(s)
-  files: string[];      // basenames within `dir`
-  previewData: any;     // metadata for the sorting dialog (patient/device/date preview)
-  isIntraop: boolean;   // preserves intraoperative origin through the queue
-  sessionId?: string;   // originating import session, for history correlation
+  dir: string;                        // absolute per-task directory holding the staged file(s)
+  files: string[];                    // basenames within `dir`
+  previewData: Record<string, any>;   // per-file metadata for the sorting dialog (patient/device/date preview), keyed by basename
+  isIntraop: Record<string, boolean>; // per-file intraoperative origin, keyed by basename
+  sessionId?: string;                 // originating import session, for history correlation
 }
 
 let rootDir = '';
@@ -89,7 +89,17 @@ export const initPendingSort = async (pendingRootDir: string): Promise<void> => 
       const present = await fs.readdir(t.dir);
       const files = present.filter(f => t.files.includes(f));
       if (files.length > 0) {
-        reconciled.push({ ...t, files });
+        // Migrate tasks persisted before previewData/isIntraop became per-file
+        // maps: a legacy task had a single previewData object and a boolean
+        // isIntraop shared by the (always single) staged file.
+        const legacy = typeof (t as any).isIntraop === 'boolean';
+        const previewData: Record<string, any> = {};
+        const isIntraop: Record<string, boolean> = {};
+        for (const f of files) {
+          previewData[f] = legacy ? ((t as any).previewData ?? {}) : ((t.previewData as any)?.[f] ?? {});
+          isIntraop[f] = legacy ? !!(t as any).isIntraop : !!(t.isIntraop as any)?.[f];
+        }
+        reconciled.push({ ...t, files, previewData, isIntraop });
       } else {
         console.warn(`[PendingSort] Dropping task ${t.id} — no files left in ${t.dir}`);
         await fs.rm(t.dir, { recursive: true, force: true }).catch(() => {});
@@ -116,36 +126,51 @@ export const listPendingSortTasks = (): (PendingSortTask & { filePaths: string[]
 export const getPendingSortTask = (id: string): PendingSortTask | undefined =>
   tasks.find(t => t.id === id);
 
+export interface PendingSortEntry {
+  sourcePath: string;
+  previewData: any;
+  isIntraop?: boolean;
+}
+
 /**
- * Stage one or more files (typically a single file, or a report + its sidecars)
- * into a new per-task dir and record the task. Returns the created task.
+ * Stage one or more files (e.g. every file left unmatched by one import run —
+ * a companion PDF/log pair, a multi-PDF export, or duplicate raw-data exports)
+ * into a new shared per-task dir and record the task as one unit. Each entry
+ * keeps its own previewData/isIntraop, keyed in the resulting task by the
+ * final staged basename. Returns the created task.
  */
 export const enqueuePendingSort = async (
-  sourcePaths: string[],
-  opts: { previewData: any; isIntraop?: boolean; sessionId?: string }
+  entries: PendingSortEntry[],
+  opts: { sessionId?: string }
 ): Promise<PendingSortTask> => {
   if (!initialized) throw new Error('PendingSort not initialized');
+  if (entries.length === 0) throw new Error('enqueuePendingSort requires at least one entry');
   const id = uuidv4();
   const dir = path.join(rootDir, id);
   await fs.mkdir(dir, { recursive: true });
 
   const files: string[] = [];
+  const previewData: Record<string, any> = {};
+  const isIntraop: Record<string, boolean> = {};
   try {
-    for (const src of sourcePaths) {
+    for (const entry of entries) {
+      const src = entry.sourcePath;
       // Recover a clean, human-readable original name. Staged files are named
       // `[INTRAOP__]<uuid>_<original>` by the watcher, so strip the INTRAOP__
       // prefix and the leading UUID — otherwise the 36-char id dominates the name
       // shown in the sorting queue and overflows the notification panel.
-      const baseName = path.basename(src)
+      let baseName = path.basename(src)
         .replace(/^INTRAOP__/, '')
         .replace(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}_/, '');
-      let dest = path.join(dir, baseName);
       // Guard against collisions within the same task.
       if (files.includes(baseName)) {
-        dest = path.join(dir, `${uuidv4().slice(0, 8)}_${baseName}`);
+        baseName = `${uuidv4().slice(0, 8)}_${baseName}`;
       }
+      const dest = path.join(dir, baseName);
       await moveFile(src, dest);
-      files.push(path.basename(dest));
+      files.push(baseName);
+      previewData[baseName] = entry.previewData ?? {};
+      isIntraop[baseName] = !!entry.isIntraop;
     }
   } catch (err) {
     // Durability: never leave already-staged files untracked. If some files
@@ -159,8 +184,8 @@ export const enqueuePendingSort = async (
         createdAt: new Date().toISOString(),
         dir,
         files,
-        previewData: opts.previewData ?? {},
-        isIntraop: !!opts.isIntraop,
+        previewData,
+        isIntraop,
         sessionId: opts.sessionId,
       };
       tasks.unshift(partial);
@@ -177,8 +202,8 @@ export const enqueuePendingSort = async (
     createdAt: new Date().toISOString(),
     dir,
     files,
-    previewData: opts.previewData ?? {},
-    isIntraop: !!opts.isIntraop,
+    previewData,
+    isIntraop,
     sessionId: opts.sessionId,
   };
   tasks.unshift(task);
@@ -238,6 +263,13 @@ export const removeFilesFromTask = async (taskId: string, processedBasenames: st
       console.error(`[PendingSort] Task ${taskId} dir ${task.dir} was not empty after all its files were processed — leaving it in place for inspection:`, e));
   } else {
     task.files = remaining;
+    // Keep the per-file maps in sync with `files` — a processed file's entry
+    // would otherwise linger, unused, for as long as the task has other files
+    // still queued.
+    for (const f of processedBasenames) {
+      delete task.previewData[f];
+      delete task.isIntraop[f];
+    }
   }
   await persist();
 };
