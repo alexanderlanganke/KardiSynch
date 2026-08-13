@@ -36,7 +36,7 @@ const MetricPanel: React.FC<{ label: string; unit: string; points: TrendPoint[];
     <div className="flex flex-col gap-1">
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
       {points.length >= 2 ? (
-        <TrendChart points={points} unit={unit} className={colorClass} />
+        <TrendChart points={points} unit={unit} label={label} className={colorClass} />
       ) : (
         <span className="text-sm font-medium">
           {points[0].value}{unit ? ` ${unit}` : ''}
@@ -59,7 +59,9 @@ const SummaryReport: React.FC<SummaryReportProps> = ({ availableReports }) => {
   }
 
   const latest = chronological[chronological.length - 1];
-  const voltagePoints = buildTrendPoints(chronological, r => r.batteryVoltage);
+  // Battery voltage is tied to the physical device — a generator change mid-
+  // history must not read as one continuous, ever-increasing battery (#154).
+  const voltagePoints = buildTrendPoints(chronological, r => r.batteryVoltage, r => r.deviceSerial);
   const leadLocations = getLeadLocations(chronological);
   const additionalFields = mergeAdditionalFields(chronological);
 

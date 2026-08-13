@@ -69,6 +69,27 @@ describe('buildTrendPoints', () => {
       { date: '2024-01-01', value: 2.9 },
     ]);
   });
+
+  it('attaches a device serial per point when a deviceExtractor is given (#154)', () => {
+    const chronological = [
+      { interrogation_date: '2023-01-01', batteryVoltage: '2.6', deviceSerial: 'DEV-OLD' },
+      { interrogation_date: '2024-01-01', batteryVoltage: '3.1', deviceSerial: 'DEV-NEW' },
+    ];
+    const points = buildTrendPoints(chronological, r => r.batteryVoltage, r => r.deviceSerial);
+    expect(points).toEqual([
+      { date: '2023-01-01', value: 2.6, deviceSerial: 'DEV-OLD' },
+      { date: '2024-01-01', value: 3.1, deviceSerial: 'DEV-NEW' },
+    ]);
+  });
+
+  it('leaves deviceSerial unset for a date where readings disagree on which device produced them', () => {
+    const chronological = [
+      { interrogation_date: '2023-01-01', batteryVoltage: '3.0', deviceSerial: 'DEV-A' },
+      { interrogation_date: '2023-01-01', batteryVoltage: '3.2', deviceSerial: 'DEV-B' },
+    ];
+    const points = buildTrendPoints(chronological, r => r.batteryVoltage, r => r.deviceSerial);
+    expect(points[0].deviceSerial).toBeUndefined();
+  });
 });
 
 describe('getLeadLocations', () => {

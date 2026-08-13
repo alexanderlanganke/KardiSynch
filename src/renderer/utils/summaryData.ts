@@ -1,6 +1,10 @@
 export interface TrendPoint {
   date: string;
   value: number;
+  // Which device produced this reading, when known and unambiguous — lets a
+  // chart mark/break the line across a generator change (#154) instead of
+  // drawing a continuous trend across two different batteries.
+  deviceSerial?: string;
 }
 
 export function toNumber(v: unknown): number | undefined {
@@ -22,19 +26,35 @@ export function sortChronological(reports: any[]): any[] {
 // column and draw a meaningless zigzag between them. Collapsing same-date
 // readings to their average keeps the trend line meaningful without silently
 // preferring one arbitrary reading over the other.
-export function buildTrendPoints(chronological: any[], extractor: (report: any) => unknown): TrendPoint[] {
-  const byDate = new Map<string, number[]>();
+export function buildTrendPoints(
+  chronological: any[],
+  extractor: (report: any) => unknown,
+  // Optional: identifies which device produced each reading (e.g.
+  // `r => r.deviceSerial`). When supplied, each returned point carries a
+  // deviceSerial IF every reading collapsed into it agrees on one — an
+  // ambiguous date (two different devices reporting the same day) leaves it
+  // unset rather than guessing, so a chart never fabricates a device-change
+  // break in the wrong place.
+  deviceExtractor?: (report: any) => unknown
+): TrendPoint[] {
+  const byDate = new Map<string, { values: number[]; serials: Set<string> }>();
   for (const r of chronological) {
     const value = toNumber(extractor(r));
     if (value === undefined) continue;
     const date = r.interrogation_date;
-    if (!byDate.has(date)) byDate.set(date, []);
-    byDate.get(date)!.push(value);
+    if (!byDate.has(date)) byDate.set(date, { values: [], serials: new Set() });
+    const bucket = byDate.get(date)!;
+    bucket.values.push(value);
+    if (deviceExtractor) {
+      const serial = deviceExtractor(r);
+      if (serial) bucket.serials.add(String(serial));
+    }
   }
   const points: TrendPoint[] = [];
-  for (const [date, values] of byDate) {
+  for (const [date, { values, serials }] of byDate) {
     const average = values.reduce((sum, v) => sum + v, 0) / values.length;
-    points.push({ date, value: average });
+    const deviceSerial = serials.size === 1 ? [...serials][0] : undefined;
+    points.push({ date, value: average, deviceSerial });
   }
   points.sort((a, b) => a.date.localeCompare(b.date));
   return points;
