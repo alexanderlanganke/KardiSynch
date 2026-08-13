@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootReader
+import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootWriter
 
 /**
  * [directoryHandle]/[fileHandle] are SAF URI strings — Android's scoped
@@ -22,7 +23,7 @@ import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootReader
  * string-handle persistence (that version keeps the `DocumentFile` object
  * graph in memory during one recursive walk instead).
  */
-class AndroidDataRootReader(private val context: Context) : DataRootReader {
+class AndroidDataRootReader(private val context: Context) : DataRootReader, DataRootWriter {
     override fun listChildren(directoryHandle: String): List<DataEntry> {
         val dir = documentFileFor(Uri.parse(directoryHandle)) ?: return emptyList()
         return dir.listFiles().mapNotNull { entry ->
@@ -36,6 +37,22 @@ class AndroidDataRootReader(private val context: Context) : DataRootReader {
             ?.use { it.readBytes().decodeToString() }
     } catch (e: Exception) {
         null
+    }
+
+    override fun createDirectory(parentHandle: String, name: String): String? {
+        val parent = documentFileFor(Uri.parse(parentHandle)) ?: return null
+        return parent.createDirectory(name)?.uri?.toString()
+    }
+
+    override fun writeTextFile(parentHandle: String, name: String, content: String): Boolean {
+        val parent = documentFileFor(Uri.parse(parentHandle)) ?: return false
+        val file = parent.createFile("text/xml", name) ?: return false
+        return try {
+            context.contentResolver.openOutputStream(file.uri)?.use { it.write(content.encodeToByteArray()) }
+            true
+        } catch (e: Exception) {
+            false
+        }
     }
 
     private fun documentFileFor(uri: Uri): DocumentFile? = if (DocumentsContract.isTreeUri(uri)) {

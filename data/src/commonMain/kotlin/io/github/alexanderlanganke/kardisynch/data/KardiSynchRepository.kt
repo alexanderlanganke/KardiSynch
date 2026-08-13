@@ -5,8 +5,12 @@ import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.db.SqlDriver
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootIndexer
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootReader
+import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootWriter
 import io.github.alexanderlanganke.kardisynch.core.datastore.IndexedReport
+import io.github.alexanderlanganke.kardisynch.core.datastore.generatePatientXml
+import io.github.alexanderlanganke.kardisynch.core.datastore.generateVisitXml
 import io.github.alexanderlanganke.kardisynch.core.model.hasLeadData
+import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpImport
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.KardiSynchDatabase
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
@@ -16,6 +20,20 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlin.uuid.ExperimentalUuidApi
+import kotlin.uuid.Uuid
+
+/**
+ * Resolves the `_DATA/Reports` subdirectory's handle from the picked
+ * `_DATA` root. Desktop paths could just be string-concatenated directly,
+ * but SAF document URIs (Android) can't be — this is the one shared way
+ * every platform locates it, kept symmetric rather than giving desktop a
+ * shortcut the other platforms can't take. Null if "Reports" doesn't exist
+ * under the picked root yet (treated as "nothing to index yet", not an
+ * error, by callers).
+ */
+fun resolveReportsRootHandle(reader: DataRootReader, dataRootHandle: String): String? =
+    reader.listChildren(dataRootHandle).firstOrNull { it.isDirectory && it.name == "Reports" }?.handle
 
 /**
  * Local, per-device query/write layer over the SQLDelight-generated
@@ -70,6 +88,62 @@ class KardiSynchRepository(
      * every `patient.xml`/`visit.xml` under [reportsRootHandle], read via
      * [reader] (desktop: real paths; Android: SAF).
      */
+    /**
+     * The QR-scan-to-new-visit flow (issue #161's actual payload): finds the
+     * scanned patient by last name + DOB in the LOCAL index (best-effort —
+     * no serial-based matching, unlike Electron's watcher), creates their
+     * `_DATA` directory if new, always creates a brand-new visit directory
+     * (never rewrites an existing one — see [DataRootWriter]'s doc comment
+     * on why this is safe without the lock-file convention yet), then
+     * reindexes so the write is immediately reflected locally too.
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    suspend fun importFollowUp(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        import: FollowUpImport,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val existing = db.patientsQueries.selectAllPatients().executeAsList().firstOrNull {
+                it.lastName.equals(import.patientLastName, ignoreCase = true) && it.dob == import.patientDob
+            }
+
+            val patientDirHandle: String
+            if (existing != null) {
+                val match = reader.listChildren(reportsRootHandle)
+                    .firstOrNull { it.isDirectory && it.name.startsWith("${existing.id}_") }
+                    ?: reader.listChildren(reportsRootHandle).firstOrNull { it.isDirectory && it.name.startsWith(existing.id) }
+                patientDirHandle = match?.handle
+                    ?: return@withContext Result.failure(IllegalStateException("Patient ${existing.id} is indexed locally but its _DATA directory couldn't be found"))
+            } else {
+                val newPatientId = Uuid.random().toString()
+                val safeName = (import.patientLastName + import.patientFirstName).filter { it.isLetterOrDigit() }
+                val dirName = "${newPatientId}_$safeName"
+                patientDirHandle = writer.createDirectory(reportsRootHandle, dirName)
+                    ?: return@withContext Result.failure(IllegalStateException("Failed to create patient directory"))
+                val patientXml = generatePatientXml(newPatientId, import.patientFirstName, import.patientLastName, import.patientDob, hospitalPatientId = null)
+                if (!writer.writeTextFile(patientDirHandle, "patient.xml", patientXml)) {
+                    return@withContext Result.failure(IllegalStateException("Failed to write patient.xml"))
+                }
+            }
+
+            val reportId = Uuid.random().toString()
+            val datePart = import.report.interrogationDate.take(10).replace("-", "_").ifEmpty { "Unknown" }
+            val visitDirHandle = writer.createDirectory(patientDirHandle, "${datePart}_$reportId")
+                ?: return@withContext Result.failure(IllegalStateException("Failed to create visit directory"))
+            val visitXml = generateVisitXml(reportId, import.report)
+            if (!writer.writeTextFile(visitDirHandle, "visit.xml", visitXml)) {
+                return@withContext Result.failure(IllegalStateException("Failed to write visit.xml"))
+            }
+
+            reindexFrom(reader, reportsRootHandle)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun reindexFrom(reader: DataRootReader, reportsRootHandle: String) = withContext(ioDispatcher) {
         val result = DataRootIndexer(reader).indexAll(reportsRootHandle)
         db.transaction {

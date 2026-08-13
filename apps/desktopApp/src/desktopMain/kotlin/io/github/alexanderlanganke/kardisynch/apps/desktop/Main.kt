@@ -11,9 +11,9 @@ import androidx.compose.ui.window.application
 import io.github.alexanderlanganke.kardisynch.data.DatabaseDriverFactory
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootReader
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
+import io.github.alexanderlanganke.kardisynch.data.resolveReportsRootHandle
 import io.github.alexanderlanganke.kardisynch.ui.KardiSynchApp
 import kotlinx.coroutines.launch
-import java.io.File
 import javax.swing.JFileChooser
 
 private const val SETTING_DATA_ROOT = "dataRootPath"
@@ -35,9 +35,13 @@ fun main() = application {
         scope.launch {
             isReindexing = true
             try {
-                val reportsRoot = File(root, "Reports").absolutePath
-                repository.reindexFrom(reader, reportsRoot)
-                lastReindexSummary = "Reindexed successfully."
+                val reportsRoot = resolveReportsRootHandle(reader, root)
+                if (reportsRoot == null) {
+                    lastReindexSummary = "No \"Reports\" folder found under $root yet — nothing to index."
+                } else {
+                    repository.reindexFrom(reader, reportsRoot)
+                    lastReindexSummary = "Reindexed successfully."
+                }
             } catch (e: Exception) {
                 lastReindexSummary = "Reindex failed: ${e.message}"
             } finally {
