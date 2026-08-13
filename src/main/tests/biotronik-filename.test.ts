@@ -22,6 +22,20 @@ describe('Biotronik Filename Parsing', () => {
         expect(report.patient.first_name).toBe('Anna');
         expect(report.device.serial_number).toBe('12345');
     });
+
+    // Regression for #166: a hyphenated German surname used to fail the
+    // whole filename match, leaving patient/serial as "Unknown" and making
+    // the standalone PDF unmatchable to its sibling XML's visit.
+    it('handles hyphenated compound names without losing the match', () => {
+        const filename = 'BIOSTD_2025-11-03_14-21-46_Mueller-Schmidt_Anna-Maria_88763967.PDF';
+        const report = extractStructuredData('', filename);
+
+        expect(report.manufacturer).toBe('Biotronik');
+        expect(report.patient.last_name).toBe('Mueller-Schmidt');
+        expect(report.patient.first_name).toBe('Anna-Maria');
+        expect(report.device.serial_number).toBe('88763967');
+        expect(report.interrogation_date).toBe('2025-11-03T14:21:46');
+    });
 });
 
 describe('extractStructuredData date handling', () => {

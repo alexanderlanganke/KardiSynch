@@ -138,7 +138,12 @@ export const extractStructuredData = (text: string, filename?: string): UnifiedR
         } else {
             // Check for Biotronik Format: BIOSTD_YYYY-MM-DD_HH-MM-SS_Lastname_Firstname_Serial.PDF
             // Example: BIOSTD_2025-11-03_14-21-46_Doe_John_8763967
-            const bioMatch = filename.match(/BIOSTD_(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})_(?<hour>\d{2})-(?<minute>\d{2})-(?<second>\d{2})_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)_(?<serial>[A-Z0-9]+)/);
+            // Name groups allow hyphens ("M\u00fcller-Schmidt") so a compound German
+            // surname/first name doesn't silently fail the whole match and leave
+            // the standalone PDF's identity (and thus its visit matching) as
+            // "Unknown" \u2014 the file itself is fine, it's just then untraceable
+            // to the sibling XML's patient/visit (#166).
+            const bioMatch = filename.match(/BIOSTD_(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})_(?<hour>\d{2})-(?<minute>\d{2})-(?<second>\d{2})_(?<last>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+(?:-[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)*)_(?<first>[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+(?:-[A-Za-z\u00C0-\u00D6\u00D8-\u00f6\u00f8-\u00ff]+)*)_(?<serial>[A-Za-z0-9]+)/);
 
             if (bioMatch?.groups) {
                 console.log('Filename metadata matched (Biotronik format).');

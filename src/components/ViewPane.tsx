@@ -212,7 +212,7 @@ const ViewPane: React.FC<ViewPaneProps> = ({
     return (
         <div
             className={cn(
-                "flex flex-col h-full border-r border-border last:border-r-0 transition-all duration-200",
+                "flex flex-col h-full min-h-0 border-r border-border last:border-r-0 transition-all duration-200",
                 isDragOver && 'bg-muted',
                 isActive && 'ring-2 ring-inset ring-primary'
             )}

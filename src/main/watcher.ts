@@ -64,7 +64,7 @@ const INTRAOP_PREFIX = 'INTRAOP__';
 // Cross-batch visit memory — persists across import batches so files arriving
 // in separate batches can still be matched to visits created by earlier batches.
 // Cleared after 2 minutes of no import directory activity (no new files, no file changes).
-const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string, sessionId?: string }>();
+const activeVisits = new Map<string, { reportId: string, patientId: string, patient: any, date: string, serial?: string, sessionId?: string, manufacturer?: string }>();
 let lastImportActivity = 0;
 let lastFileSnapshot = new Map<string, { size: number, mtimeMs: number }>();
 const ACTIVE_VISITS_QUIET_PERIOD = 2 * 60 * 1000; // 2 minutes
@@ -351,6 +351,16 @@ const stageFilesToTempDir = async (tempDir: string, sourceDir: string, isIntraop
     try {
       await moveFile(filePath, newPath);
     } catch (error) {
+      const err = error as NodeJS.ErrnoException;
+      if (err.code === 'ENOENT') {
+        // Source file vanished between listing the import dir and renaming
+        // it — most likely another KardiSynch instance watching the same
+        // (often network-shared, e.g. UNC) import folder already claimed
+        // and staged it first. The file isn't lost, just picked up
+        // elsewhere, so surfacing this as a user-facing error is misleading.
+        console.warn(`[Watcher] Skipped staging ${originalName}: file no longer present (likely already claimed by another watcher instance).`);
+        continue;
+      }
       console.error(`Error moving file ${filePath} to temp directory:`, error);
       sendNotification(`Error staging file ${originalName}: ${(error as Error).message}`, 'error');
     }
@@ -857,7 +867,8 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
               patient,
               date: report.interrogation_date,
               serial: report.device?.serial_number,
-              sessionId: report.session_id
+              sessionId: report.session_id,
+              manufacturer: report.manufacturer
             });
           }
         }
@@ -982,6 +993,48 @@ const processTempDirectory = async (tempDir: string, sourceDir: string) => {
 
             matched = true;
             break;
+          }
+        }
+
+        if (!matched) {
+          // Fallback for a companion PDF whose own identity extraction (from
+          // filename or text content) came up completely empty — e.g. a
+          // Biotronik standalone PDF whose name doesn't fit the expected
+          // BIOSTD_ filename convention (#166). Serial/session/demographics
+          // matching above can't help when there's simply no identity to
+          // match with, and the PDF would otherwise be routed to manual
+          // sorting even though the sibling XML in this exact batch already
+          // created its visit. When exactly one visit of the same
+          // manufacturer was opened in this batch, attach the PDF there
+          // instead of losing the association.
+          const hasNoIdentity =
+            (!report.patient?.last_name || report.patient.last_name === 'Unknown') &&
+            (!report.device?.serial_number || report.device.serial_number === 'Unknown');
+
+          if (hasNoIdentity && report.manufacturer && report.manufacturer !== 'Unknown') {
+            const sameManufacturerVisits = [...activeVisits.entries()].filter(
+              ([, v]) => v.manufacturer === report.manufacturer
+            );
+            if (sameManufacturerVisits.length === 1) {
+              const [key, visit] = sameManufacturerVisits[0];
+              console.log(`Matched PDF ${path.basename(file)} to visit ${key} as the sole same-manufacturer visit in this batch (no identity extracted from the PDF itself)`);
+              await storeFile(file, visit.reportId, visit.patientId, `${visit.patient.last_name}_${visit.patient.first_name}`, visit.date, visit.patient, undefined);
+
+              logEvent({
+                id: uuidv4(),
+                session_id: sessionId,
+                file_path: file,
+                status: 'imported',
+                patient_id: visit.patientId,
+                report_id: visit.reportId,
+                message: 'Matched by sole same-manufacturer batch visit',
+                details: buildEventDetails(report)
+              });
+              sessionSummary.imported++;
+              sessionSummary.processed++;
+              affectedVisits.set(visit.reportId, { patient: visit.patient });
+              matched = true;
+            }
           }
         }
 
