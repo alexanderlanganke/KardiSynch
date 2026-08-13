@@ -32,4 +32,5 @@ include(
     ":core",
     ":data",
     ":ui",
+    ":apps:desktopApp",
 )
