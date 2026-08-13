@@ -31,4 +31,5 @@ dependencyResolutionManagement {
 include(
     ":core",
     ":data",
+    ":ui",
 )
