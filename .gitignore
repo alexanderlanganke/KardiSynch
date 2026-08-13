@@ -9,6 +9,11 @@ dist-electron/
 release/
 build/
 
+# Gradle / Kotlin Multiplatform (core/, data/, ui/, apps/ — the KMP port)
+.gradle/
+.kotlin/
+local.properties
+
 # Testing
 coverage/
 test-results/
@@ -46,12 +51,23 @@ debug_*.json
 debug_data/
 
 # Real (anonymized) sample exports used to validate the parsers — never
-# commit real patient/device exports, even anonymized ones.
-test/abbott_logfiles/
-test/boston bnk/
-test/microport xml/
-test/medtronic pdd files/
-test/Biotronik xml/
+# commit real patient/device exports, even anonymized ones. No trailing
+# slash: the KMP port's worktree links these in as symlinks (the real dirs
+# live only in the main checkout, since worktrees only carry tracked
+# files), and a slash-terminated pattern doesn't match a symlink.
+test/abbott_logfiles
+test/boston bnk
+test/microport xml
+test/medtronic pdd files
+test/Biotronik xml
+test/medtronic pkg
+
+# Same policy for the KMP port's fixture-validation test data: these JSON
+# files are derived from (and contain extracted fields/raw text out of) the
+# real sample exports above — device serials, printable-string dumps, etc.
+# Regenerate locally via the scripts in core/scripts/ before running the
+# fixture-cross-validation tests.
+core/src/desktopTest/resources/*.json
 test/medtronic pkg/
 
 # IDE & System
