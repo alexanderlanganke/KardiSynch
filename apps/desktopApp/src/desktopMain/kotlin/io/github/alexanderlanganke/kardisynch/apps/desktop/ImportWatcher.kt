@@ -23,14 +23,21 @@ import java.util.concurrent.TimeUnit
 /**
  * Watches `_IMPORT` under a `_DATA` root for new device report files and
  * stores them via [KardiSynchRepository.importReport]. A deliberately
- * simplified desktop-only counterpart to Electron's `watcher.ts`: no PDF/OCR
- * matching, no `.pkg` zip extraction, no cross-batch "active visits" session
- * memory for grouping a XML + generated PDF from one interrogation, no
- * manual-sort queue for ambiguous patient matches. An unsupported or
- * unparseable file — or one whose patient can't be resolved — is moved to
- * `_IMPORT/_unmatched` for the clinician to handle by hand instead of being
- * silently dropped. See [dispatchParse]'s doc comment for exactly which
- * file types are covered.
+ * simplified desktop-only counterpart to Electron's `watcher.ts`: no PDF text
+ * extraction/OCR (no PDF parser is ported yet — see [dispatchParse]'s doc
+ * comment), no `.pkg` zip extraction, no cross-batch "active visits" session
+ * memory (matching only happens within one [processStableFiles] pass, not
+ * across separate watcher ticks), no manual-sort queue for ambiguous patient
+ * matches.
+ *
+ * A `.pdf` is content-blind matched to a structured file processed in the
+ * *same batch* by shared basename (stem) — e.g. `12345.pdd` + `12345.pdf`
+ * arriving together — and copied into that visit's directory without
+ * touching its `visit.xml` (mirrors Electron's `storeFile(..., report =
+ * undefined)`: never let a PDF the app can't read overwrite structured
+ * data). A PDF with no same-batch structured companion, or any other
+ * unsupported/unparseable file, is moved to `_IMPORT/_unmatched` for the
+ * clinician to handle by hand instead of being silently dropped.
  */
 class ImportWatcher(
     private val importDir: File,
@@ -72,9 +79,18 @@ class ImportWatcher(
     }
 
     private suspend fun processStableFiles() {
-        val candidates = importDir.listFiles { f -> f.isFile }?.toList() ?: return
-        for (file in candidates) {
-            if (waitForStable(file)) processFile(file)
+        val stableFiles = importDir.listFiles { f -> f.isFile }?.filter { waitForStable(it) } ?: return
+        val (pdfFiles, structuredFiles) = stableFiles.partition { it.extension.equals("pdf", ignoreCase = true) }
+
+        // Structured files first, so a same-batch companion PDF (below) has
+        // something to attach to.
+        val visitDirHandlesByStem = mutableMapOf<String, String>()
+        for (file in structuredFiles) {
+            processFile(file)?.let { visitDirHandle -> visitDirHandlesByStem[file.nameWithoutExtension] = visitDirHandle }
+        }
+
+        for (pdf in pdfFiles) {
+            processCompanionPdf(pdf, visitDirHandlesByStem)
         }
     }
 
@@ -91,29 +107,50 @@ class ImportWatcher(
         return file.exists() && file.length() == lastSize && lastSize > 0
     }
 
-    private suspend fun processFile(file: File) {
+    /** Parses and stores [file]; returns the visit directory it landed in, or null if it was skipped/failed. */
+    private suspend fun processFile(file: File): String? {
         try {
             val bytes = file.readBytes()
             val report = dispatchParse(file.name, bytes)
             if (report == null) {
                 moveToUnmatched(file)
                 onEvent("Skipped ${file.name}: unsupported or unparseable file type.")
-                return
+                return null
             }
 
+            var visitDirHandle: String? = null
             repository.importReport(reader, writer, reportsRootHandle, report, lock = lock).fold(
                 onSuccess = { outcome ->
                     storeIncomingFile(file, File(outcome.visitDirHandle))
                     val mergeNote = if (outcome.reusedExistingVisit) " (merged into existing visit)" else ""
                     onEvent("Imported ${file.name} -> ${report.patient.lastName}, ${report.patient.firstName}$mergeNote")
+                    visitDirHandle = outcome.visitDirHandle
                 },
                 onFailure = { e ->
                     moveToUnmatched(file)
                     onEvent("Import failed for ${file.name}: ${e.message}")
                 },
             )
+            return visitDirHandle
         } catch (e: Exception) {
             onEvent("Error processing ${file.name}: ${e.message}")
+            return null
+        }
+    }
+
+    private fun processCompanionPdf(file: File, visitDirHandlesByStem: Map<String, String>) {
+        val visitDirHandle = visitDirHandlesByStem[file.nameWithoutExtension]
+        if (visitDirHandle == null) {
+            moveToUnmatched(file)
+            onEvent("Skipped ${file.name}: no matching structured file in this batch (PDF content isn't parsed yet).")
+            return
+        }
+        try {
+            storeIncomingFile(file, File(visitDirHandle))
+            onEvent("Attached ${file.name} to the visit imported from ${file.nameWithoutExtension} in this batch.")
+        } catch (e: Exception) {
+            moveToUnmatched(file)
+            onEvent("Failed to attach ${file.name} to its matching visit: ${e.message}")
         }
     }
 
