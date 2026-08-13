@@ -20,8 +20,13 @@ export interface DeviceTypeAliasLike {
   verified?: boolean;
 }
 
+// Callers pass lead/device data sourced from parsed files and the DB, which
+// cross an untyped IPC boundary — a malformed source file can put a
+// non-string (object/array) in a manufacturer/model field. Coerce with
+// String() rather than trusting the `string` type, or `.trim()` throws
+// on a truthy non-string value that `|| ''` doesn't catch (#162).
 const normalizeKey = (manufacturer: string, model: string) =>
-  `${(manufacturer || '').trim().toLowerCase()}|${(model || '').trim().toLowerCase()}`;
+  `${String(manufacturer ?? '').trim().toLowerCase()}|${String(model ?? '').trim().toLowerCase()}`;
 
 export function findLeadAlias(
   aliases: DeviceTypeAliasLike[],

@@ -24,6 +24,16 @@ describe('findLeadAlias', () => {
     expect(findLeadAlias(aliases, 'Medtronic', undefined)).toBeNull();
     expect(findLeadAlias(aliases, 'Medtronic', 'Unrecognized')).toBeNull();
   });
+
+  it('does not crash on a non-string manufacturer/model from malformed source data (#162)', () => {
+    // lead.manufacturer/model cross an untyped IPC/DB boundary as `any` — a
+    // malformed parsed file could put an object/array there instead of a
+    // string. `(x || '').trim()` throws on a truthy non-string; the lookup
+    // must instead just fail to match rather than crash the renderer.
+    expect(() => findLeadAlias(aliases, { bad: true } as any, '6935')).not.toThrow();
+    expect(findLeadAlias(aliases, { bad: true } as any, '6935')).toBeNull();
+    expect(() => findLeadAlias(aliases, 'Medtronic', [1, 2] as any)).not.toThrow();
+  });
 });
 
 describe('getConnectorFlag', () => {
