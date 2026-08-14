@@ -63,4 +63,35 @@ class FollowUpQrPayloadTest {
         assertEquals("", result?.patientLastName)
         assertTrue(result!!.report.leads.isEmpty())
     }
+
+    // Issue #179's cross-check against visitToFuPayload.ts's DEVICE_TYPE_MAP
+    // found "LR" was mapping to "ICM" instead of "Leadless Pacemaker" — a
+    // genuinely different device type (Reveal/LINQ-style monitor vs.
+    // Micra-style leadless pacemaker).
+    @Test
+    fun `LR decodes to Leadless Pacemaker, not ICM`() {
+        val payload = """{"v": 1, "t": "fu", "ts": 1, "d": {"date": "2026-01-01", "dt": "LR"}}"""
+        assertEquals("Leadless Pacemaker", parseFollowUpQrPayload(payload)?.report?.device?.type)
+    }
+
+    // visitToFuPayload.ts's compactDeviceType/compactManufacturer fall back
+    // to the ORIGINAL string for anything not in their maps (e.g. an ICM
+    // device, which has no TS-side compact code at all) — the decode side
+    // must do the same, not collapse an unrecognized-but-present code to
+    // "Unknown" and lose the exported data.
+    @Test
+    fun `an unrecognized device type or manufacturer code passes through verbatim, not Unknown`() {
+        val payload = """{"v": 1, "t": "fu", "ts": 1, "d": {"date": "2026-01-01", "dt": "ICM", "dm": "SomeNewVendor"}}"""
+        val report = parseFollowUpQrPayload(payload)?.report
+        assertEquals("ICM", report?.device?.type)
+        assertEquals("SomeNewVendor", report?.manufacturer)
+    }
+
+    @Test
+    fun `an absent device type or manufacturer field is still Unknown`() {
+        val payload = """{"v": 1, "t": "fu", "ts": 1, "d": {"date": "2026-01-01"}}"""
+        val report = parseFollowUpQrPayload(payload)?.report
+        assertEquals("Unknown", report?.device?.type)
+        assertEquals("Unknown", report?.manufacturer)
+    }
 }

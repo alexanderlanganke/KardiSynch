@@ -19,10 +19,14 @@ import kotlinx.serialization.json.Json
  * seconds>, d:{...compact fields...}}`, plain JSON, unsigned/unencrypted
  * (documented in the original as a known stopgap, not a KMP-side choice).
  *
- * The device-type/manufacturer compact-code maps here are a best-effort
- * reconstruction of `visitToFuPayload.ts`'s `DEVICE_TYPE_MAP`/
- * `MANUFACTURER_MAP` (confirmed which codes exist, not their exact declared
- * TS key order) — verify against a real exported QR before shipping.
+ * The device-type/manufacturer compact-code maps here are confirmed
+ * line-for-line against `visitToFuPayload.ts`'s `DEVICE_TYPE_MAP`/
+ * `MANUFACTURER_MAP` (issue #179) — both the code table itself and the
+ * fallback behavior: `compactDeviceType`/`compactManufacturer` on the
+ * encode side pass an unrecognized type/manufacturer through *verbatim*
+ * (`DEVICE_TYPE_MAP[type] || type`) rather than dropping it, so the decode
+ * side does the same — `"Unknown"` only applies when the field is absent
+ * entirely, never when it's present but uncoded.
  */
 @Serializable
 private data class FollowUpEnvelope(val v: Int, val t: String, val ts: Long, val d: FollowUpData)
@@ -51,7 +55,7 @@ private data class LeadMeasurement(val ta: Double? = null, val tp: Double? = nul
 
 private val DEVICE_TYPE_MAP = mapOf(
     "PM" to "Pacemaker", "ICD" to "ICD", "CRT-D" to "CRT-D", "CRT-P" to "CRT-P",
-    "S-ICD" to "S-ICD", "LR" to "ICM", "CCM" to "CCM",
+    "S-ICD" to "S-ICD", "LR" to "Leadless Pacemaker", "CCM" to "CCM",
 )
 
 private val MANUFACTURER_MAP = mapOf(
@@ -99,11 +103,11 @@ fun parseFollowUpQrPayload(rawText: String): FollowUpImport? {
     )
 
     val report = UnifiedReport(
-        manufacturer = d.dm?.let { MANUFACTURER_MAP[it] } ?: "Unknown",
+        manufacturer = d.dm?.let { MANUFACTURER_MAP[it] ?: it } ?: "Unknown",
         interrogationDate = d.date ?: "",
         patient = PatientInfo(firstName = d.fn ?: "", lastName = d.ln ?: "", dob = d.dob ?: ""),
         device = DeviceInfo(
-            type = d.dt?.let { DEVICE_TYPE_MAP[it] } ?: "Unknown",
+            type = d.dt?.let { DEVICE_TYPE_MAP[it] ?: it } ?: "Unknown",
             model = d.mn ?: "",
             serialNumber = d.ds ?: "",
             implantDate = d.di,
