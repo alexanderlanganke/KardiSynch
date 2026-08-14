@@ -17,7 +17,10 @@ import io.github.alexanderlanganke.kardisynch.core.matching.PatientSummary
 import io.github.alexanderlanganke.kardisynch.core.matching.ReportMatchCandidate
 import io.github.alexanderlanganke.kardisynch.core.matching.findDuplicatePatientGroups
 import io.github.alexanderlanganke.kardisynch.core.matching.mergeReports
+import io.github.alexanderlanganke.kardisynch.core.matching.patientIdForDir
 import io.github.alexanderlanganke.kardisynch.core.matching.pickSameDayReport
+import io.github.alexanderlanganke.kardisynch.core.matching.reportIdFromDirName
+import io.github.alexanderlanganke.kardisynch.core.matching.visitDatePrefix
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.model.hasLeadData
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpImport
@@ -389,6 +392,124 @@ class KardiSynchRepository(
         }
 
         Result.success(MergeResult(keeperId, patientsDeleted, reportsMoved, errors))
+    }
+
+    /** A visit directory that physically sits under the wrong patient's `_DATA` folder — see [findOrphanedVisits] (issue #186). */
+    data class OrphanVisit(
+        val reportId: String,
+        val visitDirHandle: String,
+        val visitDirName: String,
+        val date: String?,
+        val currentPatientId: String?,
+        val currentPatientDirHandle: String,
+        val currentPatientDirName: String,
+        val correctPatientId: String,
+        val correctPatientDirExists: Boolean,
+    )
+
+    /**
+     * Scans `_DATA/Reports` for visits whose containing directory doesn't
+     * match the local index's own idea of which patient they belong to —
+     * ported from `services/orphanService.ts`'s `findOrphanedVisits` (issue
+     * #186). A visit's report ID is read from `visit.xml`'s `<report_id>`
+     * when present, falling back to stripping the visit directory's own
+     * date/`Unknown` prefix. Visits whose report has no local index row are
+     * ignored — that's a job for the report/directory deduplicator (#185),
+     * not this one.
+     */
+    suspend fun findOrphanedVisits(reader: DataRootReader, reportsRootHandle: String): List<OrphanVisit> = withContext(ioDispatcher) {
+        val patientIds = db.patientsQueries.selectAllPatients().executeAsList().map { it.id }
+        val patientDirEntries = reader.listChildren(reportsRootHandle).filter { it.isDirectory }
+
+        val dirsByPatientId = mutableMapOf<String, MutableList<String>>()
+        for (entry in patientDirEntries) {
+            val owner = patientIdForDir(entry.name, patientIds) ?: continue
+            dirsByPatientId.getOrPut(owner) { mutableListOf() }.add(entry.name)
+        }
+
+        val orphans = mutableListOf<OrphanVisit>()
+        for (patientDirEntry in patientDirEntries) {
+            val currentPatientId = patientIdForDir(patientDirEntry.name, patientIds)
+            val visitEntries = reader.listChildren(patientDirEntry.handle).filter { it.isDirectory }
+
+            for (visitEntry in visitEntries) {
+                val reportIdFromXml = reader.listChildren(visitEntry.handle)
+                    .firstOrNull { !it.isDirectory && it.name == "visit.xml" }
+                    ?.let { reader.readText(it.handle) }
+                    ?.let { parseVisitXml(it, currentPatientId ?: "") }
+                    ?.id
+                val reportId = reportIdFromXml ?: reportIdFromDirName(visitEntry.name) ?: continue
+
+                val report = db.reportsQueries.selectReportById(reportId).executeAsOneOrNull() ?: continue
+                val correctPatientId = report.patientId
+                if (correctPatientId == currentPatientId) continue
+
+                orphans += OrphanVisit(
+                    reportId = reportId,
+                    visitDirHandle = visitEntry.handle,
+                    visitDirName = visitEntry.name,
+                    date = visitDatePrefix(visitEntry.name) ?: report.interrogationDate.take(10).ifEmpty { null },
+                    currentPatientId = currentPatientId,
+                    currentPatientDirHandle = patientDirEntry.handle,
+                    currentPatientDirName = patientDirEntry.name,
+                    correctPatientId = correctPatientId,
+                    correctPatientDirExists = dirsByPatientId[correctPatientId]?.isNotEmpty() == true,
+                )
+            }
+        }
+        orphans
+    }
+
+    /** The outcome of [moveOrphanedVisits]. */
+    data class OrphanMoveResult(val moved: Int, val errors: List<String>)
+
+    /**
+     * Moves the orphaned visits (see [findOrphanedVisits]) matching [reportIds]
+     * into their correct patient directory and repoints the local index row —
+     * ported from `services/orphanService.ts`'s `moveOrphanedVisits`. Re-scans
+     * first so callers only need to pass report IDs; a stale selection (already
+     * fixed elsewhere) is silently skipped rather than failing.
+     */
+    suspend fun moveOrphanedVisits(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        reportIds: List<String>,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): OrphanMoveResult = withContext(ioDispatcher) {
+        val wanted = reportIds.toSet()
+        val orphans = findOrphanedVisits(reader, reportsRootHandle).filter { it.reportId in wanted }
+        if (orphans.isEmpty()) return@withContext OrphanMoveResult(0, emptyList())
+
+        var moved = 0
+        val errors = mutableListOf<String>()
+        for (o in orphans) {
+            try {
+                val destPatientDirHandle = findPatientDirHandle(reader, reportsRootHandle, o.correctPatientId)
+                    ?: run {
+                        val patient = db.patientsQueries.selectPatientById(o.correctPatientId).executeAsOneOrNull()
+                        val safeName = ((patient?.lastName ?: "") + (patient?.firstName ?: "")).filter { it.isLetterOrDigit() }
+                        writer.createDirectory(reportsRootHandle, "${o.correctPatientId}_$safeName")
+                            ?: throw IllegalStateException("Failed to create destination patient directory")
+                    }
+
+                lock.withTwoLocks(o.currentPatientDirHandle, destPatientDirHandle, "moveOrphanedVisit:reportId=${o.reportId}") {
+                    var destName = o.visitDirName
+                    var suffix = 2
+                    while (reader.listChildren(destPatientDirHandle).any { it.isDirectory && it.name == destName }) {
+                        destName = "${o.visitDirName}_${suffix++}"
+                    }
+                    if (writer.moveDirectory(o.visitDirHandle, destPatientDirHandle, destName) == null) {
+                        throw IllegalStateException("Failed to move visit directory")
+                    }
+                    db.reportsQueries.updateReportPatientId(o.correctPatientId, o.reportId)
+                }
+                moved++
+            } catch (e: Exception) {
+                errors += "Failed to move visit ${o.visitDirName} (report ${o.reportId}): ${e.message}"
+            }
+        }
+        OrphanMoveResult(moved, errors)
     }
 
     /** The outcome of [importReport]: where the report ended up, and whether it reused an existing visit. */
