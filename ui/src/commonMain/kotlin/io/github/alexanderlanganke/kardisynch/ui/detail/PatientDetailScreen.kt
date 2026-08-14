@@ -30,13 +30,19 @@ import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 
-/** Patient identity + reports (each expandable to its device/leads) — the Phase 1 read-only detail screen. */
+/**
+ * Patient identity + reports (each expandable to its device/leads) — the
+ * Phase 1 read-only detail screen. [onExportQr] is desktop-only (issue
+ * #199 — Android only scans/imports a follow-up QR, it doesn't render one)
+ * — pass null to hide the export action.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PatientDetailScreen(
     repository: KardiSynchRepository,
     patientId: String,
     onBack: () -> Unit,
+    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)? = null,
 ) {
     val patient by produceStateOrNull { repository.getPatientById(patientId) }
     val reports by repository.observeReportsForPatient(patientId).collectAsState(initial = null)
@@ -64,14 +70,18 @@ fun PatientDetailScreen(
             ) { Text("No visits on record for this patient.") }
 
             else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                items(currentReports, key = { it.id }) { report -> ReportCard(repository, report) }
+                items(currentReports, key = { it.id }) { report -> ReportCard(repository, report, onExportQr) }
             }
         }
     }
 }
 
 @Composable
-private fun ReportCard(repository: KardiSynchRepository, report: Reports) {
+private fun ReportCard(
+    repository: KardiSynchRepository,
+    report: Reports,
+    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
+) {
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
     LaunchedEffect(report.id) {
@@ -94,6 +104,11 @@ private fun ReportCard(repository: KardiSynchRepository, report: Reports) {
                     l.pacingThresholdValue?.let { "Thresh ${it}${l.pacingThresholdUnit ?: ""}" },
                 ).joinToString(" · ")
                 Text("Lead ${l.name}: $bits", style = MaterialTheme.typography.bodySmall)
+            }
+            if (onExportQr != null) {
+                TextButton(onClick = { onExportQr(report, devices ?: emptyList(), leads ?: emptyList()) }) {
+                    Text("Export QR")
+                }
             }
         }
     }

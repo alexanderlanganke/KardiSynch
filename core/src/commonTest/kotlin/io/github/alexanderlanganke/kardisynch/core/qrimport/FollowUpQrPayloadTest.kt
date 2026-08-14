@@ -2,6 +2,7 @@ package io.github.alexanderlanganke.kardisynch.core.qrimport
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -93,5 +94,76 @@ class FollowUpQrPayloadTest {
         val report = parseFollowUpQrPayload(payload)?.report
         assertEquals("Unknown", report?.device?.type)
         assertEquals("Unknown", report?.manufacturer)
+    }
+
+    // --- Encode side (issue #199) ---
+
+    @Test
+    fun `builds a payload that decodes back to the same patient and device identity`() {
+        val patient = FollowUpExportPatient(firstName = "Jane", lastName = "Doe", dob = "1970-05-05")
+        val report = FollowUpExportReport(
+            interrogationDate = "2026-02-05",
+            manufacturer = "Abbott",
+            deviceType = "Pacemaker",
+            deviceModel = "Endurity Core",
+            deviceSerial = "ANONDEV00001",
+            deviceImplantDate = "2018-11-08",
+            leads = listOf(
+                FollowUpExportLead(location = "RV", type = "RV-Lead", impedance = 537.5, sensing = 12.0, threshold = 0.5, pulseWidth = 0.4),
+            ),
+        )
+
+        val payload = buildFollowUpQrPayload(patient, report, nowEpochSeconds = 1770000000)
+        val decoded = parseFollowUpQrPayload(payload)
+
+        assertEquals("Jane", decoded?.patientFirstName)
+        assertEquals("Doe", decoded?.patientLastName)
+        assertEquals("1970-05-05", decoded?.patientDob)
+        assertEquals("Abbott", decoded?.report?.manufacturer)
+        assertEquals("Pacemaker", decoded?.report?.device?.type)
+        assertEquals("Endurity Core", decoded?.report?.device?.model)
+        assertEquals("ANONDEV00001", decoded?.report?.device?.serialNumber)
+        assertEquals("2018-11-08", decoded?.report?.device?.implantDate)
+        assertEquals(1, decoded?.report?.leads?.size)
+        assertEquals("RV", decoded?.report?.leads?.get(0)?.name)
+        assertEquals(537.5, decoded?.report?.leads?.get(0)?.impedance?.value)
+        assertEquals(0.5, decoded?.report?.leads?.get(0)?.pacingThreshold?.value)
+    }
+
+    @Test
+    fun `omits patient fields entirely when no patient is given`() {
+        val report = FollowUpExportReport(interrogationDate = "2026-01-01")
+        val payload = buildFollowUpQrPayload(patient = null, report = report, nowEpochSeconds = 1)
+        assertFalse(payload.contains("\"fn\""))
+        assertFalse(payload.contains("\"ln\""))
+        assertFalse(payload.contains("\"dob\""))
+    }
+
+    @Test
+    fun `classifies leads into atrial, RV, and LV channels by type or location text`() {
+        val report = FollowUpExportReport(
+            interrogationDate = "2026-01-01",
+            leads = listOf(
+                FollowUpExportLead(location = "Right Atrium", impedance = 500.0),
+                FollowUpExportLead(type = "RV-Lead", impedance = 600.0),
+                FollowUpExportLead(location = "Coronary Sinus", impedance = 700.0),
+                FollowUpExportLead(location = "Unclassifiable junk", impedance = 800.0), // dropped: no channel matches
+            ),
+        )
+        val decoded = parseFollowUpQrPayload(buildFollowUpQrPayload(null, report, 1))
+        val leadsByName = decoded?.report?.leads?.associateBy { it.name }
+        assertEquals(500.0, leadsByName?.get("Atrium")?.impedance?.value)
+        assertEquals(600.0, leadsByName?.get("RV")?.impedance?.value)
+        assertEquals(700.0, leadsByName?.get("LV")?.impedance?.value)
+        assertEquals(3, decoded?.report?.leads?.size)
+    }
+
+    @Test
+    fun `compactDeviceType and compactManufacturer pass an unrecognized value through verbatim`() {
+        assertEquals("PM", compactDeviceType("Pacemaker"))
+        assertEquals("SomeNewDeviceType", compactDeviceType("SomeNewDeviceType"))
+        assertEquals("BIO", compactManufacturer("Biotronik"))
+        assertEquals("SomeNewVendor", compactManufacturer("SomeNewVendor"))
+        assertEquals(null, compactDeviceType(null))
     }
 }

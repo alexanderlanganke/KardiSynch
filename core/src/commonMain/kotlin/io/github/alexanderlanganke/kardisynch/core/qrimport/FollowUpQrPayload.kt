@@ -129,3 +129,116 @@ fun parseFollowUpQrPayload(rawText: String): FollowUpImport? {
         report = report,
     )
 }
+
+// -----------------------------------------------------------------------
+// Encode side — ported from `visitToFuPayload.ts`'s `buildFuQrPayload`
+// (issue #199). Only the desktop app has a QR *export* action (mirroring
+// Electron: `QrExportButton` on the patient header/visit timeline/
+// dashboard) — Android only scans/imports. Deliberately shaped around the
+// local index's own read model (patient/report/device/lead DB rows), not
+// [UnifiedReport], since that's what's actually on hand when a user clicks
+// "export" on an already-stored visit — the local index doesn't carry
+// battery voltage/status/longevity or additional_fields at all (Decision 3:
+// it's a coarse read-model, not a full visit.xml mirror), so those three
+// fields are never populated by this function. A caller wanting them would
+// need to re-read the visit's `visit.xml` from `_DATA` first.
+// -----------------------------------------------------------------------
+
+data class FollowUpExportPatient(val firstName: String?, val lastName: String?, val dob: String?)
+
+data class FollowUpExportLead(
+    val location: String? = null,
+    val type: String? = null,
+    val impedance: Double? = null,
+    val sensing: Double? = null,
+    val threshold: Double? = null,
+    val pulseWidth: Double? = null,
+)
+
+data class FollowUpExportReport(
+    val interrogationDate: String,
+    val manufacturer: String? = null,
+    val deviceType: String? = null,
+    val deviceModel: String? = null,
+    val deviceSerial: String? = null,
+    val deviceImplantDate: String? = null,
+    val leads: List<FollowUpExportLead> = emptyList(),
+)
+
+private val DEVICE_TYPE_EXPORT_MAP = mapOf(
+    "pacemaker" to "PM", "icd" to "ICD", "crt-d" to "CRT-D", "crt-p" to "CRT-P",
+    "s-icd" to "S-ICD", "leadless pacemaker" to "LR", "ccm" to "CCM",
+)
+
+private val MANUFACTURER_EXPORT_MAP = mapOf(
+    "biotronik" to "BIO", "medtronic" to "MDT", "abbott" to "ABT",
+    "boston scientific" to "BSC", "microport" to "MIC", "sorin" to "SOR",
+)
+
+/** Passes an unrecognized type through verbatim rather than dropping it — see this file's doc comment. */
+fun compactDeviceType(type: String?): String? = type?.let { DEVICE_TYPE_EXPORT_MAP[it.lowercase()] ?: it }
+
+/** Passes an unrecognized manufacturer through verbatim rather than dropping it — see this file's doc comment. */
+fun compactManufacturer(manufacturer: String?): String? = manufacturer?.let { MANUFACTURER_EXPORT_MAP[it.lowercase()] ?: it }
+
+private data class ChannelPattern(val channel: String, val type: Regex, val location: Regex)
+
+private val CHANNEL_PATTERNS = listOf(
+    ChannelPattern("a", Regex("""atri|^A$|^RA$|A-Lead""", RegexOption.IGNORE_CASE), Regex("""right\s*atri|\bRA\b|\bA\b""", RegexOption.IGNORE_CASE)),
+    ChannelPattern("rv", Regex("""^RV$|RV-Lead|^RV\s""", RegexOption.IGNORE_CASE), Regex("""right\s*ventri|\bRV\b""", RegexOption.IGNORE_CASE)),
+    ChannelPattern("lv", Regex("""^LV$|LV-Lead|^LV\s""", RegexOption.IGNORE_CASE), Regex("""left\s*ventri|\bLV\b|coronary\s*sinus""", RegexOption.IGNORE_CASE)),
+)
+
+private fun classifyLead(type: String?, location: String?): String? {
+    for (p in CHANNEL_PATTERNS) {
+        if ((type != null && p.type.containsMatchIn(type)) || (location != null && p.location.containsMatchIn(location))) return p.channel
+    }
+    return null
+}
+
+private fun buildMeasurement(lead: FollowUpExportLead): LeadMeasurement? {
+    val ta = lead.threshold?.takeIf { it.isFinite() }
+    val tp = lead.pulseWidth?.takeIf { it.isFinite() }
+    val se = lead.sensing?.takeIf { it.isFinite() }
+    val im = lead.impedance?.takeIf { it.isFinite() }
+    if (ta == null && tp == null && se == null && im == null) return null
+    return LeadMeasurement(ta = ta, tp = tp, se = se, im = im)
+}
+
+/**
+ * Builds the follow-up QR payload string for [report] (optionally alongside
+ * [patient] identity) — the encode-side counterpart to [parseFollowUpQrPayload].
+ * [nowEpochSeconds] is a parameter rather than read from a clock because
+ * `core` is platform-agnostic (same reason [io.github.alexanderlanganke.kardisynch.core.util.normalizeDate]
+ * takes `assumedCurrentYear`) — desktop callers pass `System.currentTimeMillis() / 1000`.
+ */
+fun buildFollowUpQrPayload(patient: FollowUpExportPatient?, report: FollowUpExportReport, nowEpochSeconds: Long): String {
+    var a: LeadMeasurement? = null
+    var rv: LeadMeasurement? = null
+    var lv: LeadMeasurement? = null
+    for (lead in report.leads) {
+        val channel = classifyLead(lead.type, lead.location) ?: continue
+        val measurement = buildMeasurement(lead) ?: continue
+        when (channel) {
+            "a" -> a = measurement
+            "rv" -> rv = measurement
+            "lv" -> lv = measurement
+        }
+    }
+
+    val data = FollowUpData(
+        date = report.interrogationDate,
+        fn = patient?.firstName?.takeIf { it.isNotEmpty() },
+        ln = patient?.lastName?.takeIf { it.isNotEmpty() },
+        dob = patient?.dob?.takeIf { it.isNotEmpty() },
+        dt = compactDeviceType(report.deviceType),
+        dm = compactManufacturer(report.manufacturer),
+        mn = report.deviceModel?.takeIf { it.isNotEmpty() },
+        ds = report.deviceSerial?.takeIf { it.isNotEmpty() },
+        di = report.deviceImplantDate?.takeIf { it.isNotEmpty() },
+        a = a,
+        rv = rv,
+        lv = lv,
+    )
+    return json.encodeToString(FollowUpEnvelope.serializer(), FollowUpEnvelope(v = 1, t = "fu", ts = nowEpochSeconds, d = data))
+}

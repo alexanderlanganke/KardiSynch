@@ -18,6 +18,7 @@ kotlin {
                 implementation(project(":ui"))
                 implementation(compose.desktop.currentOs)
                 implementation(compose.material3)
+                implementation(libs.zxing.core)
             }
         }
         val desktopTest by getting {

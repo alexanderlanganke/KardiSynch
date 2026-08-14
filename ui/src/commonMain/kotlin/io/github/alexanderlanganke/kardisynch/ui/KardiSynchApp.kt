@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
+import io.github.alexanderlanganke.kardisynch.data.db.Devices
+import io.github.alexanderlanganke.kardisynch.data.db.Leads
+import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScreen
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
@@ -36,6 +39,7 @@ fun KardiSynchApp(
     importDirLabel: String? = null,
     onPickImportDir: (() -> Unit)? = null,
     onReprocessUnmatched: (() -> Unit)? = null,
+    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -51,6 +55,7 @@ fun KardiSynchApp(
                 repository = repository,
                 patientId = current.patientId,
                 onBack = { screen = Screen.Dashboard },
+                onExportQr = onExportQr,
             )
 
             is Screen.Settings -> SettingsScreen(

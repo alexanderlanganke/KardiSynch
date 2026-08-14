@@ -1,5 +1,9 @@
 package io.github.alexanderlanganke.kardisynch.apps.desktop
 
+import androidx.compose.foundation.Image
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -7,8 +11,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
+import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportLead
+import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportPatient
+import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportReport
+import io.github.alexanderlanganke.kardisynch.core.qrimport.buildFollowUpQrPayload
 import io.github.alexanderlanganke.kardisynch.data.DatabaseDriverFactory
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootReader
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootWriter
@@ -43,6 +53,7 @@ fun main() = application {
     var isReindexing by remember { mutableStateOf(false) }
     var lastReindexSummary by remember { mutableStateOf<String?>(null) }
     var importDirPath by remember { mutableStateOf(defaultImportDir().absolutePath) }
+    var qrDialogImage by remember { mutableStateOf<ImageBitmap?>(null) }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
@@ -122,6 +133,43 @@ fun main() = application {
                 val moved = reprocessUnmatchedFiles(File(importDirPath))
                 lastReindexSummary = if (moved > 0) "Moved $moved file(s) from _unmatched back into _IMPORT." else "No unmatched files to reprocess."
             },
+            onExportQr = { report, devices, leads ->
+                scope.launch {
+                    val patient = repository.getPatientById(report.patientId)
+                    val exportReport = FollowUpExportReport(
+                        interrogationDate = report.interrogationDate,
+                        manufacturer = report.manufacturer,
+                        deviceType = report.deviceType,
+                        deviceModel = report.deviceModel,
+                        deviceSerial = report.deviceSerialNumber,
+                        deviceImplantDate = devices.firstOrNull()?.implantDate,
+                        leads = leads.map { l ->
+                            FollowUpExportLead(
+                                location = l.anatomicLocation,
+                                type = l.name,
+                                impedance = l.impedanceValue,
+                                sensing = l.sensingValue,
+                                threshold = l.pacingThresholdValue,
+                            )
+                        },
+                    )
+                    val payload = buildFollowUpQrPayload(
+                        FollowUpExportPatient(patient?.firstName, patient?.lastName, patient?.dob),
+                        exportReport,
+                        System.currentTimeMillis() / 1000,
+                    )
+                    qrDialogImage = renderQrCodeImage(payload).toComposeImageBitmap()
+                }
+            },
         )
+
+        qrDialogImage?.let { bitmap ->
+            AlertDialog(
+                onDismissRequest = { qrDialogImage = null },
+                confirmButton = { TextButton(onClick = { qrDialogImage = null }) { Text("Close") } },
+                title = { Text("Follow-up QR code") },
+                text = { Image(bitmap = bitmap, contentDescription = "Follow-up QR code") },
+            )
+        }
     }
 }
