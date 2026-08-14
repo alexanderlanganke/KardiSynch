@@ -101,35 +101,39 @@ class ImportPipelineMockTest {
         val microportDevice = MockDevice(model = "Reply 200 DR-T", serial = "MCP-SER-001")
         val bostonDevice = MockDevice(model = "D321-200-0", serial = "BOS-SER-001")
         val abbottDevice = MockDevice(model = "Assurity MRI", serial = "ABT-SER-001")
-        val medtronicDevice = MockDevice(model = "Protecta XT", serial = "PQR123456X")
 
+        // These four all share the real DOB, so — regardless of which order
+        // the watcher happens to process them in — they're mutual EXACT
+        // matches on (last name, DOB) and consolidate into one patient.
         dropFile("BIOSTD_mock.xml", mockBiotronikXml(patient, biotronikDevice))
         dropFile("microport_mock.xml", mockMicroportXml(patient, microportDevice))
         dropFile("boston_mock.bnk", mockBostonScientificBnk(patient, bostonDevice))
         dropFile("12345.log", mockAbbottLog(patient, abbottDevice))
-        dropFile("medtronic_mock.pdd", mockMedtronicPdd(patient, medtronicDevice))
+        runBatch(minEvents = 4)
 
-        runBatch(minEvents = 5)
+        assertTrue(events.count { it.startsWith("Imported") } == 4, "expected 4 successful imports, got: $events")
 
-        assertTrue(events.count { it.startsWith("Imported") } == 5, "expected 5 successful imports, got: $events")
-        assertTrue(importDir.listFiles { f -> f.isFile }.isNullOrEmpty(), "_IMPORT should be empty after a clean batch")
-
-        // Medtronic .pdd never carries a DOB (see MockExportFixturesTest) — its
-        // report always lands under a "1900-01-01" placeholder patient, distinct
-        // from the other four manufacturers' real-DOB patient. Two patients is
-        // the correct outcome here, not a bug.
-        val allPatients = withTimeout(5000) { waitForPatients(2) }
-        assertEquals(2, allPatients.size)
-
-        val realDobPatient = allPatients.first { it.dob == patient.dob }
-        val realDobReports = withTimeout(5000) { waitForReports(repository.observeReportsForPatient(realDobPatient.id), 4) }
+        val allPatients = withTimeout(5000) { waitForPatients(1) }
+        assertEquals(1, allPatients.size)
+        val realDobReports = withTimeout(5000) { waitForReports(repository.observeReportsForPatient(allPatients[0].id), 4) }
         assertEquals(4, realDobReports.size, "different device serials on the same day must not merge into one visit")
         assertEquals(setOf("Biotronik", "Microport", "Boston Scientific", "Abbott"), realDobReports.map { it.manufacturer }.toSet())
 
-        val medtronicPatient = allPatients.first { it.dob == "1900-01-01" }
-        val medtronicReports = withTimeout(5000) { waitForReports(repository.observeReportsForPatient(medtronicPatient.id), 1) }
-        assertEquals(1, medtronicReports.size)
-        assertEquals("Medtronic", medtronicReports[0].manufacturer)
+        // Medtronic .pdd never carries a DOB (see MockExportFixturesTest) — its
+        // report always lands under a "1900-01-01" placeholder, same last name
+        // as the patient just created but a different DOB: exactly the
+        // near-match signal issue #173's identity ladder exists to catch. It
+        // must NOT silently create a second "Testpatient" patient — it's
+        // queued for manual review instead, and no second patient appears.
+        events.clear()
+        val medtronicDevice = MockDevice(model = "Protecta XT", serial = "PQR123456X")
+        dropFile("medtronic_mock.pdd", mockMedtronicPdd(patient, medtronicDevice))
+        runBatch(minEvents = 1)
+
+        assertTrue(events.any { it.startsWith("Queued") && it.contains("Similar patient on file") }, "expected a pending-sort queue message, got: $events")
+        assertEquals(1, withTimeout(5000) { waitForPatients(1) }.size, "no second patient created")
+        assertEquals(1, repository.getPendingSortTasks().size)
+        assertTrue(importDir.listFiles { f -> f.isFile }.isNullOrEmpty(), "the file is staged into _pending_sort, not left in _IMPORT")
     }
 
     @Test

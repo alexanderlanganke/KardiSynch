@@ -1,6 +1,7 @@
 package io.github.alexanderlanganke.kardisynch.apps.desktop
 
 import io.github.alexanderlanganke.kardisynch.core.lock.DirectoryLock
+import io.github.alexanderlanganke.kardisynch.core.lock.NoOpDirectoryLock
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.parsers.dispatchParse
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootReader
@@ -20,6 +21,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardWatchEventKinds
 import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
@@ -56,6 +58,14 @@ import java.util.concurrent.TimeUnit
  * chance before storing: [resolveDeviceTypeAlias] looks it up in the shared
  * `device_types.xml` alias file (issue #184). No interactive "still
  * unknown, ask the clinician" dialog is built, unlike `watcher.ts`.
+ *
+ * Before a visit can be auto-created (or an ambiguous one silently
+ * misattached), [KardiSynchRepository.resolvePatientIdentity] runs the
+ * import-identity ladder (issue #172/#173): an exact or safely-adopted
+ * match proceeds straight to import; anything less certain is staged into
+ * `_IMPORT/_pending_sort` and queued as a [KardiSynchRepository.getPendingSortTasks]
+ * row instead of guessing — resolved later via [resolvePendingSortTask]/
+ * [dismissPendingSortTask].
  */
 class ImportWatcher(
     private val importDir: File,
@@ -72,6 +82,7 @@ class ImportWatcher(
     private val onEvent: (String) -> Unit,
 ) {
     private val unmatchedDir = File(importDir, "_unmatched")
+    private val pendingSortDir = File(importDir, "_pending_sort")
     private var watchJob: Job? = null
 
     /** Stem (filename without extension) → the visit it landed in, pruned once older than [activeVisitWindowMs] — see this class's doc comment. */
@@ -81,6 +92,7 @@ class ImportWatcher(
     fun start() {
         importDir.mkdirs()
         unmatchedDir.mkdirs()
+        pendingSortDir.mkdirs()
         watchJob = scope.launch(Dispatchers.IO) { watchLoop() }
     }
 
@@ -115,6 +127,7 @@ class ImportWatcher(
         var attached = 0
         var unmatched = 0
         var errors = 0
+        var pendingSort = 0
 
         val (pdfFiles, structuredFiles) = stableFiles.partition { it.extension.equals("pdf", ignoreCase = true) }
 
@@ -128,6 +141,7 @@ class ImportWatcher(
                 }
                 FileOutcome.Skipped -> unmatched++
                 FileOutcome.Failed -> errors++
+                FileOutcome.PendingSort -> pendingSort++
             }
         }
 
@@ -135,7 +149,7 @@ class ImportWatcher(
             if (processCompanionPdf(sessionId, pdf)) attached++ else unmatched++
         }
 
-        val summary = "imported=$imported attached=$attached unmatched=$unmatched errors=$errors"
+        val summary = "imported=$imported attached=$attached unmatched=$unmatched errors=$errors pendingSort=$pendingSort"
         repository.updateImportSessionStatus(sessionId, "completed", summary)
     }
 
@@ -161,6 +175,7 @@ class ImportWatcher(
         data class Imported(val visitDirHandle: String) : FileOutcome
         data object Skipped : FileOutcome
         data object Failed : FileOutcome
+        data object PendingSort : FileOutcome
     }
 
     /**
@@ -180,23 +195,11 @@ class ImportWatcher(
         return report.copy(device = report.device.copy(type = aliasType))
     }
 
-    /**
-     * [dispatchParse] can't handle `.pkg` itself (it needs `java.util.zip`,
-     * unreachable from `core`'s commonMain) — [parseMedtronicPkg] is this
-     * desktop layer's own equivalent for that one extension (issue #170).
-     */
-    private fun dispatchParseFile(fileName: String, bytes: ByteArray): UnifiedReport? =
-        if (fileName.substringAfterLast('.', "").equals("pkg", ignoreCase = true)) {
-            parseMedtronicPkg(bytes)?.copy(manufacturer = "Medtronic")
-        } else {
-            dispatchParse(fileName, bytes)
-        }
-
     /** Parses and stores [file], logging one import event to [sessionId] either way. */
     private suspend fun processFile(sessionId: String, file: File): FileOutcome {
         try {
             val bytes = file.readBytes()
-            val parsed = dispatchParseFile(file.name, bytes)
+            val parsed = dispatchParseFileIncludingPkg(file.name, bytes)
             if (parsed == null) {
                 moveToUnmatched(file)
                 val message = "Skipped ${file.name}: unsupported or unparseable file type."
@@ -204,7 +207,22 @@ class ImportWatcher(
                 repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "unmatched", message = message)
                 return FileOutcome.Skipped
             }
-            val report = resolveDeviceTypeAlias(parsed)
+            val aliasResolved = resolveDeviceTypeAlias(parsed)
+
+            val identity = repository.resolvePatientIdentity(aliasResolved.patient, aliasResolved.device.serialNumber, aliasResolved.manufacturer)
+            if (identity is KardiSynchRepository.IdentityResolution.PendingReview) {
+                return stageForPendingSort(sessionId, file, aliasResolved, identity)
+            }
+            val report = if (identity is KardiSynchRepository.IdentityResolution.Adopted) {
+                aliasResolved.copy(
+                    patient = aliasResolved.patient.copy(
+                        firstName = identity.firstName, lastName = identity.lastName,
+                        dob = identity.dob, hospitalPatientId = identity.hospitalPatientId,
+                    ),
+                )
+            } else {
+                aliasResolved
+            }
 
             var outcome: FileOutcome = FileOutcome.Failed
             repository.importReport(reader, writer, reportsRootHandle, report, lock = lock).fold(
@@ -233,6 +251,39 @@ class ImportWatcher(
             onEvent(message)
             repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
             return FileOutcome.Failed
+        }
+    }
+
+    /** Moves [file] into `_pending_sort` and records it as a [KardiSynchRepository.getPendingSortTasks] row instead of importing — the import-identity ladder wasn't confident enough (issue #172/#173). */
+    private suspend fun stageForPendingSort(
+        sessionId: String,
+        file: File,
+        report: UnifiedReport,
+        resolution: KardiSynchRepository.IdentityResolution.PendingReview,
+    ): FileOutcome {
+        return try {
+            val stagedFile = File(pendingSortDir, "${UUID.randomUUID()}_${file.name}")
+            Files.move(file.toPath(), stagedFile.toPath())
+            repository.createPendingSortTask(
+                createdAt = nowIso(), sessionId = sessionId,
+                stagedFilePath = stagedFile.absolutePath, originalFileName = file.name,
+                suggestedPatientId = resolution.suggestedPatientId, suggestedPatientName = resolution.suggestedPatientName,
+                note = resolution.note,
+                manufacturer = report.manufacturer.takeIf { it.isNotBlank() && it != "Unknown" },
+                deviceModel = report.device.model.takeIf { it.isNotBlank() && it != "Unknown" },
+                deviceSerial = report.device.serialNumber.takeIf { it.isNotBlank() && it != "Unknown" },
+                interrogationDate = report.interrogationDate.takeIf { it.isNotBlank() },
+            )
+            val message = "Queued ${file.name} for manual sort: ${resolution.note}"
+            onEvent(message)
+            repository.logImportEvent(sessionId, nowIso(), stagedFile.absolutePath, "pending_sort", message = message)
+            FileOutcome.PendingSort
+        } catch (e: Exception) {
+            moveToUnmatched(file)
+            val message = "Failed to queue ${file.name} for manual sort: ${e.message}"
+            onEvent(message)
+            repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
+            FileOutcome.Failed
         }
     }
 
@@ -272,6 +323,80 @@ class ImportWatcher(
 }
 
 private fun nowIso(): String = Instant.now().toString()
+
+/**
+ * [dispatchParse] can't handle `.pkg` itself (it needs `java.util.zip`,
+ * unreachable from `core`'s commonMain) — [parseMedtronicPkg] is this
+ * desktop layer's own equivalent for that one extension (issue #170).
+ * Shared between [ImportWatcher] and [resolvePendingSortTask] (which
+ * re-parses a staged file rather than persisting the full parsed report
+ * while it sits in the queue).
+ */
+private fun dispatchParseFileIncludingPkg(fileName: String, bytes: ByteArray): UnifiedReport? =
+    if (fileName.substringAfterLast('.', "").equals("pkg", ignoreCase = true)) {
+        parseMedtronicPkg(bytes)?.copy(manufacturer = "Medtronic")
+    } else {
+        dispatchParse(fileName, bytes)
+    }
+
+/**
+ * Approves a pending-sort task (issue #172/#173): re-parses its staged
+ * file, overwrites the parsed patient identity with [targetPatientId]'s
+ * actual on-file identity (the parsed report's own patient fields may be
+ * missing or wrong — that's exactly why this was queued), imports it via
+ * [KardiSynchRepository.importReportForExistingPatient], moves the staged
+ * file into the resulting visit directory, and removes the task.
+ */
+suspend fun resolvePendingSortTask(
+    repository: KardiSynchRepository,
+    reader: DesktopDataRootReader,
+    writer: DesktopDataRootWriter,
+    reportsRootHandle: String,
+    taskId: String,
+    targetPatientId: String,
+    lock: DirectoryLock = NoOpDirectoryLock,
+): Result<Unit> {
+    val task = repository.getPendingSortTask(taskId) ?: return Result.failure(IllegalStateException("Pending sort task $taskId not found"))
+    val stagedFile = File(task.stagedFilePath)
+    if (!stagedFile.isFile) return Result.failure(IllegalStateException("Staged file for task $taskId is missing: ${task.stagedFilePath}"))
+
+    val parsed = dispatchParseFileIncludingPkg(task.originalFileName, stagedFile.readBytes())
+        ?: return Result.failure(IllegalStateException("Staged file for task $taskId no longer parses"))
+    val patient = repository.getPatientById(targetPatientId)
+        ?: return Result.failure(IllegalStateException("Target patient $targetPatientId not found"))
+
+    val report = parsed.copy(
+        patient = parsed.patient.copy(
+            firstName = patient.firstName.orEmpty(), lastName = patient.lastName,
+            dob = patient.dob, hospitalPatientId = patient.hospitalPatientId,
+        ),
+    )
+
+    return repository.importReportForExistingPatient(reader, writer, reportsRootHandle, targetPatientId, report, lock).fold(
+        onSuccess = { imported ->
+            storeIncomingFile(stagedFile, File(imported.visitDirHandle))
+            repository.deletePendingSortTask(taskId)
+            Result.success(Unit)
+        },
+        onFailure = { Result.failure(it) },
+    )
+}
+
+/** Dismisses a pending-sort task: moves its staged file to `_IMPORT/_unmatched` (never deletes it outright) and removes the task. */
+suspend fun dismissPendingSortTask(repository: KardiSynchRepository, importDir: File, taskId: String): Result<Unit> {
+    val task = repository.getPendingSortTask(taskId) ?: return Result.success(Unit)
+    val stagedFile = File(task.stagedFilePath)
+    return try {
+        if (stagedFile.isFile) {
+            val unmatchedDir = File(importDir, "_unmatched").apply { mkdirs() }
+            Files.move(stagedFile.toPath(), collisionFreeName(unmatchedDir, task.originalFileName).toPath())
+        }
+        repository.deletePendingSortTask(taskId)
+        Result.success(Unit)
+    } catch (e: Exception) {
+        Result.failure(e)
+    }
+}
 
 /**
  * Moves every file sitting in `_IMPORT/_unmatched` back into `_IMPORT`, so

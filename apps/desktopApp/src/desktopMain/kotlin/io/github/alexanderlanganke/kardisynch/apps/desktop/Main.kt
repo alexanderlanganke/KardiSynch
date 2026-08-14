@@ -65,6 +65,8 @@ fun main() = application {
     var usbSourceDirs by remember { mutableStateOf<List<String>>(emptyList()) }
     var usbTargetDirPath by remember { mutableStateOf<String?>(null) }
     var isReparsing by remember { mutableStateOf(false) }
+    var pendingSortRefreshTrigger by remember { mutableStateOf(0) }
+    var pendingSortCount by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
@@ -99,6 +101,10 @@ fun main() = application {
         repository.seedDeviceTypeAliasesIfNeeded(reader, writer, root, java.time.Instant.now().toString())
     }
 
+    LaunchedEffect(pendingSortRefreshTrigger) {
+        pendingSortCount = repository.getPendingSortTasks().size
+    }
+
     fun runReparseAll() {
         val root = dataRoot ?: return
         scope.launch {
@@ -125,6 +131,7 @@ fun main() = application {
             if (reportsRoot != null) {
                 ImportWatcher(File(importDirPath), reportsRoot, repository, reader, writer, scope, lock, dataRootHandle = root) { message ->
                     lastReindexSummary = message
+                    pendingSortRefreshTrigger++
                 }.also { it.start() }
             } else null
         } else null
@@ -247,6 +254,32 @@ fun main() = application {
             },
             isReparsing = isReparsing,
             onReparseAll = { runReparseAll() },
+            pendingSortCount = pendingSortCount,
+            pendingSortRefreshKey = pendingSortRefreshTrigger,
+            onApprovePendingSort = { taskId, patientId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to attach this to."
+                    } else {
+                        resolvePendingSortTask(repository, reader, writer, reportsRoot, taskId, patientId, lock).fold(
+                            onSuccess = { "Attached to the selected patient." },
+                            onFailure = { e -> "Failed to attach: ${e.message}" },
+                        )
+                    }
+                    pendingSortRefreshTrigger++
+                }
+            },
+            onDismissPendingSort = { taskId ->
+                scope.launch {
+                    lastReindexSummary = dismissPendingSortTask(repository, File(importDirPath), taskId).fold(
+                        onSuccess = { "Moved to _unmatched." },
+                        onFailure = { e -> "Failed to dismiss: ${e.message}" },
+                    )
+                    pendingSortRefreshTrigger++
+                }
+            },
         )
 
         qrDialogImage?.let { bitmap ->

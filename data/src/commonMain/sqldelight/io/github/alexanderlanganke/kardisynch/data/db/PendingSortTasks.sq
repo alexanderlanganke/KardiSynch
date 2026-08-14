@@ -1,0 +1,36 @@
+-- Manual-sort queue (issue #172/#173): one row per file the import-identity
+-- ladder couldn't confidently attach to a patient. Simplified from
+-- Electron's `pendingSortService.ts` (one task can group several files
+-- staged together) to one task per file — this port's ImportWatcher
+-- already processes files individually and handles PDF-companion
+-- attachment separately (issue #171), so per-file grouping isn't needed.
+CREATE TABLE PendingSortTasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    createdAt TEXT NOT NULL,
+    sessionId TEXT,
+    stagedFilePath TEXT NOT NULL,
+    originalFileName TEXT NOT NULL,
+    suggestedPatientId TEXT,
+    suggestedPatientName TEXT,
+    note TEXT NOT NULL,
+    manufacturer TEXT,
+    deviceModel TEXT,
+    deviceSerial TEXT,
+    interrogationDate TEXT
+);
+
+insertPendingSortTask:
+INSERT INTO PendingSortTasks(id, createdAt, sessionId, stagedFilePath, originalFileName, suggestedPatientId, suggestedPatientName, note, manufacturer, deviceModel, deviceSerial, interrogationDate)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectPendingSortTasks:
+SELECT * FROM PendingSortTasks ORDER BY createdAt DESC;
+
+selectPendingSortTaskById:
+SELECT * FROM PendingSortTasks WHERE id = ?;
+
+deletePendingSortTask:
+DELETE FROM PendingSortTasks WHERE id = ?;
+
+deleteAllPendingSortTasks:
+DELETE FROM PendingSortTasks;

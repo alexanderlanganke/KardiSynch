@@ -23,14 +23,18 @@ import io.github.alexanderlanganke.kardisynch.core.datastore.parseVisitXml
 import io.github.alexanderlanganke.kardisynch.core.lock.DirectoryLock
 import io.github.alexanderlanganke.kardisynch.core.lock.NoOpDirectoryLock
 import io.github.alexanderlanganke.kardisynch.core.matching.PatientDupGroup
+import io.github.alexanderlanganke.kardisynch.core.matching.PatientIdentity
 import io.github.alexanderlanganke.kardisynch.core.matching.PatientSummary
 import io.github.alexanderlanganke.kardisynch.core.matching.ReportMatchCandidate
 import io.github.alexanderlanganke.kardisynch.core.matching.findDuplicatePatientGroups
+import io.github.alexanderlanganke.kardisynch.core.matching.findNearMatchPatients
 import io.github.alexanderlanganke.kardisynch.core.matching.mergeReports
+import io.github.alexanderlanganke.kardisynch.core.matching.normalizeNameKey
 import io.github.alexanderlanganke.kardisynch.core.matching.patientIdForDir
 import io.github.alexanderlanganke.kardisynch.core.matching.pickSameDayReport
 import io.github.alexanderlanganke.kardisynch.core.matching.reportIdFromDirName
 import io.github.alexanderlanganke.kardisynch.core.matching.visitDatePrefix
+import io.github.alexanderlanganke.kardisynch.core.model.PatientInfo
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.model.hasLeadData
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpImport
@@ -41,6 +45,7 @@ import io.github.alexanderlanganke.kardisynch.data.db.ImportSessions
 import io.github.alexanderlanganke.kardisynch.data.db.KardiSynchDatabase
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
+import io.github.alexanderlanganke.kardisynch.data.db.PendingSortTasks
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -780,6 +785,147 @@ class KardiSynchRepository(
         insertReportRow(IndexedReport(reportId, patientId, finalReport))
 
         return Result.success(ImportedVisit(patientId, patientDirHandle, reportId, visitDirHandle, reused))
+    }
+
+    /** Like [importReport], but for a patient ID already known (rather than discovered by exact name+DOB match) — used to attach a report to a specific patient after [resolvePatientIdentity] adopts or a pending-sort task is approved (issue #172/#173). */
+    suspend fun importReportForExistingPatient(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        patientId: String,
+        report: UnifiedReport,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<ImportedVisit> = withContext(ioDispatcher) {
+        try {
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $patientId not found under $reportsRootHandle"))
+            lock.withLock(patientDirHandle, "importReportForExistingPatient:patient=$patientId") {
+                writeVisit(reader, writer, patientId, patientDirHandle, report, explicitNewVisit = false)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    sealed interface IdentityResolution {
+        /** Exact last-name+DOB match — proceed with the incoming report's own identity. */
+        data class ExactMatch(val patientId: String) : IdentityResolution
+
+        /** A device-serial match corroborated by a shared DOB or last name — adopt the stored identity onto the incoming report before storing. */
+        data class Adopted(val patientId: String, val firstName: String, val lastName: String, val dob: String, val hospitalPatientId: String?) : IdentityResolution
+
+        /** Not confident enough to auto-attach or auto-create — queue for manual review instead of storing. [suggestedPatientId] is null when there's nothing to suggest at all (missing identity, no serial match). */
+        data class PendingReview(val suggestedPatientId: String?, val suggestedPatientName: String?, val note: String) : IdentityResolution
+
+        /** No similar patient at all — genuinely new. */
+        data object NoMatch : IdentityResolution
+    }
+
+    /**
+     * The import-identity ladder (issue #143/#173): before a new visit's
+     * patient can be auto-created (or an ambiguous one silently
+     * misattached), resolve identity conservatively —
+     *   1. Missing name/DOB entirely -> never auto-attach; a device-serial
+     *      match is offered only as a suggestion (single-signal, uncorroborated).
+     *   2. Exact last-name+DOB match -> proceed as that patient.
+     *   3. Serial+manufacturer match sharing DOB or last name -> adopt that
+     *      patient's stored identity (lets re-import succeed silently once a
+     *      generator-change spelling variant was sorted manually the first time).
+     *   4. A serial match that shares NEITHER -> conflicting; suggest for review.
+     *   5. Any near-match (same DOB or same last name, not both) -> suggest for review.
+     *   6. Nothing similar at all -> [NoMatch], genuinely new.
+     */
+    suspend fun resolvePatientIdentity(patient: PatientInfo, deviceSerial: String?, manufacturer: String?): IdentityResolution = withContext(ioDispatcher) {
+        val serial = deviceSerial?.takeIf { it.isNotBlank() && it != "Unknown" }
+        val mfg = manufacturer?.takeIf { it.isNotBlank() && it != "Unknown" }
+        val hasIdentity = patient.lastName.isNotBlank() && patient.lastName != "Unknown" && patient.dob.isNotBlank()
+
+        if (!hasIdentity) {
+            val bySerial = serial?.let { findPatientBySerialRow(it, mfg) }
+            return@withContext if (bySerial != null) {
+                IdentityResolution.PendingReview(
+                    bySerial.id, "${bySerial.lastName}, ${bySerial.firstName}",
+                    "Device serial matches ${bySerial.lastName}, ${bySerial.firstName} on file, but this report has no name/DOB of its own to confirm it's the same patient (e.g. device explant/reimplant). Confirm or reassign before importing.",
+                )
+            } else {
+                IdentityResolution.PendingReview(null, null, "This report has no patient name/DOB and no matching device serial on file. Assign it to a patient manually.")
+            }
+        }
+
+        val exact = db.patientsQueries.selectAllPatients().executeAsList()
+            .firstOrNull { it.lastName.equals(patient.lastName, ignoreCase = true) && it.dob == patient.dob }
+        if (exact != null) return@withContext IdentityResolution.ExactMatch(exact.id)
+
+        if (serial != null) {
+            val bySerial = findPatientBySerialRow(serial, mfg)
+            if (bySerial != null) {
+                val sharesDob = bySerial.dob == patient.dob
+                val sharesName = normalizeNameKey(bySerial.lastName) == normalizeNameKey(patient.lastName)
+                if (sharesDob || sharesName) {
+                    return@withContext IdentityResolution.Adopted(bySerial.id, bySerial.firstName.orEmpty(), bySerial.lastName, bySerial.dob, bySerial.hospitalPatientId)
+                }
+                return@withContext IdentityResolution.PendingReview(
+                    bySerial.id, "${bySerial.lastName}, ${bySerial.firstName}",
+                    "Device serial matches ${bySerial.lastName}, ${bySerial.firstName} on file, but the name/DOB on this report don't match. Confirm or reassign before importing.",
+                )
+            }
+        }
+
+        val allPatients = db.patientsQueries.selectAllPatients().executeAsList()
+            .map { PatientIdentity(it.id, it.firstName.orEmpty(), it.lastName, it.dob, it.hospitalPatientId) }
+        val near = findNearMatchPatients(allPatients, patient.lastName, patient.dob).firstOrNull()
+        if (near != null) {
+            return@withContext IdentityResolution.PendingReview(
+                near.id, "${near.lastName}, ${near.firstName}",
+                "Similar patient on file: ${near.lastName}, ${near.firstName} (DOB ${near.dob}). Possible generator change or spelling variant — assign to the existing patient or confirm this is a new one.",
+            )
+        }
+
+        IdentityResolution.NoMatch
+    }
+
+    private fun findPatientBySerialRow(serial: String, manufacturer: String?): Patients? =
+        db.patientsQueries.selectPatientBySerial(serial, manufacturer).executeAsOneOrNull()
+
+    /**
+     * Manual-sort queue (issue #172): one row per file [resolvePatientIdentity]
+     * couldn't confidently attach anywhere. [stagedFilePath] is the raw
+     * file's new location (moved there by the caller — a desktop concern,
+     * see `ImportWatcher`), kept around so [resolvePendingSortTask]/dismiss
+     * can find it again.
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    suspend fun createPendingSortTask(
+        createdAt: String,
+        sessionId: String?,
+        stagedFilePath: String,
+        originalFileName: String,
+        suggestedPatientId: String?,
+        suggestedPatientName: String?,
+        note: String,
+        manufacturer: String?,
+        deviceModel: String?,
+        deviceSerial: String?,
+        interrogationDate: String?,
+    ): String = withContext(ioDispatcher) {
+        val id = Uuid.random().toString()
+        db.pendingSortTasksQueries.insertPendingSortTask(
+            id, createdAt, sessionId, stagedFilePath, originalFileName,
+            suggestedPatientId, suggestedPatientName, note, manufacturer, deviceModel, deviceSerial, interrogationDate,
+        )
+        id
+    }
+
+    suspend fun getPendingSortTasks(): List<PendingSortTasks> = withContext(ioDispatcher) {
+        db.pendingSortTasksQueries.selectPendingSortTasks().executeAsList()
+    }
+
+    suspend fun getPendingSortTask(id: String): PendingSortTasks? = withContext(ioDispatcher) {
+        db.pendingSortTasksQueries.selectPendingSortTaskById(id).executeAsOneOrNull()
+    }
+
+    suspend fun deletePendingSortTask(id: String) = withContext(ioDispatcher) {
+        db.pendingSortTasksQueries.deletePendingSortTask(id)
     }
 
     /**

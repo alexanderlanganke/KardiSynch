@@ -44,6 +44,18 @@ FROM Patients p
 LEFT JOIN Reports r ON p.id = r.patientId
 GROUP BY p.id;
 
+-- Most recent patient associated with a device serial number (issue #173's
+-- import-identity ladder). Serial numbers are only unique per manufacturer,
+-- so the caller scopes by manufacturer when it's known — pass NULL to
+-- search across every manufacturer.
+selectPatientBySerial:
+SELECT p.* FROM Patients p
+JOIN Reports r ON p.id = r.patientId
+WHERE r.deviceSerialNumber = :serial
+  AND (:manufacturer IS NULL OR r.manufacturer = :manufacturer)
+ORDER BY r.interrogationDate DESC
+LIMIT 1;
+
 updatePatientInfo:
 UPDATE Patients SET firstName = ?, lastName = ?, lastNameKey = ?, dob = ?, hospitalPatientId = ? WHERE id = ?;
 

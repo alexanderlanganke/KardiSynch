@@ -58,6 +58,8 @@ fun SettingsScreen(
     onPickUsbTargetDir: (() -> Unit)? = null,
     isReparsing: Boolean = false,
     onReparseAll: (() -> Unit)? = null,
+    pendingSortCount: Int = 0,
+    onOpenPendingSort: (() -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showReparseConfirm by remember { mutableStateOf(false) }
@@ -138,7 +140,7 @@ fun SettingsScreen(
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
 
-            if (onPickImportDir != null || onReprocessUnmatched != null || onReparseAll != null) {
+            if (onPickImportDir != null || onReprocessUnmatched != null || onReparseAll != null || onOpenPendingSort != null) {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text("Import folder", style = MaterialTheme.typography.titleMedium)
                 if (onPickImportDir != null) {
@@ -170,6 +172,19 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = { showReparseConfirm = true }, enabled = !isReparsing, modifier = Modifier.fillMaxWidth()) {
                         Text(if (isReparsing) "Reparsing..." else "Reparse everything")
+                    }
+                }
+                if (onOpenPendingSort != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Files the importer wasn't confident enough to file automatically — a " +
+                            "similar patient already on file, or a device serial with no name/DOB " +
+                            "to confirm it.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onOpenPendingSort, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (pendingSortCount > 0) "Review pending sort ($pendingSortCount)" else "Review pending sort")
                     }
                 }
             }

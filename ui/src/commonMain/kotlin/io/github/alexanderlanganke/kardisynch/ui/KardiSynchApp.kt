@@ -12,12 +12,14 @@ import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScreen
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
+import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
 
 private sealed interface Screen {
     data object Dashboard : Screen
     data class Detail(val patientId: String) : Screen
     data object Settings : Screen
+    data object PendingSort : Screen
 }
 
 /**
@@ -47,6 +49,10 @@ fun KardiSynchApp(
     onPickUsbTargetDir: (() -> Unit)? = null,
     isReparsing: Boolean = false,
     onReparseAll: (() -> Unit)? = null,
+    pendingSortCount: Int = 0,
+    pendingSortRefreshKey: Any = Unit,
+    onApprovePendingSort: ((taskId: String, patientId: String) -> Unit)? = null,
+    onDismissPendingSort: ((taskId: String) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -83,6 +89,20 @@ fun KardiSynchApp(
                 onPickUsbTargetDir = onPickUsbTargetDir,
                 isReparsing = isReparsing,
                 onReparseAll = onReparseAll,
+                pendingSortCount = pendingSortCount,
+                onOpenPendingSort = if (onApprovePendingSort != null || onDismissPendingSort != null) {
+                    { screen = Screen.PendingSort }
+                } else {
+                    null
+                },
+            )
+
+            is Screen.PendingSort -> PendingSortScreen(
+                repository = repository,
+                refreshKey = pendingSortRefreshKey,
+                onBack = { screen = Screen.Settings },
+                onApprove = { taskId, patientId -> onApprovePendingSort?.invoke(taskId, patientId) },
+                onDismiss = { taskId -> onDismissPendingSort?.invoke(taskId) },
             )
         }
     }
