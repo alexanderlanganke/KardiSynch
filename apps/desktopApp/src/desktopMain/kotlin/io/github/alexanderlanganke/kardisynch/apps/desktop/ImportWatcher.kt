@@ -28,7 +28,8 @@ import java.util.concurrent.TimeUnit
  * simplified desktop-only counterpart to Electron's `watcher.ts`: no PDF text
  * extraction/OCR (no PDF parser is ported yet — see [dispatchParse]'s doc
  * comment, and see below for what this means for cross-batch matching), no
- * `.pkg` zip extraction, no manual-sort queue for ambiguous patient matches.
+ * manual-sort queue for ambiguous patient matches. `.pkg` (Medtronic's zip
+ * archive format, issue #170) IS handled — see [dispatchParseFile].
  *
  * A `.pdf` is content-blind matched to a structured file's visit by shared
  * basename (stem) — e.g. `12345.pdd` + `12345.pdf` — and copied into that
@@ -179,11 +180,23 @@ class ImportWatcher(
         return report.copy(device = report.device.copy(type = aliasType))
     }
 
+    /**
+     * [dispatchParse] can't handle `.pkg` itself (it needs `java.util.zip`,
+     * unreachable from `core`'s commonMain) — [parseMedtronicPkg] is this
+     * desktop layer's own equivalent for that one extension (issue #170).
+     */
+    private fun dispatchParseFile(fileName: String, bytes: ByteArray): UnifiedReport? =
+        if (fileName.substringAfterLast('.', "").equals("pkg", ignoreCase = true)) {
+            parseMedtronicPkg(bytes)?.copy(manufacturer = "Medtronic")
+        } else {
+            dispatchParse(fileName, bytes)
+        }
+
     /** Parses and stores [file], logging one import event to [sessionId] either way. */
     private suspend fun processFile(sessionId: String, file: File): FileOutcome {
         try {
             val bytes = file.readBytes()
-            val parsed = dispatchParse(file.name, bytes)
+            val parsed = dispatchParseFile(file.name, bytes)
             if (parsed == null) {
                 moveToUnmatched(file)
                 val message = "Skipped ${file.name}: unsupported or unparseable file type."

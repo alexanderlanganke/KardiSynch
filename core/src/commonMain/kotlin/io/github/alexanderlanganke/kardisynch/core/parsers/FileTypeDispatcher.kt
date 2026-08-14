@@ -43,9 +43,12 @@ fun decodeXmlBuffer(bytes: ByteArray): String {
  * scoped to the parsers this KMP port covers: Medtronic `.pdd`, Biotronik
  * `BIOSTD_*.xml`, Microport/Paceart `.xml`, Boston Scientific `.bnk`, Abbott
  * `.log`. Not ported: `.pdf` (needs OCR/text-extraction + the Boston
- * Scientific/Abbott PDF variants) and Medtronic `.pkg` (zip extraction) —
- * both out of scope for this pass; a file of either kind is left in
- * `_IMPORT` untouched rather than silently dropped.
+ * Scientific/Abbott PDF variants) — out of scope for this pass; a `.pdf`
+ * is left in `_IMPORT` untouched rather than silently dropped. Medtronic
+ * `.pkg` (a zip archive, issue #170) is NOT dispatched from here either,
+ * but IS handled — just one layer up, on the desktop app's `ImportWatcher`
+ * (`apps:desktopApp`'s `parseMedtronicPkg`), since unzipping needs
+ * `java.util.zip`, unreachable from this module's commonMain.
  */
 fun dispatchParse(fileName: String, bytes: ByteArray): UnifiedReport? {
     val extension = fileName.substringAfterLast('.', "").lowercase()
