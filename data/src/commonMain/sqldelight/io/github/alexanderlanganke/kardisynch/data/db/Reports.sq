@@ -28,6 +28,9 @@ SELECT * FROM Reports WHERE id = ?;
 selectReportsByDatePrefix:
 SELECT * FROM Reports WHERE patientId = ? AND interrogationDate LIKE ? || '%';
 
+updateReportPatientId:
+UPDATE Reports SET patientId = ? WHERE id = ?;
+
 deleteReport:
 DELETE FROM Reports WHERE id = ?;
 

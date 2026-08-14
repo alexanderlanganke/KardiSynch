@@ -55,6 +55,50 @@ class AndroidDataRootReader(private val context: Context) : DataRootReader, Data
         }
     }
 
+    /** `DocumentFile.delete()` on a directory is recursive per SAF semantics — no extra work needed. */
+    override fun deleteDirectory(directoryHandle: String): Boolean {
+        val dir = documentFileFor(Uri.parse(directoryHandle)) ?: return false
+        return dir.delete()
+    }
+
+    /**
+     * SAF has no generic cross-provider move primitive that's guaranteed to
+     * work (`DocumentsContract.moveDocument` requires specific tree
+     * relationships some providers — like the CIFS Documents Provider this
+     * class's own doc comment mentions — don't support), so this recursively
+     * copies the directory's contents to the new location, then deletes the
+     * source. Less efficient than desktop's atomic rename, but correct.
+     */
+    override fun moveDirectory(sourceHandle: String, newParentHandle: String, newName: String?): String? {
+        val source = documentFileFor(Uri.parse(sourceHandle)) ?: return null
+        val newParent = documentFileFor(Uri.parse(newParentHandle)) ?: return null
+        val destName = newName ?: source.name ?: return null
+        val dest = newParent.createDirectory(destName) ?: return null
+        if (!copyContentsRecursively(source, dest)) return null
+        source.delete()
+        return dest.uri.toString()
+    }
+
+    private fun copyContentsRecursively(source: DocumentFile, dest: DocumentFile): Boolean {
+        for (child in source.listFiles()) {
+            val name = child.name ?: continue
+            if (child.isDirectory) {
+                val destChildDir = dest.createDirectory(name) ?: return false
+                if (!copyContentsRecursively(child, destChildDir)) return false
+            } else {
+                val destChild = dest.createFile(child.type ?: "application/octet-stream", name) ?: return false
+                try {
+                    context.contentResolver.openInputStream(child.uri)?.use { input ->
+                        context.contentResolver.openOutputStream(destChild.uri)?.use { output -> input.copyTo(output) }
+                    }
+                } catch (e: Exception) {
+                    return false
+                }
+            }
+        }
+        return true
+    }
+
     private fun documentFileFor(uri: Uri): DocumentFile? = if (DocumentsContract.isTreeUri(uri)) {
         DocumentFile.fromTreeUri(context, uri)
     } else {

@@ -25,6 +25,9 @@ SELECT * FROM Patients WHERE id = ?;
 selectAllPatients:
 SELECT * FROM Patients ORDER BY lastName, firstName;
 
+updatePatientInfo:
+UPDATE Patients SET firstName = ?, lastName = ?, lastNameKey = ?, dob = ?, hospitalPatientId = ? WHERE id = ?;
+
 deletePatient:
 DELETE FROM Patients WHERE id = ?;
 

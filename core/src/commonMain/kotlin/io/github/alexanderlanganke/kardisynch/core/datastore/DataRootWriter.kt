@@ -13,4 +13,14 @@ interface DataRootWriter {
 
     /** Writes [content] to a new file named [name] under [parentHandle]. Returns false on failure. */
     fun writeTextFile(parentHandle: String, name: String, content: String): Boolean
+
+    /** Recursively deletes the directory at [directoryHandle]. Returns false on failure, including if it doesn't exist. */
+    fun deleteDirectory(directoryHandle: String): Boolean
+
+    /**
+     * Moves the directory at [sourceHandle] to become a child of [newParentHandle],
+     * keeping its original name unless [newName] is given (for collision avoidance
+     * at the destination). Returns the moved directory's new handle, or null on failure.
+     */
+    fun moveDirectory(sourceHandle: String, newParentHandle: String, newName: String? = null): String?
 }

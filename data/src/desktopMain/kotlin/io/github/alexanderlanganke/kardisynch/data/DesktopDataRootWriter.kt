@@ -23,6 +23,23 @@ class DesktopDataRootWriter : DataRootWriter {
             false
         }
     }
+
+    override fun deleteDirectory(directoryHandle: String): Boolean {
+        val dir = File(directoryHandle)
+        return dir.isDirectory && dir.deleteRecursively()
+    }
+
+    override fun moveDirectory(sourceHandle: String, newParentHandle: String, newName: String?): String? {
+        val source = File(sourceHandle)
+        if (!source.isDirectory) return null
+        val dest = File(newParentHandle, newName ?: source.name)
+        return try {
+            Files.move(source.toPath(), dest.toPath())
+            dest.absolutePath
+        } catch (e: Exception) {
+            null
+        }
+    }
 }
 
 /**
@@ -44,6 +61,26 @@ fun storeIncomingFile(sourceFile: File, visitDir: File): File? {
     }
     Files.move(sourceFile.toPath(), destPath.toPath(), StandardCopyOption.REPLACE_EXISTING)
     return destPath
+}
+
+/**
+ * Copies every file directly under [visitDir] into [destinationDir]
+ * (created if missing) — mirrors Electron's `exportVisitFiles`. A plain
+ * `File`-to-`File` copy, not routed through the `DataRootReader`/[DataRootWriter]
+ * abstraction: those only expose text reads, which would corrupt a binary source file
+ * (e.g. `.pdd`), and the destination is typically outside `_DATA` entirely
+ * (a USB drive, a local export folder) so the shared-root abstraction
+ * doesn't fit here anyway. Returns the number of files copied.
+ */
+fun exportVisitFiles(visitDir: File, destinationDir: File): Int {
+    destinationDir.mkdirs()
+    val files = visitDir.listFiles { f -> f.isFile } ?: return 0
+    var copied = 0
+    for (file in files) {
+        file.copyTo(File(destinationDir, file.name), overwrite = true)
+        copied++
+    }
+    return copied
 }
 
 private fun collisionFreeDestPath(visitDir: File, baseName: String, sourceFile: File): File? {

@@ -155,10 +155,7 @@ class KardiSynchRepository(
             it.lastName.equals(lastName, ignoreCase = true) && it.dob == dob
         }
         if (existing != null) {
-            val children = reader.listChildren(reportsRootHandle)
-            val match = children.firstOrNull { it.isDirectory && it.name.startsWith("${existing.id}_") }
-                ?: children.firstOrNull { it.isDirectory && it.name.startsWith(existing.id) }
-            val handle = match?.handle
+            val handle = findPatientDirHandle(reader, reportsRootHandle, existing.id)
                 ?: return Result.failure(IllegalStateException("Patient ${existing.id} is indexed locally but its _DATA directory couldn't be found"))
             return Result.success(existing.id to handle)
         }
@@ -190,6 +187,118 @@ class KardiSynchRepository(
             lastIndexedMtime = null,
         )
         return Result.success(newPatientId to patientDirHandle)
+    }
+
+    /** Resolves an existing patient's `_DATA` directory handle from their ID, or null if it can't be found. */
+    private fun findPatientDirHandle(reader: DataRootReader, reportsRootHandle: String, patientId: String): String? {
+        val children = reader.listChildren(reportsRootHandle)
+        return children.firstOrNull { it.isDirectory && it.name.startsWith("${patientId}_") }?.handle
+            ?: children.firstOrNull { it.isDirectory && it.name.startsWith(patientId) }?.handle
+    }
+
+    /**
+     * Locks two patient directories for one operation that touches both,
+     * always in the same (sorted-by-handle) order regardless of which is
+     * "from" and which is "to" — otherwise two concurrent opposite-direction
+     * operations (patient A moving a visit to B, patient B moving one to A)
+     * could each hold one lock and wait on the other forever.
+     */
+    private fun <T> DirectoryLock.withTwoLocks(handleA: String, handleB: String, operation: String, block: () -> T): T {
+        val (first, second) = if (handleA <= handleB) handleA to handleB else handleB to handleA
+        return withLock(first, operation) { withLock(second, operation) { block() } }
+    }
+
+    /**
+     * Updates a patient's identity fields — mirrors Electron's
+     * `updatePatientXML` (the patient-info-editing write path; issue #177).
+     * Rewrites `patient.xml` and the local index row.
+     */
+    suspend fun updatePatientInfo(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        patientId: String,
+        firstName: String,
+        lastName: String,
+        dob: String,
+        hospitalPatientId: String?,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $patientId directory not found"))
+            lock.withLock(patientDirHandle, "updatePatientInfo:patientId=$patientId") {
+                val xml = generatePatientXml(patientId, firstName, lastName, dob, hospitalPatientId)
+                if (!writer.writeTextFile(patientDirHandle, "patient.xml", xml)) {
+                    return@withLock Result.failure(IllegalStateException("Failed to write patient.xml"))
+                }
+                db.patientsQueries.updatePatientInfo(firstName, lastName, lastName.trim().lowercase(), dob, hospitalPatientId, patientId)
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Moves a visit's `_DATA` directory from one patient to another and
+     * repoints the local index row — mirrors Electron's `moveReport` (issue
+     * #177). Locks both patient directories (see [withTwoLocks]) since the
+     * visit is removed from one and added to the other.
+     */
+    suspend fun moveReport(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        reportId: String,
+        fromPatientId: String,
+        toPatientId: String,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val fromDir = findPatientDirHandle(reader, reportsRootHandle, fromPatientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $fromPatientId directory not found"))
+            val toDir = findPatientDirHandle(reader, reportsRootHandle, toPatientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $toPatientId directory not found"))
+
+            lock.withTwoLocks(fromDir, toDir, "moveReport:reportId=$reportId") {
+                val visitDirHandle = reader.listChildren(fromDir).firstOrNull { it.isDirectory && it.name.endsWith("_$reportId") }?.handle
+                    ?: return@withTwoLocks Result.failure(IllegalStateException("Visit $reportId not found under patient $fromPatientId"))
+                if (writer.moveDirectory(visitDirHandle, toDir) == null) {
+                    return@withTwoLocks Result.failure(IllegalStateException("Failed to move visit directory"))
+                }
+                db.reportsQueries.updateReportPatientId(toPatientId, reportId)
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Deletes a patient's `_DATA` directory entirely — mirrors Electron's
+     * `removePatientDirectory` (issue #177), used after a merge has moved
+     * all of a patient's visits away. Does not touch the local index row —
+     * callers are expected to have already removed it (or run [reindexFrom]
+     * afterward).
+     */
+    suspend fun removePatientDirectory(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        patientId: String,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $patientId directory not found"))
+            lock.withLock(patientDirHandle, "removePatientDirectory:patientId=$patientId") {
+                if (writer.deleteDirectory(patientDirHandle)) Result.success(Unit)
+                else Result.failure(IllegalStateException("Failed to delete patient directory"))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     /** The outcome of [importReport]: where the report ended up, and whether it reused an existing visit. */
