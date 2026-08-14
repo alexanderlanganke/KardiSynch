@@ -26,19 +26,25 @@ import java.util.concurrent.TimeUnit
  * stores them via [KardiSynchRepository.importReport]. A deliberately
  * simplified desktop-only counterpart to Electron's `watcher.ts`: no PDF text
  * extraction/OCR (no PDF parser is ported yet — see [dispatchParse]'s doc
- * comment), no `.pkg` zip extraction, no cross-batch "active visits" session
- * memory (matching only happens within one [processStableFiles] pass, not
- * across separate watcher ticks), no manual-sort queue for ambiguous patient
- * matches.
+ * comment, and see below for what this means for cross-batch matching), no
+ * `.pkg` zip extraction, no manual-sort queue for ambiguous patient matches.
  *
- * A `.pdf` is content-blind matched to a structured file processed in the
- * *same batch* by shared basename (stem) — e.g. `12345.pdd` + `12345.pdf`
- * arriving together — and copied into that visit's directory without
- * touching its `visit.xml` (mirrors Electron's `storeFile(..., report =
- * undefined)`: never let a PDF the app can't read overwrite structured
- * data). A PDF with no same-batch structured companion, or any other
- * unsupported/unparseable file, is moved to `_IMPORT/_unmatched` for the
- * clinician to handle by hand instead of being silently dropped.
+ * A `.pdf` is content-blind matched to a structured file's visit by shared
+ * basename (stem) — e.g. `12345.pdd` + `12345.pdf` — and copied into that
+ * visit's directory without touching its `visit.xml` (mirrors Electron's
+ * `storeFile(..., report = undefined)`: never let a PDF the app can't read
+ * overwrite structured data). This match isn't limited to files that arrive
+ * in the same [processStableFiles] pass (issue #171): every successfully
+ * imported visit's stem is remembered for [activeVisitWindowMs] (default 2
+ * minutes, matching Electron's `ACTIVE_VISITS_QUIET_PERIOD`) across
+ * subsequent polling ticks too, so a PDF that finishes exporting a few
+ * seconds after its sibling XML still gets attached instead of orphaned.
+ * What this does NOT replicate: Electron's cross-batch matching keys on the
+ * device *serial number* extracted from the PDF's own text, which requires
+ * PDF content parsing (issue #169, not built) — basename is a weaker but
+ * workable stand-in until then. A PDF with no basename match within the
+ * window, or any other unsupported/unparseable file, is moved to
+ * `_IMPORT/_unmatched` for the clinician to handle by hand.
  *
  * Every non-empty batch is logged as one import session (issue #174) —
  * mirrors Electron's per-run `createImportSession`/`logImportEvent` audit
@@ -52,10 +58,16 @@ class ImportWatcher(
     private val writer: DesktopDataRootWriter,
     private val scope: CoroutineScope,
     private val lock: DirectoryLock,
+    private val activeVisitWindowMs: Long = 2 * 60 * 1000L,
+    private val now: () -> Long = { System.currentTimeMillis() },
     private val onEvent: (String) -> Unit,
 ) {
     private val unmatchedDir = File(importDir, "_unmatched")
     private var watchJob: Job? = null
+
+    /** Stem (filename without extension) → the visit it landed in, pruned once older than [activeVisitWindowMs] — see this class's doc comment. */
+    private data class RecentVisit(val visitDirHandle: String, val importedAtMs: Long)
+    private val recentVisitsByStem = mutableMapOf<String, RecentVisit>()
 
     fun start() {
         importDir.mkdirs()
@@ -87,6 +99,8 @@ class ImportWatcher(
         val stableFiles = importDir.listFiles { f -> f.isFile }?.filter { waitForStable(it) } ?: return
         if (stableFiles.isEmpty()) return
 
+        pruneExpiredVisits()
+
         val sessionId = repository.createImportSession(nowIso())
         var imported = 0
         var attached = 0
@@ -96,13 +110,12 @@ class ImportWatcher(
         val (pdfFiles, structuredFiles) = stableFiles.partition { it.extension.equals("pdf", ignoreCase = true) }
 
         // Structured files first, so a same-batch companion PDF (below) has
-        // something to attach to.
-        val visitDirHandlesByStem = mutableMapOf<String, String>()
+        // something to attach to immediately, without waiting for the window.
         for (file in structuredFiles) {
             when (val outcome = processFile(sessionId, file)) {
                 is FileOutcome.Imported -> {
                     imported++
-                    visitDirHandlesByStem[file.nameWithoutExtension] = outcome.visitDirHandle
+                    recentVisitsByStem[file.nameWithoutExtension] = RecentVisit(outcome.visitDirHandle, now())
                 }
                 FileOutcome.Skipped -> unmatched++
                 FileOutcome.Failed -> errors++
@@ -110,11 +123,16 @@ class ImportWatcher(
         }
 
         for (pdf in pdfFiles) {
-            if (processCompanionPdf(sessionId, pdf, visitDirHandlesByStem)) attached++ else unmatched++
+            if (processCompanionPdf(sessionId, pdf)) attached++ else unmatched++
         }
 
         val summary = "imported=$imported attached=$attached unmatched=$unmatched errors=$errors"
         repository.updateImportSessionStatus(sessionId, "completed", summary)
+    }
+
+    private fun pruneExpiredVisits() {
+        val cutoff = now() - activeVisitWindowMs
+        recentVisitsByStem.entries.removeAll { it.value.importedAtMs < cutoff }
     }
 
     /** A file is "stable" once its size stops changing across polls — a plain stand-in for chokidar's awaitWriteFinish. */
@@ -179,19 +197,20 @@ class ImportWatcher(
         }
     }
 
-    /** Returns true if [file] was attached to a same-batch companion visit, false if it went to `_unmatched`. */
-    private suspend fun processCompanionPdf(sessionId: String, file: File, visitDirHandlesByStem: Map<String, String>): Boolean {
-        val visitDirHandle = visitDirHandlesByStem[file.nameWithoutExtension]
+    /** Returns true if [file] was attached to a same-basename visit imported within [activeVisitWindowMs], false if it went to `_unmatched`. */
+    private suspend fun processCompanionPdf(sessionId: String, file: File): Boolean {
+        val visitDirHandle = recentVisitsByStem[file.nameWithoutExtension]?.visitDirHandle
         if (visitDirHandle == null) {
             moveToUnmatched(file)
-            val message = "Skipped ${file.name}: no matching structured file in this batch (PDF content isn't parsed yet)."
+            val minutes = activeVisitWindowMs / 60_000
+            val message = "Skipped ${file.name}: no matching structured file imported in the last ${minutes}m (PDF content isn't parsed yet)."
             onEvent(message)
             repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "unmatched", message = message)
             return false
         }
         return try {
             storeIncomingFile(file, File(visitDirHandle))
-            val message = "Attached ${file.name} to the visit imported from ${file.nameWithoutExtension} in this batch."
+            val message = "Attached ${file.name} to the visit imported from ${file.nameWithoutExtension}."
             onEvent(message)
             repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "attached", message = message)
             true

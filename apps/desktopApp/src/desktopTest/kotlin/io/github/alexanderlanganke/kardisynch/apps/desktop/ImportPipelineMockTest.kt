@@ -185,6 +185,53 @@ class ImportPipelineMockTest {
     }
 
     @Test
+    fun `a companion PDF that arrives in a later poll tick still attaches (issue #171)`() = runBlocking {
+        val device = MockDevice(model = "Amvia Sky DR-T", serial = "BIO-SER-010")
+        // A short poll-equivalent window so the test doesn't need to wait
+        // anywhere near the production 2-minute default — the watcher's own
+        // 2-second poll loop naturally separates the two drops into two
+        // different processStableFiles() passes since the PDF isn't dropped
+        // until after the first one has already completed.
+        val watcher = ImportWatcher(importDir, reportsRoot, repository, reader, writer, scope, NoOpDirectoryLock) { events.add(it) }
+        watcher.start()
+        try {
+            dropFile("BIOSTD_late_companion.xml", mockBiotronikXml(patient, device))
+            withTimeout(20_000) { while (events.none { it.startsWith("Imported BIOSTD_late_companion.xml") }) delay(100) }
+
+            dropFile("BIOSTD_late_companion.pdf", mockDummyPdf(patient, device))
+            withTimeout(20_000) { while (events.none { it.startsWith("Attached BIOSTD_late_companion.pdf") }) delay(100) }
+        } finally {
+            watcher.stop()
+        }
+
+        assertFalse(File(importDir, "_unmatched/BIOSTD_late_companion.pdf").exists())
+    }
+
+    @Test
+    fun `a companion PDF that arrives after the active-visit window expires is unmatched`() = runBlocking {
+        val device = MockDevice(model = "Amvia Sky DR-T", serial = "BIO-SER-011")
+        var fakeNowMs = 0L
+        val watcher = ImportWatcher(
+            importDir, reportsRoot, repository, reader, writer, scope, NoOpDirectoryLock,
+            activeVisitWindowMs = 1000L,
+            now = { fakeNowMs },
+        ) { events.add(it) }
+        watcher.start()
+        try {
+            dropFile("BIOSTD_expired_companion.xml", mockBiotronikXml(patient, device))
+            withTimeout(20_000) { while (events.none { it.startsWith("Imported BIOSTD_expired_companion.xml") }) delay(100) }
+
+            fakeNowMs += 5000L // well past the 1s window
+            dropFile("BIOSTD_expired_companion.pdf", mockDummyPdf(patient, device))
+            withTimeout(20_000) { while (events.none { it.startsWith("Skipped BIOSTD_expired_companion.pdf") }) delay(100) }
+        } finally {
+            watcher.stop()
+        }
+
+        assertTrue(File(importDir, "_unmatched/BIOSTD_expired_companion.pdf").exists())
+    }
+
+    @Test
     fun `a processed batch is recorded as an import session with a matching event`() = runBlocking {
         val device = MockDevice(model = "Assurity MRI", serial = "ABT-SER-004")
         dropFile("session_log_test.log", mockAbbottLog(patient, device))
