@@ -45,6 +45,8 @@ fun KardiSynchApp(
     onRemoveUsbSourceDir: ((String) -> Unit)? = null,
     usbTargetDirLabel: String? = null,
     onPickUsbTargetDir: (() -> Unit)? = null,
+    isReparsing: Boolean = false,
+    onReparseAll: (() -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -79,6 +81,8 @@ fun KardiSynchApp(
                 onRemoveUsbSourceDir = onRemoveUsbSourceDir,
                 usbTargetDirLabel = usbTargetDirLabel,
                 onPickUsbTargetDir = onPickUsbTargetDir,
+                isReparsing = isReparsing,
+                onReparseAll = onReparseAll,
             )
         }
     }

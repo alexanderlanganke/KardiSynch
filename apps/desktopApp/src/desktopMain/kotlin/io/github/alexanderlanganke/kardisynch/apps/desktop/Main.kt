@@ -64,6 +64,7 @@ fun main() = application {
     var qrDialogImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var usbSourceDirs by remember { mutableStateOf<List<String>>(emptyList()) }
     var usbTargetDirPath by remember { mutableStateOf<String?>(null) }
+    var isReparsing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
@@ -96,6 +97,25 @@ fun main() = application {
     LaunchedEffect(dataRoot) {
         val root = dataRoot ?: return@LaunchedEffect
         repository.seedDeviceTypeAliasesIfNeeded(reader, writer, root, java.time.Instant.now().toString())
+    }
+
+    fun runReparseAll() {
+        val root = dataRoot ?: return
+        scope.launch {
+            isReparsing = true
+            try {
+                val reportsRoot = resolveReportsRootHandle(reader, root)
+                lastReindexSummary = if (reportsRoot == null) {
+                    "No \"Reports\" folder found under $root yet — nothing to reparse."
+                } else {
+                    reparseAllVisits(repository, reader, writer, reportsRoot).message()
+                }
+            } catch (e: Exception) {
+                lastReindexSummary = "Reparse failed: ${e.message}"
+            } finally {
+                isReparsing = false
+            }
+        }
     }
 
     DisposableEffect(dataRoot, importDirPath) {
@@ -225,6 +245,8 @@ fun main() = application {
                     scope.launch { repository.setSetting(SETTING_USB_TARGET_DIR, picked) }
                 }
             },
+            isReparsing = isReparsing,
+            onReparseAll = { runReparseAll() },
         )
 
         qrDialogImage?.let { bitmap ->

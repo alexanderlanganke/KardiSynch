@@ -782,6 +782,51 @@ class KardiSynchRepository(
         return Result.success(ImportedVisit(patientId, patientDirHandle, reportId, visitDirHandle, reused))
     }
 
+    /**
+     * Re-parses one visit: rewrites `visit.xml` from [aggregatedReport] (the
+     * caller's fresh re-parse of every raw file still sitting in the visit
+     * directory — assembling it is a desktop/data-layer concern, see
+     * [aggregateReports]'s and [DataRootWriter]'s doc comments on why binary
+     * file reads bypass this module) and refreshes the local index row for
+     * [reportId] — a Kotlin port of Electron's `rescanVisitDirectory`/
+     * `refreshVisitMetadata` (issue #188), letting a retroactive parser fix
+     * reach a visit that was imported before the fix shipped.
+     *
+     * Reuses [mergeReports] against whatever's already in `visit.xml` —
+     * exactly the same "fresh values win, existing preserved when fresh is
+     * weak/empty/Unknown" rule an ordinary same-day re-import already
+     * applies, so a field this parse run couldn't recover doesn't blank out
+     * one a previous run did. Does NOT touch `patient.xml`'s device/lead
+     * history (out of scope, KMP migration plan Decision 3).
+     */
+    suspend fun reparseVisit(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        patientId: String,
+        visitDirHandle: String,
+        reportId: String,
+        aggregatedReport: UnifiedReport,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val existingReport = reader.listChildren(visitDirHandle)
+                .firstOrNull { !it.isDirectory && it.name == "visit.xml" }
+                ?.let { reader.readText(it.handle) }
+                ?.let { parseVisitXml(it, patientId)?.report }
+            val finalReport = if (existingReport != null) mergeReports(existingReport, aggregatedReport) else aggregatedReport
+
+            if (!writer.writeTextFile(visitDirHandle, "visit.xml", generateVisitXml(reportId, finalReport))) {
+                return@withContext Result.failure(IllegalStateException("Failed to write visit.xml"))
+            }
+
+            db.devicesQueries.deleteDevicesForReport(reportId)
+            db.leadsQueries.deleteLeadsForReport(reportId)
+            insertReportRow(IndexedReport(reportId, patientId, finalReport))
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
     suspend fun reindexFrom(reader: DataRootReader, reportsRootHandle: String) = withContext(ioDispatcher) {
         val result = DataRootIndexer(reader).indexAll(reportsRootHandle)
         db.transaction {

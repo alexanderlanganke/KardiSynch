@@ -56,8 +56,11 @@ fun SettingsScreen(
     onRemoveUsbSourceDir: ((String) -> Unit)? = null,
     usbTargetDirLabel: String? = null,
     onPickUsbTargetDir: (() -> Unit)? = null,
+    isReparsing: Boolean = false,
+    onReparseAll: (() -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
+    var showReparseConfirm by remember { mutableStateOf(false) }
 
     if (showClearConfirm) {
         AlertDialog(
@@ -75,6 +78,26 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showClearConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showReparseConfirm) {
+        AlertDialog(
+            onDismissRequest = { showReparseConfirm = false },
+            title = { Text("Reparse every visit?") },
+            text = {
+                Text(
+                    "Re-reads every visit's raw device files with the current parser and rewrites " +
+                        "visit.xml — lets a fixed or improved parser reach visits imported before " +
+                        "the fix shipped. Can take a while on a large _DATA folder.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showReparseConfirm = false; onReparseAll?.invoke() }) { Text("Reparse") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showReparseConfirm = false }) { Text("Cancel") }
             },
         )
     }
@@ -115,7 +138,7 @@ fun SettingsScreen(
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
 
-            if (onPickImportDir != null || onReprocessUnmatched != null) {
+            if (onPickImportDir != null || onReprocessUnmatched != null || onReparseAll != null) {
                 Spacer(modifier = Modifier.height(24.dp))
                 Text("Import folder", style = MaterialTheme.typography.titleMedium)
                 if (onPickImportDir != null) {
@@ -135,6 +158,18 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = onReprocessUnmatched, modifier = Modifier.fillMaxWidth()) {
                         Text("Reprocess unmatched files")
+                    }
+                }
+                if (onReparseAll != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Re-parses every stored visit's raw files with the current parser — lets a " +
+                            "fixed parser reach visits imported before the fix shipped.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = { showReparseConfirm = true }, enabled = !isReparsing, modifier = Modifier.fillMaxWidth()) {
+                        Text(if (isReparsing) "Reparsing..." else "Reparse everything")
                     }
                 }
             }
