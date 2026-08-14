@@ -30,8 +30,8 @@ import androidx.compose.ui.unit.dp
  * plan) — this screen stays a thin, common-code shell around
  * [onPickDataRoot] / [onReindex] callbacks the app shell wires up.
  *
- * [onReprocessUnmatched] is desktop-only (Android has no `_IMPORT`/`_unmatched`
- * folder watcher yet) — pass null to hide that action entirely.
+ * [onReprocessUnmatched]/[onPickImportDir] are desktop-only (Android has no
+ * `_IMPORT` folder watcher yet) — pass null to hide those actions entirely.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +43,8 @@ fun SettingsScreen(
     onPickDataRoot: () -> Unit,
     onReindex: () -> Unit,
     onClearLocalIndex: () -> Unit,
+    importDirLabel: String? = null,
+    onPickImportDir: (() -> Unit)? = null,
     onReprocessUnmatched: (() -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -103,17 +105,27 @@ fun SettingsScreen(
                 Text(it, style = MaterialTheme.typography.bodySmall)
             }
 
-            if (onReprocessUnmatched != null) {
+            if (onPickImportDir != null || onReprocessUnmatched != null) {
                 Spacer(modifier = Modifier.height(24.dp))
-                Text("Import", style = MaterialTheme.typography.titleMedium)
-                Text(
-                    "Moves every file currently sitting in _IMPORT/_unmatched back into _IMPORT, " +
-                        "so the watcher retries them.",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onReprocessUnmatched, modifier = Modifier.fillMaxWidth()) {
-                    Text("Reprocess unmatched files")
+                Text("Import folder", style = MaterialTheme.typography.titleMedium)
+                if (onPickImportDir != null) {
+                    Text(importDirLabel ?: "Not set", style = MaterialTheme.typography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onPickImportDir, modifier = Modifier.fillMaxWidth()) {
+                        Text("Change import folder")
+                    }
+                }
+                if (onReprocessUnmatched != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Moves every file currently sitting in _unmatched back into the import " +
+                            "folder, so the watcher retries them.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onReprocessUnmatched, modifier = Modifier.fillMaxWidth()) {
+                        Text("Reprocess unmatched files")
+                    }
                 }
             }
         }

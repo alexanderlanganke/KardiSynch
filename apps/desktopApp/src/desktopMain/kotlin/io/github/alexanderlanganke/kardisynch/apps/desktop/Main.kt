@@ -21,6 +21,16 @@ import java.io.File
 import javax.swing.JFileChooser
 
 private const val SETTING_DATA_ROOT = "dataRootPath"
+private const val SETTING_IMPORT_DIR = "importDirPath"
+
+/**
+ * Local per-device staging folder (like `database.db`, alongside it under
+ * `~/.kardisynch`) — never on the shared `_DATA` root, since it only ever
+ * holds files mid-way through being filed away. This is only a *default*:
+ * [SETTING_IMPORT_DIR] lets it be relocated (issue #194), e.g. to point at
+ * wherever a device programmer or USB-transfer workflow already drops files.
+ */
+private fun defaultImportDir() = File(File(System.getProperty("user.home"), ".kardisynch"), "_IMPORT")
 
 fun main() = application {
     val repository = remember { KardiSynchRepository(DatabaseDriverFactory().createDriver()) }
@@ -32,14 +42,11 @@ fun main() = application {
     var dataRoot by remember { mutableStateOf<String?>(null) }
     var isReindexing by remember { mutableStateOf(false) }
     var lastReindexSummary by remember { mutableStateOf<String?>(null) }
-
-    // Local per-device staging folder (like database.db, alongside it under
-    // ~/.kardisynch) — never on the shared _DATA root, since it only ever
-    // holds files mid-way through being filed away.
-    val importDir = remember { File(File(System.getProperty("user.home"), ".kardisynch"), "_IMPORT") }
+    var importDirPath by remember { mutableStateOf(defaultImportDir().absolutePath) }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
+        importDirPath = repository.getSetting(SETTING_IMPORT_DIR) ?: defaultImportDir().absolutePath
     }
 
     fun runReindex(root: String) {
@@ -61,12 +68,12 @@ fun main() = application {
         }
     }
 
-    DisposableEffect(dataRoot) {
+    DisposableEffect(dataRoot, importDirPath) {
         val root = dataRoot
         val watcher = if (root != null) {
             val reportsRoot = resolveReportsRootHandle(reader, root)
             if (reportsRoot != null) {
-                ImportWatcher(importDir, reportsRoot, repository, reader, writer, scope, lock) { message ->
+                ImportWatcher(File(importDirPath), reportsRoot, repository, reader, writer, scope, lock) { message ->
                     lastReindexSummary = message
                 }.also { it.start() }
             } else null
@@ -99,8 +106,20 @@ fun main() = application {
                     lastReindexSummary = "Local index cleared."
                 }
             },
+            importDirLabel = importDirPath,
+            onPickImportDir = {
+                val chooser = JFileChooser().apply {
+                    fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                    dialogTitle = "Choose the import folder"
+                }
+                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    val picked = chooser.selectedFile.absolutePath
+                    importDirPath = picked
+                    scope.launch { repository.setSetting(SETTING_IMPORT_DIR, picked) }
+                }
+            },
             onReprocessUnmatched = {
-                val moved = reprocessUnmatchedFiles(importDir)
+                val moved = reprocessUnmatchedFiles(File(importDirPath))
                 lastReindexSummary = if (moved > 0) "Moved $moved file(s) from _unmatched back into _IMPORT." else "No unmatched files to reprocess."
             },
         )

@@ -33,6 +33,8 @@ fun KardiSynchApp(
     onPickDataRoot: () -> Unit,
     onReindex: () -> Unit,
     onClearLocalIndex: () -> Unit,
+    importDirLabel: String? = null,
+    onPickImportDir: (() -> Unit)? = null,
     onReprocessUnmatched: (() -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
@@ -59,6 +61,8 @@ fun KardiSynchApp(
                 onPickDataRoot = onPickDataRoot,
                 onReindex = onReindex,
                 onClearLocalIndex = onClearLocalIndex,
+                importDirLabel = importDirLabel,
+                onPickImportDir = onPickImportDir,
                 onReprocessUnmatched = onReprocessUnmatched,
             )
         }
