@@ -3,6 +3,16 @@ package io.github.alexanderlanganke.kardisynch.data
 import app.cash.sqldelight.coroutines.asFlow
 import app.cash.sqldelight.coroutines.mapToList
 import app.cash.sqldelight.db.SqlDriver
+import io.github.alexanderlanganke.kardisynch.core.aliases.AliasKind
+import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
+import io.github.alexanderlanganke.kardisynch.core.aliases.LeadAliasAttrs
+import io.github.alexanderlanganke.kardisynch.core.aliases.encodeDeviceTypeAliasesXml
+import io.github.alexanderlanganke.kardisynch.core.aliases.lookupDeviceAlias
+import io.github.alexanderlanganke.kardisynch.core.aliases.parseDeviceTypeAliasesXml
+import io.github.alexanderlanganke.kardisynch.core.aliases.removeAlias
+import io.github.alexanderlanganke.kardisynch.core.aliases.seedDeviceTypeAliases
+import io.github.alexanderlanganke.kardisynch.core.aliases.upsertDeviceAlias
+import io.github.alexanderlanganke.kardisynch.core.aliases.upsertLeadAlias
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootIndexer
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootReader
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootWriter
@@ -50,6 +60,8 @@ import kotlin.uuid.Uuid
  */
 fun resolveReportsRootHandle(reader: DataRootReader, dataRootHandle: String): String? =
     reader.listChildren(dataRootHandle).firstOrNull { it.isDirectory && it.name == "Reports" }?.handle
+
+private const val DEVICE_TYPES_FILE_NAME = "device_types.xml"
 
 /**
  * Local, per-device query/write layer over the SQLDelight-generated
@@ -142,6 +154,114 @@ class KardiSynchRepository(
     suspend fun getImportSessionEvents(sessionId: String): List<ImportEvents> = withContext(ioDispatcher) {
         db.importEventsQueries.selectImportEventsBySession(sessionId).executeAsList()
     }
+
+    /**
+     * Persistent `(manufacturer, model)` -> device type / lead connector map
+     * (issue #184), a Kotlin port of Electron's `deviceTypeAliases.ts`. Lives
+     * in `device_types.xml` at the `_DATA` root (a sibling of `Reports`, so
+     * callers pass [dataRootHandle] here, not `reportsRootHandle`) — shared
+     * across every workstation pointed at the same folder.
+     *
+     * Deliberately backend-only for now: there's no Settings screen to
+     * browse/edit the store yet (issue #178's territory — this is reference
+     * data a clinician would edit through a form, same as the interactive
+     * "device ambiguity" dialog `watcher.ts` shows during import, which also
+     * isn't ported). What *is* ported and wired up is the auto-resolve path
+     * ([resolveDeviceTypeFromAlias], called from [ImportWatcher] on every
+     * import) and the seed data ([seedDeviceTypeAliasesIfNeeded]).
+     */
+    suspend fun listDeviceTypeAliases(reader: DataRootReader, dataRootHandle: String): List<DeviceTypeAlias> = withContext(ioDispatcher) {
+        readDeviceTypeAliasesFile(reader, dataRootHandle)
+    }
+
+    suspend fun upsertDeviceTypeAlias(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        dataRootHandle: String,
+        manufacturer: String,
+        model: String,
+        type: String,
+        nowIso: String,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val aliases = readDeviceTypeAliasesFile(reader, dataRootHandle)
+            val next = upsertDeviceAlias(aliases, manufacturer, model, type, nowIso)
+            if (!writeDeviceTypeAliasesFile(writer, dataRootHandle, next)) {
+                return@withContext Result.failure(IllegalStateException("Failed to write device_types.xml"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun upsertLeadTypeAlias(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        dataRootHandle: String,
+        manufacturer: String,
+        model: String,
+        attrs: LeadAliasAttrs,
+        nowIso: String,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val aliases = readDeviceTypeAliasesFile(reader, dataRootHandle)
+            val next = upsertLeadAlias(aliases, manufacturer, model, attrs, nowIso)
+            if (!writeDeviceTypeAliasesFile(writer, dataRootHandle, next)) {
+                return@withContext Result.failure(IllegalStateException("Failed to write device_types.xml"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteDeviceTypeAlias(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        dataRootHandle: String,
+        manufacturer: String,
+        model: String,
+        kind: AliasKind = AliasKind.DEVICE,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val aliases = readDeviceTypeAliasesFile(reader, dataRootHandle)
+            val next = removeAlias(aliases, manufacturer, model, kind)
+            if (next.size == aliases.size) return@withContext Result.success(Unit)
+            if (!writeDeviceTypeAliasesFile(writer, dataRootHandle, next)) {
+                return@withContext Result.failure(IllegalStateException("Failed to write device_types.xml"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /** Auto-resolves an unknown device type from the shared alias file — mirrors `watcher.ts`'s auto-resolve step (not the interactive dialog that follows it). Returns null if there's no usable manufacturer/model or no match. */
+    suspend fun resolveDeviceTypeFromAlias(reader: DataRootReader, dataRootHandle: String, manufacturer: String?, model: String?): String? =
+        withContext(ioDispatcher) {
+            lookupDeviceAlias(readDeviceTypeAliasesFile(reader, dataRootHandle), manufacturer, model)
+        }
+
+    /** Idempotent/additive — safe to call every time the app (re-)points at a `_DATA` root, mirrors Electron's `initializeStorage` call to `seedDeviceTypeAliases`. Returns the number of entries added. */
+    suspend fun seedDeviceTypeAliasesIfNeeded(reader: DataRootReader, writer: DataRootWriter, dataRootHandle: String, nowIso: String): Int =
+        withContext(ioDispatcher) {
+            val existing = readDeviceTypeAliasesFile(reader, dataRootHandle)
+            val toAdd = seedDeviceTypeAliases(existing, nowIso)
+            if (toAdd.isEmpty()) return@withContext 0
+            if (!writeDeviceTypeAliasesFile(writer, dataRootHandle, existing + toAdd)) return@withContext 0
+            toAdd.size
+        }
+
+    private fun readDeviceTypeAliasesFile(reader: DataRootReader, dataRootHandle: String): List<DeviceTypeAlias> {
+        val handle = reader.listChildren(dataRootHandle).firstOrNull { !it.isDirectory && it.name == DEVICE_TYPES_FILE_NAME }?.handle
+            ?: return emptyList()
+        val xml = reader.readText(handle) ?: return emptyList()
+        return parseDeviceTypeAliasesXml(xml)
+    }
+
+    private fun writeDeviceTypeAliasesFile(writer: DataRootWriter, dataRootHandle: String, aliases: List<DeviceTypeAlias>): Boolean =
+        writer.writeTextFile(dataRootHandle, DEVICE_TYPES_FILE_NAME, encodeDeviceTypeAliasesXml(aliases))
 
     /**
      * Full rebuild from `_DATA` — the KMP equivalent of Electron's

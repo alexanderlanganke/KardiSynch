@@ -1,6 +1,7 @@
 package io.github.alexanderlanganke.kardisynch.apps.desktop
 
 import io.github.alexanderlanganke.kardisynch.core.lock.DirectoryLock
+import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.parsers.dispatchParse
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootReader
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootWriter
@@ -49,6 +50,11 @@ import java.util.concurrent.TimeUnit
  * Every non-empty batch is logged as one import session (issue #174) —
  * mirrors Electron's per-run `createImportSession`/`logImportEvent` audit
  * trail. An empty poll (nothing new in `_IMPORT`) doesn't create a session.
+ *
+ * A structured file whose device type came back unknown gets one more
+ * chance before storing: [resolveDeviceTypeAlias] looks it up in the shared
+ * `device_types.xml` alias file (issue #184). No interactive "still
+ * unknown, ask the clinician" dialog is built, unlike `watcher.ts`.
  */
 class ImportWatcher(
     private val importDir: File,
@@ -60,6 +66,8 @@ class ImportWatcher(
     private val lock: DirectoryLock,
     private val activeVisitWindowMs: Long = 2 * 60 * 1000L,
     private val now: () -> Long = { System.currentTimeMillis() },
+    /** The `_DATA` root itself (parent of [reportsRootHandle]) — only used to look up the shared device-type alias file (issue #184). Null skips auto-resolve entirely (e.g. in tests that don't care about it). */
+    private val dataRootHandle: String? = null,
     private val onEvent: (String) -> Unit,
 ) {
     private val unmatchedDir = File(importDir, "_unmatched")
@@ -154,18 +162,36 @@ class ImportWatcher(
         data object Failed : FileOutcome
     }
 
+    /**
+     * Auto-resolves an unknown device type from the shared `device_types.xml`
+     * alias file (issue #184) — mirrors `watcher.ts`'s auto-resolve step, not
+     * the interactive "device ambiguity" dialog that follows it there (not
+     * ported: no per-import manual device-entry UI yet).
+     */
+    private suspend fun resolveDeviceTypeAlias(report: UnifiedReport): UnifiedReport {
+        val root = dataRootHandle ?: return report
+        val manufacturer = report.manufacturer
+        val model = report.device.model
+        val typeKnown = report.device.type.isNotBlank() && report.device.type != "Unknown"
+        if (manufacturer.isBlank() || manufacturer == "Unknown" || model.isBlank() || model == "Unknown" || typeKnown) return report
+        val aliasType = repository.resolveDeviceTypeFromAlias(reader, root, manufacturer, model) ?: return report
+        onEvent("Auto-resolved device type from alias: $manufacturer $model -> $aliasType")
+        return report.copy(device = report.device.copy(type = aliasType))
+    }
+
     /** Parses and stores [file], logging one import event to [sessionId] either way. */
     private suspend fun processFile(sessionId: String, file: File): FileOutcome {
         try {
             val bytes = file.readBytes()
-            val report = dispatchParse(file.name, bytes)
-            if (report == null) {
+            val parsed = dispatchParse(file.name, bytes)
+            if (parsed == null) {
                 moveToUnmatched(file)
                 val message = "Skipped ${file.name}: unsupported or unparseable file type."
                 onEvent(message)
                 repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "unmatched", message = message)
                 return FileOutcome.Skipped
             }
+            val report = resolveDeviceTypeAlias(parsed)
 
             var outcome: FileOutcome = FileOutcome.Failed
             repository.importReport(reader, writer, reportsRootHandle, report, lock = lock).fold(

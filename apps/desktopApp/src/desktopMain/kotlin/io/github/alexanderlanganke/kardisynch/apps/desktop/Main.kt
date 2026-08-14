@@ -91,12 +91,19 @@ fun main() = application {
         }
     }
 
+    // Idempotent/additive (issue #184) — safe to run every time the app
+    // (re-)points at a _DATA root, mirrors Electron's initializeStorage.
+    LaunchedEffect(dataRoot) {
+        val root = dataRoot ?: return@LaunchedEffect
+        repository.seedDeviceTypeAliasesIfNeeded(reader, writer, root, java.time.Instant.now().toString())
+    }
+
     DisposableEffect(dataRoot, importDirPath) {
         val root = dataRoot
         val watcher = if (root != null) {
             val reportsRoot = resolveReportsRootHandle(reader, root)
             if (reportsRoot != null) {
-                ImportWatcher(File(importDirPath), reportsRoot, repository, reader, writer, scope, lock) { message ->
+                ImportWatcher(File(importDirPath), reportsRoot, repository, reader, writer, scope, lock, dataRootHandle = root) { message ->
                     lastReindexSummary = message
                 }.also { it.start() }
             } else null

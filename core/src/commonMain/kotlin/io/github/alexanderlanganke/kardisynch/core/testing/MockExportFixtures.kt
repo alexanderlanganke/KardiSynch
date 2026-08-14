@@ -116,7 +116,12 @@ fun mockAbbottLog(
 /**
  * [deviceModel] should contain a family keyword the parser recognizes
  * (default "Amvia" -> Pacemaker) — see `parseBiotronikXML`'s device-type
- * inference. [interrogationDate]/[dob] are EU `DD.MM.YYYY`.
+ * inference. [interrogationDate]/[dob] are EU `DD.MM.YYYY`. [functionalDomain]
+ * defaults to "HSM" (matching real pacemaker exports and most other
+ * `deviceModel` keyword matches too, via the parser's own `FunctionalDomain
+ * == "HSM"` fallback) — override it to something else, together with a
+ * [deviceModel] with no recognized keyword, to produce a genuinely
+ * unclassifiable ("Unknown") device type, e.g. for testing alias auto-resolve.
  */
 fun mockBiotronikXml(
     patient: MockPatient,
@@ -125,6 +130,7 @@ fun mockBiotronikXml(
     dob: String = "15.03.1970",
     deviceModel: String = "Amvia Sky DR-T",
     batteryVoltage: Double = 3.20,
+    functionalDomain: String = "HSM",
 ): String = """
     <?xml version="1.0" encoding="UTF-8"?>
     <InterfaceData>
@@ -137,7 +143,7 @@ fun mockBiotronikXml(
       </Patient>
       <Examination>
         <ExaminationDate>$interrogationDate</ExaminationDate>
-        <FunctionalDomain>HSM</FunctionalDomain>
+        <FunctionalDomain>$functionalDomain</FunctionalDomain>
         <Measurements>
           <Table>
             <TableName>SUMMARY</TableName>
