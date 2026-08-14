@@ -1,0 +1,90 @@
+name: KMP Test
+
+on:
+  push:
+    branches: [ "worktree-kmp-port", "kmp-*", "worktree-kmp-*" ]
+    paths:
+      - 'core/**'
+      - 'data/**'
+      - 'ui/**'
+      - 'apps/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - '.github/workflows/kmp-ci.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ "worktree-kmp-port", "kmp-*", "worktree-kmp-*" ]
+    paths:
+      - 'core/**'
+      - 'data/**'
+      - 'ui/**'
+      - 'apps/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - '.github/workflows/kmp-ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit + integration tests (JVM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Real, portable coverage — core.testing's mock export fixtures mean
+      # these no longer depend on the gitignored test/ fixture directories,
+      # which only exist in the original checkout, not a fresh clone.
+      - name: Run core/data/apps:desktopApp tests
+        run: ./gradlew :core:desktopTest :data:desktopTest :apps:desktopApp:desktopTest --continue
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            core/build/reports/tests
+            data/build/reports/tests
+            apps/desktopApp/build/reports/tests
+          retention-days: 14
+
+  android-compile:
+    name: Android compile check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # GitHub-hosted ubuntu runners ship the Android SDK preinstalled with
+      # ANDROID_HOME set — Gradle's Android plugin picks it up without a
+      # local.properties file (which is gitignored and per-machine).
+      - name: Compile core/data/ui/apps:androidApp for Android
+        run: ./gradlew :data:compileDebugKotlinAndroid :ui:compileDebugKotlinAndroid :apps:androidApp:compileDebugKotlinAndroid
