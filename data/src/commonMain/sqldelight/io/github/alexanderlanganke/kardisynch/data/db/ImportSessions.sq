@@ -10,3 +10,6 @@ INSERT OR REPLACE INTO ImportSessions(id, timestamp, status, summary) VALUES (?,
 
 selectRecentImportSessions:
 SELECT * FROM ImportSessions ORDER BY timestamp DESC LIMIT ?;
+
+deleteAllImportSessions:
+DELETE FROM ImportSessions;

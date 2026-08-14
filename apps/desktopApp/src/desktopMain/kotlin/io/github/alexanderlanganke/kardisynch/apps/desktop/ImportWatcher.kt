@@ -162,3 +162,39 @@ class ImportWatcher(
         }
     }
 }
+
+/**
+ * Moves every file sitting in `_IMPORT/_unmatched` back into `_IMPORT`, so
+ * the next watcher pass retries them against the current parser/matching
+ * logic — mirrors Electron's `reprocess-unmatched` IPC handler. Returns the
+ * number of files moved. Collision-safe: a same-named file that has since
+ * landed back in `_IMPORT` (unlikely, but possible between "Reprocess" and
+ * the watcher's next tick) gets a numbered suffix instead of being clobbered.
+ */
+fun reprocessUnmatchedFiles(importDir: File): Int {
+    val unmatchedDir = File(importDir, "_unmatched")
+    val files = unmatchedDir.listFiles { f -> f.isFile } ?: return 0
+    var moved = 0
+    for (file in files) {
+        try {
+            Files.move(file.toPath(), collisionFreeName(importDir, file.name).toPath())
+            moved++
+        } catch (e: Exception) {
+            // Leave it in _unmatched — better than losing track of it.
+        }
+    }
+    return moved
+}
+
+private fun collisionFreeName(dir: File, baseName: String): File {
+    var candidate = File(dir, baseName)
+    if (!candidate.exists()) return candidate
+    val ext = baseName.substringAfterLast('.', "")
+    val stem = if (ext.isEmpty()) baseName else baseName.removeSuffix(".$ext")
+    var i = 1
+    while (candidate.exists()) {
+        i++
+        candidate = File(dir, if (ext.isEmpty()) "${stem}_$i" else "${stem}_$i.$ext")
+    }
+    return candidate
+}

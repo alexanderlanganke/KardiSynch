@@ -19,3 +19,6 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectImportEventsBySession:
 SELECT * FROM ImportEvents WHERE sessionId = ? ORDER BY timestamp;
+
+deleteAllImportEvents:
+DELETE FROM ImportEvents;

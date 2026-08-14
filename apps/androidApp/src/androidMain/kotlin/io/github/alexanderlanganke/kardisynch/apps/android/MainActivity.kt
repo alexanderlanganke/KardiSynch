@@ -124,6 +124,12 @@ class MainActivity : ComponentActivity() {
                             lastReindexSummary = lastReindexSummary,
                             onPickDataRoot = { folderPicker.launch(null) },
                             onReindex = { dataRoot?.let(::runReindex) },
+                            onClearLocalIndex = {
+                                scope.launch {
+                                    repository.clearLocalIndex()
+                                    lastReindexSummary = "Local index cleared."
+                                }
+                            },
                         )
                         if (dataRoot != null) {
                             FloatingActionButton(

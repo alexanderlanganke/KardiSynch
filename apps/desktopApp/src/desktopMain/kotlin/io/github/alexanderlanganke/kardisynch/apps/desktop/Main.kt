@@ -33,6 +33,11 @@ fun main() = application {
     var isReindexing by remember { mutableStateOf(false) }
     var lastReindexSummary by remember { mutableStateOf<String?>(null) }
 
+    // Local per-device staging folder (like database.db, alongside it under
+    // ~/.kardisynch) — never on the shared _DATA root, since it only ever
+    // holds files mid-way through being filed away.
+    val importDir = remember { File(File(System.getProperty("user.home"), ".kardisynch"), "_IMPORT") }
+
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
     }
@@ -56,15 +61,11 @@ fun main() = application {
         }
     }
 
-    // The _IMPORT staging folder is local per-device (like database.db,
-    // alongside it under ~/.kardisynch) — never on the shared _DATA root —
-    // since it only ever holds files mid-way through being filed away.
     DisposableEffect(dataRoot) {
         val root = dataRoot
         val watcher = if (root != null) {
             val reportsRoot = resolveReportsRootHandle(reader, root)
             if (reportsRoot != null) {
-                val importDir = File(File(System.getProperty("user.home"), ".kardisynch"), "_IMPORT")
                 ImportWatcher(importDir, reportsRoot, repository, reader, writer, scope, lock) { message ->
                     lastReindexSummary = message
                 }.also { it.start() }
@@ -92,6 +93,16 @@ fun main() = application {
                 }
             },
             onReindex = { dataRoot?.let(::runReindex) },
+            onClearLocalIndex = {
+                scope.launch {
+                    repository.clearLocalIndex()
+                    lastReindexSummary = "Local index cleared."
+                }
+            },
+            onReprocessUnmatched = {
+                val moved = reprocessUnmatchedFiles(importDir)
+                lastReindexSummary = if (moved > 0) "Moved $moved file(s) from _unmatched back into _IMPORT." else "No unmatched files to reprocess."
+            },
         )
     }
 }

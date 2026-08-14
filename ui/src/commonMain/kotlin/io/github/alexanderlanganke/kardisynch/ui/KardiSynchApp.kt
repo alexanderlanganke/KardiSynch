@@ -32,6 +32,8 @@ fun KardiSynchApp(
     lastReindexSummary: String?,
     onPickDataRoot: () -> Unit,
     onReindex: () -> Unit,
+    onClearLocalIndex: () -> Unit,
+    onReprocessUnmatched: (() -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -56,6 +58,8 @@ fun KardiSynchApp(
                 onBack = { screen = Screen.Dashboard },
                 onPickDataRoot = onPickDataRoot,
                 onReindex = onReindex,
+                onClearLocalIndex = onClearLocalIndex,
+                onReprocessUnmatched = onReprocessUnmatched,
             )
         }
     }

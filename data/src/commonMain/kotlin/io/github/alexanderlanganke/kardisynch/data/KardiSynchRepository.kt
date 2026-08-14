@@ -325,6 +325,29 @@ class KardiSynchRepository(
         }
     }
 
+    /**
+     * Wipes the local index only — never `_DATA` itself. Electron's
+     * `clear-all-data` deletes the shared `_DATA`/unmatched directories too,
+     * but here `_DATA` is explicitly the shared, possibly-multi-client
+     * source of truth (see [DatabaseDriverFactory]'s doc comment); a KMP
+     * client nuking it would destroy data other clients — including
+     * Electron itself — still rely on. This scoped-down version is fully
+     * safe and reversible: [reindexFrom] rebuilds the exact same state from
+     * `_DATA` afterward. Deleting `_DATA` itself, if ever wanted, deserves
+     * its own deliberate, harder-to-trigger confirmation flow — not bundled
+     * in here by default.
+     */
+    suspend fun clearLocalIndex() = withContext(ioDispatcher) {
+        db.transaction {
+            db.leadsQueries.deleteAllLeads()
+            db.devicesQueries.deleteAllDevices()
+            db.reportsQueries.deleteAllReports()
+            db.patientsQueries.deleteAllPatients()
+            db.importEventsQueries.deleteAllImportEvents()
+            db.importSessionsQueries.deleteAllImportSessions()
+        }
+    }
+
     private fun insertReportRow(indexed: IndexedReport) {
         val report = indexed.report
         db.reportsQueries.insertReport(
