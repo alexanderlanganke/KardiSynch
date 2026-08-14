@@ -12,7 +12,10 @@ import io.github.alexanderlanganke.kardisynch.core.datastore.generateVisitXml
 import io.github.alexanderlanganke.kardisynch.core.datastore.parseVisitXml
 import io.github.alexanderlanganke.kardisynch.core.lock.DirectoryLock
 import io.github.alexanderlanganke.kardisynch.core.lock.NoOpDirectoryLock
+import io.github.alexanderlanganke.kardisynch.core.matching.PatientDupGroup
+import io.github.alexanderlanganke.kardisynch.core.matching.PatientSummary
 import io.github.alexanderlanganke.kardisynch.core.matching.ReportMatchCandidate
+import io.github.alexanderlanganke.kardisynch.core.matching.findDuplicatePatientGroups
 import io.github.alexanderlanganke.kardisynch.core.matching.mergeReports
 import io.github.alexanderlanganke.kardisynch.core.matching.pickSameDayReport
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
@@ -299,6 +302,93 @@ class KardiSynchRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    /** Every patient with their report count, last visit date, and distinct device serials — the raw input to [findDuplicatePatientGroups] (issue #187). */
+    suspend fun getPatientsWithSerials(): List<PatientSummary> = withContext(ioDispatcher) {
+        db.patientsQueries.selectPatientsWithSerials().executeAsList().map { row ->
+            PatientSummary(
+                id = row.id,
+                firstName = row.firstName,
+                lastName = row.lastName,
+                dob = row.dob,
+                hospitalPatientId = row.hospitalPatientId,
+                reportCount = row.reportCount.toInt(),
+                lastReportDate = row.lastReportDate,
+                serials = (row.serials ?: "").split(",").map { it.trim() }.filter { it.isNotEmpty() && it != "Unknown" },
+            )
+        }
+    }
+
+    /** Detects probable-duplicate patient records across the local index (issue #187) — see [findDuplicatePatientGroups] for the tier logic. */
+    suspend fun findDuplicatePatients(): List<PatientDupGroup> = findDuplicatePatientGroups(getPatientsWithSerials())
+
+    /** The outcome of [mergePatients]. */
+    data class MergeResult(val keeperId: String, val patientsDeleted: Int, val reportsMoved: Int, val errors: List<String>)
+
+    /**
+     * Merges one or more "loser" patients into [keeperId] — mirrors Electron's
+     * `mergePatients` (issue #187): moves every loser's reports to the keeper
+     * (via [moveReport]), then deletes each loser's DB row and `_DATA`
+     * directory, but ONLY for losers whose every visit verifiably moved — a
+     * loser with a failed move keeps its row and directory so no visit is
+     * ever deleted unmoved (errors are collected in the result instead).
+     *
+     * Two steps the TS original does that this doesn't: consolidating device/
+     * lead history into the keeper's `patient.xml` (`mergePatientProfiles`,
+     * out of scope per migration plan Decision 3 — see [DataRootWriter]'s doc
+     * comment) and a post-merge dedup pass for same-date visit collisions the
+     * move can create (`runDedupCleanup` — issue #185, not built yet).
+     */
+    suspend fun mergePatients(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        keeperId: String,
+        loserIds: List<String>,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<MergeResult> = withContext(ioDispatcher) {
+        val uniqueLosers = loserIds.distinct().filter { it.isNotEmpty() && it != keeperId }
+        if (uniqueLosers.isEmpty()) return@withContext Result.failure(IllegalArgumentException("No distinct loser patients to merge into the keeper."))
+        if (getPatientById(keeperId) == null) return@withContext Result.failure(IllegalStateException("Keeper patient $keeperId not found."))
+
+        val errors = mutableListOf<String>()
+        val losersWithMoveFailures = mutableSetOf<String>()
+        var reportsMoved = 0
+        var patientsDeleted = 0
+
+        for (loserId in uniqueLosers) {
+            val reportIds = try {
+                db.reportsQueries.selectReportsByPatientId(loserId).executeAsList().map { it.id }
+            } catch (e: Exception) {
+                errors += "Failed to list reports for $loserId: ${e.message}"
+                losersWithMoveFailures += loserId
+                continue
+            }
+            for (reportId in reportIds) {
+                moveReport(reader, writer, reportsRootHandle, reportId, loserId, keeperId, lock).fold(
+                    onSuccess = { reportsMoved++ },
+                    onFailure = { e ->
+                        errors += "Failed to move report $reportId from $loserId: ${e.message}"
+                        losersWithMoveFailures += loserId
+                    },
+                )
+            }
+        }
+
+        for (loserId in uniqueLosers) {
+            if (loserId in losersWithMoveFailures) {
+                errors += "Skipped deleting patient $loserId: one or more visits could not be moved to the keeper."
+                continue
+            }
+            db.patientsQueries.deletePatient(loserId)
+            removePatientDirectory(reader, writer, reportsRootHandle, loserId, lock).fold(
+                onSuccess = { patientsDeleted++ },
+                onFailure = { e -> errors += "Failed to delete patient directory for $loserId: ${e.message}" },
+            )
+        }
+
+        Result.success(MergeResult(keeperId, patientsDeleted, reportsMoved, errors))
     }
 
     /** The outcome of [importReport]: where the report ended up, and whether it reused an existing visit. */

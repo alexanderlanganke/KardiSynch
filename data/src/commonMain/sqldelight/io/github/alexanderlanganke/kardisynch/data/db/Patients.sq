@@ -25,6 +25,25 @@ SELECT * FROM Patients WHERE id = ?;
 selectAllPatients:
 SELECT * FROM Patients ORDER BY lastName, firstName;
 
+-- Every patient plus their report count, last visit date, and the distinct
+-- device serials seen across their reports — used by the duplicate-patient
+-- detection service (issue #187). GROUP_CONCAT(DISTINCT ...) is decoded
+-- client-side (comma-split, trimmed, "Unknown"/blank filtered).
+selectPatientsWithSerials:
+SELECT
+  p.id AS id,
+  p.firstName AS firstName,
+  p.lastName AS lastName,
+  p.lastNameKey AS lastNameKey,
+  p.dob AS dob,
+  p.hospitalPatientId AS hospitalPatientId,
+  COUNT(r.id) AS reportCount,
+  MAX(r.interrogationDate) AS lastReportDate,
+  GROUP_CONCAT(DISTINCT r.deviceSerialNumber) AS serials
+FROM Patients p
+LEFT JOIN Reports r ON p.id = r.patientId
+GROUP BY p.id;
+
 updatePatientInfo:
 UPDATE Patients SET firstName = ?, lastName = ?, lastNameKey = ?, dob = ?, hospitalPatientId = ? WHERE id = ?;
 
