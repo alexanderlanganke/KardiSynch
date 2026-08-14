@@ -1,6 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.core.parsers.bostonscientific
 
-import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDir
+import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDirOrSkip
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -78,8 +78,8 @@ class BostonScientificBnkParserFixtureTest {
 
     @Test
     fun `matches the reference TypeScript parser on every real boston bnk sample`() {
-        val bnkDir = File(findRepoTestDir(), "boston bnk")
-        assertTrue(bnkDir.isDirectory, "boston bnk directory not found under ${findRepoTestDir()}")
+        val bnkDir = File(findRepoTestDirOrSkip(), "boston bnk")
+        assertTrue(bnkDir.isDirectory, "boston bnk directory not found under ${findRepoTestDirOrSkip()}")
         assertTrue(fixtures.isNotEmpty(), "No reference fixtures loaded")
 
         val failures = mutableListOf<String>()

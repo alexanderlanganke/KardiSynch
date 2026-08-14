@@ -1,6 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.core.parsers.medtronic
 
-import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDir
+import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDirOrSkip
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -60,8 +60,8 @@ class MedtronicPddParserFixtureTest {
 
     @Test
     fun `matches the reference TypeScript parser on every real medtronic pdd sample`() {
-        val pddDir = File(findRepoTestDir(), "medtronic pdd files")
-        assertTrue(pddDir.isDirectory, "medtronic pdd files directory not found under ${findRepoTestDir()}")
+        val pddDir = File(findRepoTestDirOrSkip(), "medtronic pdd files")
+        assertTrue(pddDir.isDirectory, "medtronic pdd files directory not found under ${findRepoTestDirOrSkip()}")
         assertTrue(fixtures.isNotEmpty(), "No reference fixtures loaded")
 
         val failures = mutableListOf<String>()

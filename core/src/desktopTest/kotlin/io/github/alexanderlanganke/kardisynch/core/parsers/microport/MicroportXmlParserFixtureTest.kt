@@ -1,6 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.core.parsers.microport
 
-import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDir
+import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDirOrSkip
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -78,8 +78,8 @@ class MicroportXmlParserFixtureTest {
 
     @Test
     fun `matches the reference TypeScript parser on every real microport xml sample`() {
-        val xmlDir = File(findRepoTestDir(), "microport xml")
-        assertTrue(xmlDir.isDirectory, "microport xml directory not found under ${findRepoTestDir()}")
+        val xmlDir = File(findRepoTestDirOrSkip(), "microport xml")
+        assertTrue(xmlDir.isDirectory, "microport xml directory not found under ${findRepoTestDirOrSkip()}")
         assertTrue(fixtures.isNotEmpty(), "No reference fixtures loaded")
 
         val failures = mutableListOf<String>()

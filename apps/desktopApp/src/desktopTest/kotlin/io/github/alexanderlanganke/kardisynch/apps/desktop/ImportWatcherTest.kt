@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import org.junit.Assume.assumeTrue
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.AfterTest
@@ -53,19 +54,29 @@ class ImportWatcherTest {
         dataRoot.deleteRecursively()
     }
 
-    private fun findRepoTestDir(): File {
+    /**
+     * Not present in a fresh clone or CI (gitignored real manufacturer
+     * samples, only in the original checkout — issue #181) — returns null
+     * rather than throwing so the caller can skip instead of hard-failing.
+     */
+    private fun locateRepoTestDir(): File? {
         var dir = File(System.getProperty("user.dir")).absoluteFile
         repeat(8) {
             val candidate = File(dir, "test")
             if (candidate.isDirectory && File(candidate, "medtronic pdd files").isDirectory) return candidate
             dir = dir.parentFile ?: return@repeat
         }
-        error("Could not locate the KardiSynch test/ fixture directory by walking up from ${System.getProperty("user.dir")}")
+        return null
     }
 
     @Test
     fun `imports a real Medtronic pdd file dropped in _IMPORT and updates the local index`() = runBlocking {
-        val pddDir = File(findRepoTestDir(), "medtronic pdd files")
+        val repoTestDir = locateRepoTestDir()
+        assumeTrue(
+            "Skipping: the real test/ fixture directory isn't available in this checkout.",
+            repoTestDir != null,
+        )
+        val pddDir = File(repoTestDir, "medtronic pdd files")
         val sample = pddDir.listFiles { f -> f.extension.equals("pdd", ignoreCase = true) }!!.first()
         sample.copyTo(File(importDir, sample.name))
 

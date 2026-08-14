@@ -1,6 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.core.parsers.abbott
 
-import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDir
+import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDirOrSkip
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -77,8 +77,8 @@ class AbbottLogParserFixtureTest {
 
     @Test
     fun `matches the reference TypeScript parser on every real abbott log sample`() {
-        val logDir = File(findRepoTestDir(), "abbott_logfiles")
-        assertTrue(logDir.isDirectory, "abbott_logfiles directory not found under ${findRepoTestDir()}")
+        val logDir = File(findRepoTestDirOrSkip(), "abbott_logfiles")
+        assertTrue(logDir.isDirectory, "abbott_logfiles directory not found under ${findRepoTestDirOrSkip()}")
         assertTrue(fixtures.isNotEmpty(), "No reference fixtures loaded")
 
         val failures = mutableListOf<String>()

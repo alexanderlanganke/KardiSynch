@@ -1,6 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.core.parsers.biotronik
 
-import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDir
+import io.github.alexanderlanganke.kardisynch.core.testutil.findRepoTestDirOrSkip
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -82,8 +82,8 @@ class BiotronikXmlParserFixtureTest {
 
     @Test
     fun `matches the reference TypeScript parser on every real Biotronik xml sample`() {
-        val xmlDir = File(findRepoTestDir(), "Biotronik xml")
-        assertTrue(xmlDir.isDirectory, "Biotronik xml directory not found under ${findRepoTestDir()}")
+        val xmlDir = File(findRepoTestDirOrSkip(), "Biotronik xml")
+        assertTrue(xmlDir.isDirectory, "Biotronik xml directory not found under ${findRepoTestDirOrSkip()}")
         assertTrue(fixtures.isNotEmpty(), "No reference fixtures loaded")
 
         val failures = mutableListOf<String>()
