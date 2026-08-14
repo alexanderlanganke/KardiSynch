@@ -26,6 +26,8 @@ import io.github.alexanderlanganke.kardisynch.core.model.hasLeadData
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpImport
 import io.github.alexanderlanganke.kardisynch.core.util.visitDirDateString
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
+import io.github.alexanderlanganke.kardisynch.data.db.ImportEvents
+import io.github.alexanderlanganke.kardisynch.data.db.ImportSessions
 import io.github.alexanderlanganke.kardisynch.data.db.KardiSynchDatabase
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
@@ -94,6 +96,51 @@ class KardiSynchRepository(
 
     suspend fun setSetting(key: String, value: String) = withContext(ioDispatcher) {
         db.settingsQueries.setSetting(key, value)
+    }
+
+    /**
+     * Import session/event audit trail (issue #174) — mirrors Electron's
+     * `createImportSession`/`updateImportSessionStatus`/`logImportEvent`/
+     * `getImportHistory`/`getImportSessionEvents`. [timestamp] is a caller-
+     * supplied ISO-8601 string rather than read from a clock, matching the
+     * "core/data has no platform clock" pattern used elsewhere (e.g.
+     * `buildFollowUpQrPayload`'s `nowEpochSeconds`).
+     *
+     * `summary` is a plain human-readable string here, not the structured
+     * JSON blob the TS original stores — there's no UI consuming it yet to
+     * justify a rigid schema; upgrade to JSON if/when one needs to parse it
+     * rather than just display it (issue #178).
+     */
+    @OptIn(ExperimentalUuidApi::class)
+    suspend fun createImportSession(timestamp: String): String = withContext(ioDispatcher) {
+        val id = Uuid.random().toString()
+        db.importSessionsQueries.insertImportSession(id, timestamp, "running", null)
+        id
+    }
+
+    suspend fun updateImportSessionStatus(sessionId: String, status: String, summary: String?) = withContext(ioDispatcher) {
+        db.importSessionsQueries.updateImportSessionStatus(status, summary, sessionId)
+    }
+
+    @OptIn(ExperimentalUuidApi::class)
+    suspend fun logImportEvent(
+        sessionId: String,
+        timestamp: String,
+        filePath: String,
+        status: String,
+        patientId: String? = null,
+        reportId: String? = null,
+        message: String? = null,
+    ) = withContext(ioDispatcher) {
+        db.importEventsQueries.insertImportEvent(Uuid.random().toString(), sessionId, timestamp, filePath, status, patientId, reportId, message, null)
+    }
+
+    suspend fun getImportHistory(limit: Long = 50): List<ImportSessions> = withContext(ioDispatcher) {
+        db.importSessionsQueries.selectRecentImportSessions(limit).executeAsList()
+    }
+
+    suspend fun getImportSessionEvents(sessionId: String): List<ImportEvents> = withContext(ioDispatcher) {
+        db.importEventsQueries.selectImportEventsBySession(sessionId).executeAsList()
     }
 
     /**

@@ -11,5 +11,11 @@ INSERT OR REPLACE INTO ImportSessions(id, timestamp, status, summary) VALUES (?,
 selectRecentImportSessions:
 SELECT * FROM ImportSessions ORDER BY timestamp DESC LIMIT ?;
 
+-- insertImportSession is INSERT OR REPLACE, which would clobber the
+-- original creation timestamp if reused to update status/summary later —
+-- this is the update-only counterpart.
+updateImportSessionStatus:
+UPDATE ImportSessions SET status = ?, summary = ? WHERE id = ?;
+
 deleteAllImportSessions:
 DELETE FROM ImportSessions;

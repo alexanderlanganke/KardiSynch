@@ -184,6 +184,34 @@ class ImportPipelineMockTest {
         assertFalse(File(importDir, "orphan_report.pdf").exists())
     }
 
+    @Test
+    fun `a processed batch is recorded as an import session with a matching event`() = runBlocking {
+        val device = MockDevice(model = "Assurity MRI", serial = "ABT-SER-004")
+        dropFile("session_log_test.log", mockAbbottLog(patient, device))
+
+        runBatch(minEvents = 1)
+
+        val sessions = withTimeout(5000) {
+            var list = repository.getImportHistory()
+            while (list.isEmpty()) {
+                delay(50)
+                list = repository.getImportHistory()
+            }
+            list
+        }
+        assertEquals(1, sessions.size)
+        val session = sessions[0]
+        assertEquals("completed", session.status)
+        assertTrue(session.summary?.contains("imported=1") == true, "summary: ${session.summary}")
+
+        val sessionEvents = repository.getImportSessionEvents(session.id)
+        assertEquals(1, sessionEvents.size)
+        assertEquals("imported", sessionEvents[0].status)
+        assertTrue(sessionEvents[0].filePath.endsWith("session_log_test.log"))
+        assertTrue(sessionEvents[0].patientId != null)
+        assertTrue(sessionEvents[0].reportId != null)
+    }
+
     private suspend fun waitForPatients(minCount: Int): List<Patients> =
         withTimeout(5000) { repository.observePatients().first { it.size >= minCount } }
 

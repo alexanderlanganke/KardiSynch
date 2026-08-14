@@ -18,6 +18,7 @@ import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardWatchEventKinds
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 /**
@@ -38,6 +39,10 @@ import java.util.concurrent.TimeUnit
  * data). A PDF with no same-batch structured companion, or any other
  * unsupported/unparseable file, is moved to `_IMPORT/_unmatched` for the
  * clinician to handle by hand instead of being silently dropped.
+ *
+ * Every non-empty batch is logged as one import session (issue #174) —
+ * mirrors Electron's per-run `createImportSession`/`logImportEvent` audit
+ * trail. An empty poll (nothing new in `_IMPORT`) doesn't create a session.
  */
 class ImportWatcher(
     private val importDir: File,
@@ -80,18 +85,36 @@ class ImportWatcher(
 
     private suspend fun processStableFiles() {
         val stableFiles = importDir.listFiles { f -> f.isFile }?.filter { waitForStable(it) } ?: return
+        if (stableFiles.isEmpty()) return
+
+        val sessionId = repository.createImportSession(nowIso())
+        var imported = 0
+        var attached = 0
+        var unmatched = 0
+        var errors = 0
+
         val (pdfFiles, structuredFiles) = stableFiles.partition { it.extension.equals("pdf", ignoreCase = true) }
 
         // Structured files first, so a same-batch companion PDF (below) has
         // something to attach to.
         val visitDirHandlesByStem = mutableMapOf<String, String>()
         for (file in structuredFiles) {
-            processFile(file)?.let { visitDirHandle -> visitDirHandlesByStem[file.nameWithoutExtension] = visitDirHandle }
+            when (val outcome = processFile(sessionId, file)) {
+                is FileOutcome.Imported -> {
+                    imported++
+                    visitDirHandlesByStem[file.nameWithoutExtension] = outcome.visitDirHandle
+                }
+                FileOutcome.Skipped -> unmatched++
+                FileOutcome.Failed -> errors++
+            }
         }
 
         for (pdf in pdfFiles) {
-            processCompanionPdf(pdf, visitDirHandlesByStem)
+            if (processCompanionPdf(sessionId, pdf, visitDirHandlesByStem)) attached++ else unmatched++
         }
+
+        val summary = "imported=$imported attached=$attached unmatched=$unmatched errors=$errors"
+        repository.updateImportSessionStatus(sessionId, "completed", summary)
     }
 
     /** A file is "stable" once its size stops changing across polls — a plain stand-in for chokidar's awaitWriteFinish. */
@@ -107,50 +130,77 @@ class ImportWatcher(
         return file.exists() && file.length() == lastSize && lastSize > 0
     }
 
-    /** Parses and stores [file]; returns the visit directory it landed in, or null if it was skipped/failed. */
-    private suspend fun processFile(file: File): String? {
+    private sealed interface FileOutcome {
+        data class Imported(val visitDirHandle: String) : FileOutcome
+        data object Skipped : FileOutcome
+        data object Failed : FileOutcome
+    }
+
+    /** Parses and stores [file], logging one import event to [sessionId] either way. */
+    private suspend fun processFile(sessionId: String, file: File): FileOutcome {
         try {
             val bytes = file.readBytes()
             val report = dispatchParse(file.name, bytes)
             if (report == null) {
                 moveToUnmatched(file)
-                onEvent("Skipped ${file.name}: unsupported or unparseable file type.")
-                return null
+                val message = "Skipped ${file.name}: unsupported or unparseable file type."
+                onEvent(message)
+                repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "unmatched", message = message)
+                return FileOutcome.Skipped
             }
 
-            var visitDirHandle: String? = null
+            var outcome: FileOutcome = FileOutcome.Failed
             repository.importReport(reader, writer, reportsRootHandle, report, lock = lock).fold(
-                onSuccess = { outcome ->
-                    storeIncomingFile(file, File(outcome.visitDirHandle))
-                    val mergeNote = if (outcome.reusedExistingVisit) " (merged into existing visit)" else ""
-                    onEvent("Imported ${file.name} -> ${report.patient.lastName}, ${report.patient.firstName}$mergeNote")
-                    visitDirHandle = outcome.visitDirHandle
+                onSuccess = { imported ->
+                    storeIncomingFile(file, File(imported.visitDirHandle))
+                    val mergeNote = if (imported.reusedExistingVisit) " (merged into existing visit)" else ""
+                    val message = "Imported ${file.name} -> ${report.patient.lastName}, ${report.patient.firstName}$mergeNote"
+                    onEvent(message)
+                    repository.logImportEvent(
+                        sessionId, nowIso(), file.absolutePath, "imported",
+                        patientId = imported.patientId, reportId = imported.reportId, message = message,
+                    )
+                    outcome = FileOutcome.Imported(imported.visitDirHandle)
                 },
                 onFailure = { e ->
                     moveToUnmatched(file)
-                    onEvent("Import failed for ${file.name}: ${e.message}")
+                    val message = "Import failed for ${file.name}: ${e.message}"
+                    onEvent(message)
+                    repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
+                    outcome = FileOutcome.Failed
                 },
             )
-            return visitDirHandle
+            return outcome
         } catch (e: Exception) {
-            onEvent("Error processing ${file.name}: ${e.message}")
-            return null
+            val message = "Error processing ${file.name}: ${e.message}"
+            onEvent(message)
+            repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
+            return FileOutcome.Failed
         }
     }
 
-    private fun processCompanionPdf(file: File, visitDirHandlesByStem: Map<String, String>) {
+    /** Returns true if [file] was attached to a same-batch companion visit, false if it went to `_unmatched`. */
+    private suspend fun processCompanionPdf(sessionId: String, file: File, visitDirHandlesByStem: Map<String, String>): Boolean {
         val visitDirHandle = visitDirHandlesByStem[file.nameWithoutExtension]
         if (visitDirHandle == null) {
             moveToUnmatched(file)
-            onEvent("Skipped ${file.name}: no matching structured file in this batch (PDF content isn't parsed yet).")
-            return
+            val message = "Skipped ${file.name}: no matching structured file in this batch (PDF content isn't parsed yet)."
+            onEvent(message)
+            repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "unmatched", message = message)
+            return false
         }
-        try {
+        return try {
             storeIncomingFile(file, File(visitDirHandle))
-            onEvent("Attached ${file.name} to the visit imported from ${file.nameWithoutExtension} in this batch.")
+            val message = "Attached ${file.name} to the visit imported from ${file.nameWithoutExtension} in this batch."
+            onEvent(message)
+            repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "attached", message = message)
+            true
         } catch (e: Exception) {
             moveToUnmatched(file)
-            onEvent("Failed to attach ${file.name} to its matching visit: ${e.message}")
+            val message = "Failed to attach ${file.name} to its matching visit: ${e.message}"
+            onEvent(message)
+            repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
+            false
         }
     }
 
@@ -162,6 +212,8 @@ class ImportWatcher(
         }
     }
 }
+
+private fun nowIso(): String = Instant.now().toString()
 
 /**
  * Moves every file sitting in `_IMPORT/_unmatched` back into `_IMPORT`, so
