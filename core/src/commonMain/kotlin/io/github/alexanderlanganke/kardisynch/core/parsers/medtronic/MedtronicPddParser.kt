@@ -25,6 +25,12 @@ import io.github.alexanderlanganke.kardisynch.core.util.normalizeDate
  * warnings and format-variant provenance (`parseWarnings`, `formatVariant`).
  * That bookkeeping isn't ported yet — only [UnifiedReport.parseStatus] is
  * derived (ok/failed, not the original's ok/partial/failed three-way split).
+ * The Kotlin equivalent of that collector
+ * ([io.github.alexanderlanganke.kardisynch.core.parsers.diagnostics.DiagnosticsCollector])
+ * exists (issue #193) but retrofitting it into this parser — and the other
+ * 4 already-ported ones — is separate, larger follow-up work; see that
+ * file's doc comment for why it isn't bundled with landing the
+ * infrastructure itself.
  */
 fun parseMedtronicPdd(buffer: ByteArray): UnifiedReport {
     val entries = safe({ parsePddStructure(buffer) }, emptyList())

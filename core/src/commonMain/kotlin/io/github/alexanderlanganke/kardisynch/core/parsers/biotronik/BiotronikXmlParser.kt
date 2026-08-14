@@ -20,7 +20,11 @@ import io.github.alexanderlanganke.kardisynch.core.xml.XmlParser
  *
  * Diagnostics are simplified from the original — see the equivalent note on
  * [io.github.alexanderlanganke.kardisynch.core.parsers.medtronic.parseMedtronicPdd].
- * `formatVariant`/`parseWarnings` per-field provenance tracking isn't ported.
+ * `formatVariant`/`parseWarnings` per-field provenance tracking isn't ported;
+ * the fail-soft extraction framework it would build on
+ * ([io.github.alexanderlanganke.kardisynch.core.parsers.diagnostics.DiagnosticsCollector])
+ * exists (issue #193) but isn't retrofitted into this parser yet — see that
+ * file's doc comment for why.
  */
 fun parseBiotronikXML(xmlData: String): UnifiedReport {
     val xml = XmlParser.parse(xmlData) // root: InterfaceData (namespace-stripped)
