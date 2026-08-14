@@ -40,6 +40,11 @@ fun KardiSynchApp(
     onPickImportDir: (() -> Unit)? = null,
     onReprocessUnmatched: (() -> Unit)? = null,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)? = null,
+    usbSourceDirs: List<String> = emptyList(),
+    onAddUsbSourceDir: (() -> Unit)? = null,
+    onRemoveUsbSourceDir: ((String) -> Unit)? = null,
+    usbTargetDirLabel: String? = null,
+    onPickUsbTargetDir: (() -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -69,6 +74,11 @@ fun KardiSynchApp(
                 importDirLabel = importDirLabel,
                 onPickImportDir = onPickImportDir,
                 onReprocessUnmatched = onReprocessUnmatched,
+                usbSourceDirs = usbSourceDirs,
+                onAddUsbSourceDir = onAddUsbSourceDir,
+                onRemoveUsbSourceDir = onRemoveUsbSourceDir,
+                usbTargetDirLabel = usbTargetDirLabel,
+                onPickUsbTargetDir = onPickUsbTargetDir,
             )
         }
     }

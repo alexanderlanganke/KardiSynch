@@ -32,6 +32,14 @@ import javax.swing.JFileChooser
 
 private const val SETTING_DATA_ROOT = "dataRootPath"
 private const val SETTING_IMPORT_DIR = "importDirPath"
+private const val SETTING_USB_SOURCE_DIRS = "usbSourceDirs"
+private const val SETTING_USB_TARGET_DIR = "usbTargetDir"
+
+/** Newline-joined, since a file path can't itself contain a newline on any target platform. */
+private fun encodeUsbSourceDirs(dirs: List<String>): String = dirs.joinToString("\n")
+private fun decodeUsbSourceDirs(raw: String?): List<String> = raw?.split("\n")?.filter { it.isNotBlank() } ?: emptyList()
+
+private fun usbManifestFile() = File(File(System.getProperty("user.home"), ".kardisynch"), "usb_target_manifest.json")
 
 /**
  * Local per-device staging folder (like `database.db`, alongside it under
@@ -54,10 +62,14 @@ fun main() = application {
     var lastReindexSummary by remember { mutableStateOf<String?>(null) }
     var importDirPath by remember { mutableStateOf(defaultImportDir().absolutePath) }
     var qrDialogImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var usbSourceDirs by remember { mutableStateOf<List<String>>(emptyList()) }
+    var usbTargetDirPath by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
         importDirPath = repository.getSetting(SETTING_IMPORT_DIR) ?: defaultImportDir().absolutePath
+        usbSourceDirs = decodeUsbSourceDirs(repository.getSetting(SETTING_USB_SOURCE_DIRS))
+        usbTargetDirPath = repository.getSetting(SETTING_USB_TARGET_DIR)
     }
 
     fun runReindex(root: String) {
@@ -90,6 +102,21 @@ fun main() = application {
             } else null
         } else null
         onDispose { watcher?.stop() }
+    }
+
+    // "Always restart the watcher on settings change" (mirrors main.ts) — a
+    // new UsbWatcher is constructed and started whenever any of its three
+    // inputs change, rather than mutating an existing instance in place.
+    DisposableEffect(usbSourceDirs, usbTargetDirPath, importDirPath) {
+        val watcher = UsbWatcher(
+            sourceDirs = usbSourceDirs.map { File(it) },
+            targetDir = usbTargetDirPath?.let { File(it) },
+            importDir = File(importDirPath),
+            manifestFile = usbManifestFile(),
+            scope = scope,
+        ) { message -> lastReindexSummary = message }
+        watcher.start()
+        onDispose { watcher.stop() }
     }
 
     Window(onCloseRequest = ::exitApplication, title = "KardiSynch") {
@@ -159,6 +186,36 @@ fun main() = application {
                         System.currentTimeMillis() / 1000,
                     )
                     qrDialogImage = renderQrCodeImage(payload).toComposeImageBitmap()
+                }
+            },
+            usbSourceDirs = usbSourceDirs,
+            onAddUsbSourceDir = {
+                val chooser = JFileChooser().apply {
+                    fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                    dialogTitle = "Choose a USB source folder"
+                }
+                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    val picked = chooser.selectedFile.absolutePath
+                    if (picked !in usbSourceDirs) {
+                        usbSourceDirs = usbSourceDirs + picked
+                        scope.launch { repository.setSetting(SETTING_USB_SOURCE_DIRS, encodeUsbSourceDirs(usbSourceDirs)) }
+                    }
+                }
+            },
+            onRemoveUsbSourceDir = { dir ->
+                usbSourceDirs = usbSourceDirs - dir
+                scope.launch { repository.setSetting(SETTING_USB_SOURCE_DIRS, encodeUsbSourceDirs(usbSourceDirs)) }
+            },
+            usbTargetDirLabel = usbTargetDirPath,
+            onPickUsbTargetDir = {
+                val chooser = JFileChooser().apply {
+                    fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                    dialogTitle = "Choose the USB target folder"
+                }
+                if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                    val picked = chooser.selectedFile.absolutePath
+                    usbTargetDirPath = picked
+                    scope.launch { repository.setSetting(SETTING_USB_TARGET_DIR, picked) }
                 }
             },
         )

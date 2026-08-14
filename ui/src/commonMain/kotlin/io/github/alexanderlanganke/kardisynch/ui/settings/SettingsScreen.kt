@@ -1,6 +1,8 @@
 package io.github.alexanderlanganke.kardisynch.ui.settings
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +34,9 @@ import androidx.compose.ui.unit.dp
  *
  * [onReprocessUnmatched]/[onPickImportDir] are desktop-only (Android has no
  * `_IMPORT` folder watcher yet) — pass null to hide those actions entirely.
+ * Likewise [onAddUsbSourceDir]/[onPickUsbTargetDir] (issue #189's USB
+ * watcher, also desktop-only: it copies plain files off a mounted volume,
+ * which isn't how Android exposes removable storage).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +51,11 @@ fun SettingsScreen(
     importDirLabel: String? = null,
     onPickImportDir: (() -> Unit)? = null,
     onReprocessUnmatched: (() -> Unit)? = null,
+    usbSourceDirs: List<String> = emptyList(),
+    onAddUsbSourceDir: (() -> Unit)? = null,
+    onRemoveUsbSourceDir: ((String) -> Unit)? = null,
+    usbTargetDirLabel: String? = null,
+    onPickUsbTargetDir: (() -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
 
@@ -125,6 +135,44 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = onReprocessUnmatched, modifier = Modifier.fillMaxWidth()) {
                         Text("Reprocess unmatched files")
+                    }
+                }
+            }
+
+            if (onAddUsbSourceDir != null || onPickUsbTargetDir != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("USB watcher", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Files found in USB source folders are copied to the target folder, then " +
+                        "on to the import folder above.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (onPickUsbTargetDir != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Target folder", style = MaterialTheme.typography.bodyMedium)
+                    Text(usbTargetDirLabel ?: "Not set", style = MaterialTheme.typography.bodySmall)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onPickUsbTargetDir, modifier = Modifier.fillMaxWidth()) {
+                        Text("Change target folder")
+                    }
+                }
+                if (onAddUsbSourceDir != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Source folders", style = MaterialTheme.typography.bodyMedium)
+                    for (dir in usbSourceDirs) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(dir, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                            if (onRemoveUsbSourceDir != null) {
+                                TextButton(onClick = { onRemoveUsbSourceDir(dir) }) { Text("Remove") }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Button(onClick = onAddUsbSourceDir, modifier = Modifier.fillMaxWidth()) {
+                        Text("Add source folder")
                     }
                 }
             }
