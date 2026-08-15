@@ -53,6 +53,21 @@ private const val SETTING_DATA_ROOT = "dataRootPath"
 private const val SETTING_ONBOARDING_COMPLETED = "onboardingCompleted"
 private const val SETTING_THEME_MODE = "themeMode"
 
+/**
+ * Mirrors the desktop actual's `installUncaughtExceptionHandler` (see its
+ * doc comment for the "ErrorBoundary equivalent" investigation this is
+ * the outcome of — no true composition-subtree-crash catcher exists in
+ * Compose, so this only covers exceptions that escape structured
+ * concurrency entirely). Previously missing here: an uncaught background-
+ * thread exception on Android otherwise just crashes the process with
+ * nothing but Android's own default logcat trace.
+ */
+private fun installUncaughtExceptionHandler() {
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        android.util.Log.e("KardiSynch", "Uncaught exception on thread ${thread.name}", throwable)
+    }
+}
+
 /** Kept in sync by hand with the desktop actual's own `APP_VERSION` — see its doc comment for why there's no build-time injection wired up yet. */
 private const val APP_VERSION = "0.1.0"
 
@@ -78,6 +93,7 @@ private const val APP_VERSION = "0.1.0"
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        installUncaughtExceptionHandler()
 
         val repository = KardiSynchRepository(DatabaseDriverFactory(applicationContext).createDriver())
         val reader = AndroidDataRootReader(applicationContext)

@@ -76,6 +76,19 @@ private fun defaultImportDir() = File(File(System.getProperty("user.home"), ".ka
  * `showCrashDialog`, additionally shows a native dialog and offers to file
  * a GitHub issue — not ported, no GitHub-posting capability from inside
  * this app either).
+ *
+ * Investigated as part of the UI-parity plan's "ErrorBoundary equivalent"
+ * spike: this is as close as Compose gets to one. There is no framework
+ * primitive (Multiplatform or Jetpack) for catching an exception thrown
+ * *during composition* of a child subtree and rendering a fallback in its
+ * place — no `componentDidCatch` equivalent exists to hook. The practical
+ * substitute this codebase already relies on throughout (e.g. the
+ * `"Reindex failed: ${e.message}"` pattern a few lines below) is catching
+ * at the source, inside `LaunchedEffect`/`scope.launch` bodies, and turning
+ * a failure into ordinary error-message UI state before it ever reaches
+ * composition — not changed by this investigation. This handler only
+ * covers what that pattern doesn't: a genuine bug that escapes structured
+ * concurrency entirely.
  */
 private fun installUncaughtExceptionHandler() {
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
