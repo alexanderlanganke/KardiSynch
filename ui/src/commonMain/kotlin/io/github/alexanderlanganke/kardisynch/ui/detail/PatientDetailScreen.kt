@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
+import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.util.ageInYears
@@ -77,6 +78,7 @@ fun PatientDetailScreen(
     onDeleteReport: ((reportId: String) -> Unit)? = null,
     onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)? = null,
     onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)? = null,
+    onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)? = null,
 ) {
     var retryToken by remember(patientId) { mutableStateOf(0) }
     val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
@@ -151,6 +153,8 @@ fun PatientDetailScreen(
                             onDeleteReport = onDeleteReport,
                             onEditReportDevicesAndLeads = onEditReportDevicesAndLeads,
                             onListDeviceTypeAliases = onListDeviceTypeAliases,
+                            onEditPatientInfo = onEditPatientInfo,
+                            onRescanVisit = onRescanVisit,
                         )
                     }
                 }
@@ -172,6 +176,8 @@ private fun PatientDetailContent(
     onDeleteReport: ((reportId: String) -> Unit)?,
     onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)?,
     onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
+    onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)?,
+    onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)?,
 ) {
     var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
     LaunchedEffect(patientId) { latestDevice = repository.getLatestDeviceForPatient(patientId) }
@@ -227,7 +233,7 @@ private fun PatientDetailContent(
             }
             item { LeadTrendSection(repository, patientId) }
             items(reports, key = { it.id }) { report ->
-                ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport, onDeleteReport, onEditReportDevicesAndLeads, onListDeviceTypeAliases)
+                ReportCard(repository, report, patient, onExportQr, onOpenUrl, onMoveReport, onDeleteReport, onEditReportDevicesAndLeads, onListDeviceTypeAliases, onEditPatientInfo, onRescanVisit)
             }
         }
     }
@@ -302,14 +308,17 @@ private fun LeadTrendSection(repository: KardiSynchRepository, patientId: String
 private fun ReportCard(
     repository: KardiSynchRepository,
     report: Reports,
-    currentPatientId: String,
+    patient: Patients,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
     onOpenUrl: ((String) -> Unit)?,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
     onDeleteReport: ((reportId: String) -> Unit)?,
     onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)?,
     onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
+    onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)?,
+    onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)?,
 ) {
+    val currentPatientId = patient.id
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
     var showMovePicker by remember(report.id) { mutableStateOf(false) }
@@ -317,6 +326,9 @@ private fun ReportCard(
     var showDeviceLeadEditor by remember(report.id) { mutableStateOf(false) }
     var aliases by remember(report.id) { mutableStateOf<List<DeviceTypeAlias>>(emptyList()) }
     var reloadKey by remember(report.id) { mutableStateOf(0) }
+    var isRescanning by remember(report.id) { mutableStateOf(false) }
+    var rescanResult by remember(report.id) { mutableStateOf<UnifiedReport?>(null) }
+    var rescanMessage by remember(report.id) { mutableStateOf<String?>(null) }
     LaunchedEffect(report.id, reloadKey) {
         devices = repository.getDevicesForReport(report.id)
         leads = repository.getLeadsForReport(report.id)
@@ -345,6 +357,26 @@ private fun ReportCard(
             onSave = { manufacturer, device, editedLeads ->
                 showDeviceLeadEditor = false
                 onEditReportDevicesAndLeads(report.id, currentPatientId, manufacturer, device, editedLeads)
+                reloadKey++
+            },
+        )
+    }
+
+    rescanResult?.let { scanned ->
+        RescanDiffDialog(
+            currentPatient = patient,
+            currentDevices = devices.orEmpty(),
+            currentLeads = leads.orEmpty(),
+            scanned = scanned,
+            onDismiss = { rescanResult = null },
+            onConfirm = { applyDemographics, applyDeviceLeads ->
+                if (applyDemographics) {
+                    onEditPatientInfo?.invoke(scanned.patient.firstName, scanned.patient.lastName, scanned.patient.dob, scanned.patient.hospitalPatientId)
+                }
+                if (applyDeviceLeads) {
+                    onEditReportDevicesAndLeads?.invoke(report.id, currentPatientId, scanned.manufacturer, scanned.device, scanned.leads)
+                }
+                rescanResult = null
                 reloadKey++
             },
         )
@@ -395,6 +427,27 @@ private fun ReportCard(
             }
             if (onEditReportDevicesAndLeads != null) {
                 TextButton(onClick = { showDeviceLeadEditor = true }) { Text("Edit device & leads") }
+            }
+            if (onRescanVisit != null) {
+                TextButton(
+                    onClick = {
+                        isRescanning = true
+                        rescanMessage = null
+                    },
+                    enabled = !isRescanning,
+                ) { Text(if (isRescanning) "Rescanning…" else "Rescan") }
+                if (isRescanning) {
+                    LaunchedEffect(report.id) {
+                        val scanned = onRescanVisit(currentPatientId, report.id)
+                        isRescanning = false
+                        if (scanned == null) {
+                            rescanMessage = "No parseable files found in this visit's folder."
+                        } else {
+                            rescanResult = scanned
+                        }
+                    }
+                }
+                rescanMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             }
             if (onDeleteReport != null) {
                 TextButton(onClick = { showDeleteConfirm = true }) { Text("Delete") }

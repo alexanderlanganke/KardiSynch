@@ -43,7 +43,9 @@ import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.PatientInfo
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.model.hasLeadData
+import io.github.alexanderlanganke.kardisynch.core.parsers.dispatchParse
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpImport
+import io.github.alexanderlanganke.kardisynch.core.reparse.aggregateReports
 import io.github.alexanderlanganke.kardisynch.core.util.visitDirDateString
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.ImportEvents
@@ -1178,6 +1180,48 @@ class KardiSynchRepository(
 
     suspend fun deletePendingSortTask(id: String) = withContext(ioDispatcher) {
         db.pendingSortTasksQueries.deletePendingSortTask(id)
+    }
+
+    /**
+     * Re-parses every raw file still sitting in [patientId]/[reportId]'s
+     * visit directory with the current parser logic and returns the
+     * aggregated result WITHOUT writing
+     * anything — the preview half of Electron's `rescanVisitDirectory`
+     * (issue #197/#198's follow-up UI-parity plan, Phase 9), for a diff UI
+     * to compare against what's currently stored before the user chooses
+     * what to merge (see [PatientDetailScreen]'s "Rescan" action). Returns
+     * `null` if none of the visit's files were parseable — mirrors
+     * `rescanVisitDirectory`'s `{status: 'empty'}` case.
+     *
+     * Now possible directly through [DataRootReader]/[reader] (unlike
+     * [reparseVisit]/[ReparseService.kt]'s original desktop-only,
+     * `java.io.File`-based aggregation) since [DataRootReader.readBytes]
+     * exists — added for report-level dedup (Phase 6) — giving this port a
+     * portable raw-byte read it didn't have when `reparseVisit` was first
+     * written.
+     */
+    suspend fun rescanVisit(reader: DataRootReader, reportsRootHandle: String, patientId: String, reportId: String): Result<UnifiedReport?> = withContext(ioDispatcher) {
+        try {
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $patientId directory not found"))
+            val visitDirEntry = reader.listChildren(patientDirHandle).firstOrNull { it.isDirectory && it.name.endsWith("_$reportId") }
+                ?: return@withContext Result.failure(IllegalStateException("Visit $reportId not found under patient $patientId"))
+
+            val parsed = reader.listChildren(visitDirEntry.handle)
+                .filter { !it.isDirectory && it.name != "visit.xml" && it.name != "patient.xml" }
+                .mapNotNull { entry ->
+                    reader.readBytes(entry.handle)?.let { bytes ->
+                        try {
+                            dispatchParse(entry.name, bytes)
+                        } catch (e: Exception) {
+                            null
+                        }
+                    }
+                }
+            Result.success(aggregateReports(parsed, visitDirEntry.name))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     /**

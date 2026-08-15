@@ -394,6 +394,18 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onRescanVisit = { patientId, reportId ->
+                                val root = dataRoot
+                                val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                                if (reportsRoot == null) {
+                                    null
+                                } else {
+                                    repository.rescanVisit(reader, reportsRoot, patientId, reportId).getOrElse { e ->
+                                        lastReindexSummary = "Rescan failed: ${e.message}"
+                                        null
+                                    }
+                                }
+                            },
                         )
 
                         qrDialogImage?.let { bitmap ->

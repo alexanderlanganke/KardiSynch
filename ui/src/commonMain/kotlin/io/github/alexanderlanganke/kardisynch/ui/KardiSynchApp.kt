@@ -37,6 +37,7 @@ import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
 import io.github.alexanderlanganke.kardisynch.core.aliases.LeadAliasAttrs
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
+import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.news.CachedDeviceNewsService
 
 private sealed interface Screen {
@@ -123,6 +124,7 @@ fun KardiSynchApp(
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: ((ThemeMode) -> Unit)? = null,
     onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)? = null,
+    onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     var dashboardFilterState by remember { mutableStateOf(DashboardFilterState()) }
@@ -183,6 +185,7 @@ fun KardiSynchApp(
                 onDeleteReport = onDeleteReport,
                 onEditReportDevicesAndLeads = onEditReportDevicesAndLeads,
                 onListDeviceTypeAliases = onListDeviceTypeAliases,
+                onRescanVisit = onRescanVisit,
             )
 
             is Screen.Settings -> SettingsScreen(
