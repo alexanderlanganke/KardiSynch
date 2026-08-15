@@ -96,6 +96,8 @@ fun KardiSynchApp(
     showOnboarding: Boolean = false,
     onOnboardingFinish: (() -> Unit)? = null,
     onOnboardingSkip: (() -> Unit)? = null,
+    onOpenPatientFolder: ((patientId: String) -> Unit)? = null,
+    todayIso: String? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -126,6 +128,8 @@ fun KardiSynchApp(
                 onOpenPatient = { screen = Screen.Detail(it) },
                 onOpenSettings = { screen = Screen.Settings },
                 onOpenDeviceNews = deviceNewsService?.let { { screen = Screen.DeviceNews } },
+                onOpenPatientFolder = onOpenPatientFolder,
+                todayIso = todayIso,
             )
 
             is Screen.Detail -> PatientDetailScreen(

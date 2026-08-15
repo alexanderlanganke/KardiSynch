@@ -375,6 +375,10 @@ class KardiSynchRepository(
             ?: children.firstOrNull { it.isDirectory && it.name.startsWith(patientId) }?.handle
     }
 
+    /** Public wrapper around [findPatientDirHandle] — e.g. for a desktop "Open Folder" action (issue #197). */
+    suspend fun findPatientDirectoryHandle(reader: DataRootReader, reportsRootHandle: String, patientId: String): String? =
+        withContext(ioDispatcher) { findPatientDirHandle(reader, reportsRootHandle, patientId) }
+
     /**
      * Locks two patient directories for one operation that touches both,
      * always in the same (sorted-by-handle) order regardless of which is

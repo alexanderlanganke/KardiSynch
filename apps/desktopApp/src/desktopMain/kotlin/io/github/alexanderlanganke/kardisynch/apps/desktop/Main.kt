@@ -105,6 +105,7 @@ private fun startApp() = application {
     var pendingSortCount by remember { mutableStateOf(0) }
     var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
     var showOnboarding by remember { mutableStateOf(false) }
+    val todayIso = remember { java.time.LocalDate.now().toString() }
     val windowState = rememberWindowState(size = DpSize(1200.dp, 800.dp))
 
     // Window size/position persistence (issue #196 — Electron's version has
@@ -361,6 +362,23 @@ private fun startApp() = application {
             onOnboardingSkip = {
                 showOnboarding = false
                 scope.launch { repository.setSetting(SETTING_ONBOARDING_COMPLETED, "true") }
+            },
+            todayIso = todayIso,
+            onOpenPatientFolder = { patientId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    val patientDir = reportsRoot?.let { repository.findPatientDirectoryHandle(reader, it, patientId) }
+                    if (patientDir == null) {
+                        lastReindexSummary = "Couldn't find this patient's folder."
+                    } else {
+                        try {
+                            java.awt.Desktop.getDesktop().open(File(patientDir))
+                        } catch (e: Exception) {
+                            lastReindexSummary = "Couldn't open the folder: ${e.message}"
+                        }
+                    }
+                }
             },
             onEditPatientInfo = { patientId, firstName, lastName, dob, hospitalPatientId ->
                 val root = dataRoot

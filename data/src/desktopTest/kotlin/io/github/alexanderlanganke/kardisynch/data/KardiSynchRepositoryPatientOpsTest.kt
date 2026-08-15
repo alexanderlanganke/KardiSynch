@@ -113,6 +113,15 @@ class KardiSynchRepositoryPatientOpsTest {
     }
 
     @Test
+    fun `findPatientDirectoryHandle resolves an existing patient and returns null for an unknown one`() = runBlocking {
+        val outcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Testpatient", "1970-03-15", "S1")).getOrThrow()
+
+        val handle = repository.findPatientDirectoryHandle(reader, reportsRoot, outcome.patientId)
+        assertEquals(outcome.patientDirHandle, handle)
+        assertTrue(repository.findPatientDirectoryHandle(reader, reportsRoot, "does-not-exist") == null)
+    }
+
+    @Test
     fun `moveReport relocates the visit directory and repoints the index`() = runBlocking {
         val fromOutcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Alpha", "1970-01-01", "S1")).getOrThrow()
         val toOutcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Beta", "1970-02-02", "S2")).getOrThrow()
