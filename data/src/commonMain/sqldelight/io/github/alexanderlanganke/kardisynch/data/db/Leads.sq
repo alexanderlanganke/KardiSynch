@@ -35,10 +35,19 @@ SELECT * FROM Leads WHERE reportId = ?;
 -- straight off this table joined to Reports, ordered by date — no separate
 -- "current leads" table needed.
 selectLeadTrendByLocation:
-SELECT Leads.*, Reports.interrogationDate FROM Leads
+SELECT Leads.*, Reports.interrogationDate, Reports.deviceSerialNumber AS reportDeviceSerialNumber FROM Leads
 JOIN Reports ON Leads.reportId = Reports.id
 WHERE Reports.patientId = ? AND Leads.anatomicLocation = ?
 ORDER BY Reports.interrogationDate ASC;
+
+-- Every distinct lead location a patient has had a reading for — drives the
+-- Patient Detail per-lead trend chart's location picker (issue #197/#198's
+-- follow-up UI-parity plan, Phase 5).
+selectDistinctLeadLocationsForPatient:
+SELECT DISTINCT Leads.anatomicLocation FROM Leads
+JOIN Reports ON Leads.reportId = Reports.id
+WHERE Reports.patientId = ? AND Leads.anatomicLocation IS NOT NULL
+ORDER BY Leads.anatomicLocation;
 
 deleteLeadsForReport:
 DELETE FROM Leads WHERE reportId = ?;

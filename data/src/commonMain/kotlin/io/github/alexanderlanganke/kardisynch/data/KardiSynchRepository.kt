@@ -99,6 +99,39 @@ class KardiSynchRepository(
         db.leadsQueries.selectLeadsByReportId(reportId).executeAsList()
     }
 
+    /** Every distinct lead location a patient has had a reading for — drives Patient Detail's per-lead trend chart location picker (issue #198's follow-up, Phase 5). */
+    suspend fun getLeadLocationsForPatient(patientId: String): List<String> = withContext(ioDispatcher) {
+        db.leadsQueries.selectDistinctLeadLocationsForPatient(patientId).executeAsList().filterNotNull()
+    }
+
+    /** One reading of a lead's impedance/sensing/pacing-threshold at a given visit, for [getLeadTrendByLocation]'s trend chart. */
+    data class LeadTrendPoint(
+        val interrogationDate: String,
+        val deviceSerialNumber: String?,
+        val impedanceValue: Double?,
+        val impedanceUnit: String?,
+        val sensingValue: Double?,
+        val sensingUnit: String?,
+        val pacingThresholdValue: Double?,
+        val pacingThresholdUnit: String?,
+    )
+
+    /** `Leads.sq`'s `selectLeadTrendByLocation` had no repository wrapper at all until now — the original battery-only trend chart's doc comment flagged this as scoped-out "additional per-lead trends" work (issue #198's follow-up, Phase 5). */
+    suspend fun getLeadTrendByLocation(patientId: String, anatomicLocation: String): List<LeadTrendPoint> = withContext(ioDispatcher) {
+        db.leadsQueries.selectLeadTrendByLocation(patientId, anatomicLocation).executeAsList().map { row ->
+            LeadTrendPoint(
+                interrogationDate = row.interrogationDate,
+                deviceSerialNumber = row.reportDeviceSerialNumber,
+                impedanceValue = row.impedanceValue,
+                impedanceUnit = row.impedanceUnit,
+                sensingValue = row.sensingValue,
+                sensingUnit = row.sensingUnit,
+                pacingThresholdValue = row.pacingThresholdValue,
+                pacingThresholdUnit = row.pacingThresholdUnit,
+            )
+        }
+    }
+
     /**
      * The most recent report's device/leads for a patient — "current
      * devices/leads" is a query against the latest report's rows rather than

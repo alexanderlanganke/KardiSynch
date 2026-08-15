@@ -1,17 +1,21 @@
 package io.github.alexanderlanganke.kardisynch.ui.detail
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -209,9 +213,10 @@ private fun PatientDetailContent(
                 val trendPoints = reports
                     .filter { it.batteryVoltageValue != null }
                     .sortedBy { it.interrogationDate }
-                    .map { BatteryTrendPoint(it.interrogationDate, it.batteryVoltageValue!!, it.deviceSerialNumber) }
-                BatteryTrendChart(trendPoints)
+                    .map { TrendPoint(it.interrogationDate, it.batteryVoltageValue!!, it.deviceSerialNumber) }
+                TrendChart("Battery voltage trend", "V", trendPoints)
             }
+            item { LeadTrendSection(repository, patientId) }
             items(reports, key = { it.id }) { report ->
                 ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport, onDeleteReport)
             }
@@ -231,6 +236,56 @@ private fun PatientSummaryChip(patient: Patients, reports: List<Reports>, todayI
     )
     if (bits.isNotEmpty()) {
         Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+    }
+}
+
+/**
+ * Per-lead-location impedance/sensing/pacing-threshold trend charts — the
+ * "additional per-lead trends" [TrendChart]'s doc comment flagged as
+ * scoped out of the original battery-only chart (issue #198's follow-up
+ * UI-parity plan, Phase 5). A patient can have multiple lead locations
+ * (e.g. RA/RV/LV for a CRT device); the chip row picks which one the three
+ * charts below plot. Renders nothing if the patient has no lead readings
+ * on file at all.
+ */
+@Composable
+private fun LeadTrendSection(repository: KardiSynchRepository, patientId: String) {
+    var locations by remember(patientId) { mutableStateOf<List<String>>(emptyList()) }
+    var selectedLocation by remember(patientId) { mutableStateOf<String?>(null) }
+    var leadPoints by remember { mutableStateOf<List<KardiSynchRepository.LeadTrendPoint>>(emptyList()) }
+
+    LaunchedEffect(patientId) {
+        locations = repository.getLeadLocationsForPatient(patientId)
+        selectedLocation = locations.firstOrNull()
+    }
+    LaunchedEffect(selectedLocation) {
+        val location = selectedLocation
+        leadPoints = if (location != null) repository.getLeadTrendByLocation(patientId, location) else emptyList()
+    }
+
+    if (locations.isEmpty()) return
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("Lead trends", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp))
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            locations.forEach { location ->
+                FilterChip(selected = selectedLocation == location, onClick = { selectedLocation = location }, label = { Text(location) })
+            }
+        }
+
+        fun pointsFor(unit: (KardiSynchRepository.LeadTrendPoint) -> String?, value: (KardiSynchRepository.LeadTrendPoint) -> Double?) =
+            leadPoints.mapNotNull { p -> value(p)?.let { TrendPoint(p.interrogationDate, it, p.deviceSerialNumber) } } to
+                (leadPoints.firstNotNullOfOrNull(unit) ?: "")
+
+        val (impedancePoints, impedanceUnit) = pointsFor({ it.impedanceUnit }, { it.impedanceValue })
+        TrendChart("Impedance trend", impedanceUnit, impedancePoints)
+        val (sensingPoints, sensingUnit) = pointsFor({ it.sensingUnit }, { it.sensingValue })
+        TrendChart("Sensing trend", sensingUnit, sensingPoints)
+        val (thresholdPoints, thresholdUnit) = pointsFor({ it.pacingThresholdUnit }, { it.pacingThresholdValue })
+        TrendChart("Pacing threshold trend", thresholdUnit, thresholdPoints)
     }
 }
 
