@@ -14,6 +14,13 @@ build/
 .kotlin/
 local.properties
 
+# Android release-signing secrets (issue #182) — never commit a real keystore
+# or its credentials; apps/androidApp/build.gradle.kts falls back to an
+# unsigned release build when this file/keystore is absent.
+apps/androidApp/keystore.properties
+*.jks
+*.keystore
+
 # Testing
 coverage/
 test-results/

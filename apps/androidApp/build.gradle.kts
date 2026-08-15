@@ -1,8 +1,30 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
     alias(libs.plugins.androidApplication)
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
+}
+
+/**
+ * Release signing (issue #182) — reads from a git-ignored `keystore.properties`
+ * next to this file (never a real keystore or its credentials committed).
+ * Absent that file, [releaseSigningProps] is null and the release build type
+ * below falls back to AGP's default (unsigned) — same as before this
+ * change, so a contributor without real signing secrets isn't blocked.
+ *
+ * Expected `keystore.properties` shape:
+ *   storeFile=/absolute/or/relative/path/to/release.jks
+ *   storePassword=...
+ *   keyAlias=...
+ *   keyPassword=...
+ */
+val keystorePropertiesFile = file("keystore.properties")
+val releaseSigningProps: Properties? = if (keystorePropertiesFile.exists()) {
+    Properties().apply { keystorePropertiesFile.inputStream().use { load(it) } }
+} else {
+    null
 }
 
 kotlin {
@@ -39,9 +61,29 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (releaseSigningProps != null) {
+            create("release") {
+                storeFile = file(releaseSigningProps.getProperty("storeFile"))
+                storePassword = releaseSigningProps.getProperty("storePassword")
+                keyAlias = releaseSigningProps.getProperty("keyAlias")
+                keyPassword = releaseSigningProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            // Minification/R8 deliberately left off (issue #182): this port
+            // has no Android emulator/device available to verify a minified
+            // build's runtime behavior (R8 silently stripping a
+            // reflectively-accessed class fails at runtime, not build time)
+            // — enabling it blind, this early in the port, risks shipping a
+            // release build that crashes despite compiling cleanly.
             isMinifyEnabled = false
+            if (releaseSigningProps != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }
