@@ -34,6 +34,7 @@ fun PatientInfoEditDialog(
     initialHospitalPatientId: String?,
     onDismiss: () -> Unit,
     onSave: (firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit,
+    title: String = "Edit patient information",
 ) {
     var firstName by remember { mutableStateOf(initialFirstName) }
     var lastName by remember { mutableStateOf(initialLastName) }
@@ -42,7 +43,7 @@ fun PatientInfoEditDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit patient information") },
+        title = { Text(title) },
         text = {
             Column {
                 OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)

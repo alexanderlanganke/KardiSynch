@@ -2,6 +2,8 @@ package io.github.alexanderlanganke.kardisynch.apps.desktop
 
 import io.github.alexanderlanganke.kardisynch.core.lock.DirectoryLock
 import io.github.alexanderlanganke.kardisynch.core.lock.NoOpDirectoryLock
+import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
+import io.github.alexanderlanganke.kardisynch.core.model.PatientInfo
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.parsers.dispatchParse
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootReader
@@ -370,6 +372,92 @@ suspend fun resolvePendingSortTask(
             firstName = patient.firstName.orEmpty(), lastName = patient.lastName,
             dob = patient.dob, hospitalPatientId = patient.hospitalPatientId,
         ),
+    )
+
+    return repository.importReportForExistingPatient(reader, writer, reportsRootHandle, targetPatientId, report, lock).fold(
+        onSuccess = { imported ->
+            storeIncomingFile(stagedFile, File(imported.visitDirHandle))
+            repository.deletePendingSortTask(taskId)
+            Result.success(Unit)
+        },
+        onFailure = { Result.failure(it) },
+    )
+}
+
+/**
+ * Resolves a pending-sort task by creating a brand-new patient from
+ * manually-entered demographics rather than picking an existing one —
+ * Electron's `PatientAssignmentModal.tsx` "Create New" tab (parity plan
+ * Phase 10). Still requires the staged file to parse (unlike
+ * [resolvePendingSortTaskManually] below) — [KardiSynchRepository.importReport]
+ * already finds-or-creates a patient by name+DOB on its own, so this is
+ * really just [resolvePendingSortTask] with caller-supplied identity
+ * instead of an existing patient's.
+ */
+suspend fun resolvePendingSortTaskAsNewPatient(
+    repository: KardiSynchRepository,
+    reader: DesktopDataRootReader,
+    writer: DesktopDataRootWriter,
+    reportsRootHandle: String,
+    taskId: String,
+    firstName: String,
+    lastName: String,
+    dob: String,
+    hospitalPatientId: String?,
+    lock: DirectoryLock = NoOpDirectoryLock,
+): Result<Unit> {
+    val task = repository.getPendingSortTask(taskId) ?: return Result.failure(IllegalStateException("Pending sort task $taskId not found"))
+    val stagedFile = File(task.stagedFilePath)
+    if (!stagedFile.isFile) return Result.failure(IllegalStateException("Staged file for task $taskId is missing: ${task.stagedFilePath}"))
+
+    val parsed = dispatchParseFileIncludingPkg(task.originalFileName, stagedFile.readBytes())
+        ?: return Result.failure(IllegalStateException("Staged file for task $taskId no longer parses"))
+    val report = parsed.copy(patient = PatientInfo(firstName, lastName, dob, hospitalPatientId))
+
+    return repository.importReport(reader, writer, reportsRootHandle, report, lock = lock).fold(
+        onSuccess = { imported ->
+            storeIncomingFile(stagedFile, File(imported.visitDirHandle))
+            repository.deletePendingSortTask(taskId)
+            Result.success(Unit)
+        },
+        onFailure = { Result.failure(it) },
+    )
+}
+
+/**
+ * Resolves a pending-sort task with entirely manually-typed device/lead
+ * identity rather than the auto-parser's output — Electron's
+ * `DeviceSelectionModal.tsx` (parity plan Phase 10), the escape hatch for a
+ * file the parser can't read at all (unlike [resolvePendingSortTask]/
+ * [resolvePendingSortTaskAsNewPatient], this doesn't require
+ * [dispatchParseFileIncludingPkg] to succeed). No lead data — the manual
+ * form only captures device identity, matching the original's own scope.
+ */
+suspend fun resolvePendingSortTaskManually(
+    repository: KardiSynchRepository,
+    reader: DesktopDataRootReader,
+    writer: DesktopDataRootWriter,
+    reportsRootHandle: String,
+    taskId: String,
+    targetPatientId: String,
+    manufacturer: String,
+    deviceType: String,
+    deviceModel: String,
+    deviceSerial: String,
+    interrogationDate: String,
+    lock: DirectoryLock = NoOpDirectoryLock,
+): Result<Unit> {
+    val task = repository.getPendingSortTask(taskId) ?: return Result.failure(IllegalStateException("Pending sort task $taskId not found"))
+    val stagedFile = File(task.stagedFilePath)
+    if (!stagedFile.isFile) return Result.failure(IllegalStateException("Staged file for task $taskId is missing: ${task.stagedFilePath}"))
+    val patient = repository.getPatientById(targetPatientId)
+        ?: return Result.failure(IllegalStateException("Target patient $targetPatientId not found"))
+
+    val report = UnifiedReport(
+        manufacturer = manufacturer,
+        interrogationDate = interrogationDate,
+        patient = PatientInfo(patient.firstName.orEmpty(), patient.lastName, patient.dob, patient.hospitalPatientId),
+        device = DeviceInfo(deviceType, deviceModel, deviceSerial),
     )
 
     return repository.importReportForExistingPatient(reader, writer, reportsRootHandle, targetPatientId, report, lock).fold(

@@ -119,4 +119,68 @@ class PendingSortActionsTest {
     fun `dismissing an already-gone task is a harmless no-op`() = runBlocking {
         dismissPendingSortTask(repository, importDir, "nonexistent-task-id").getOrThrow()
     }
+
+    @Test
+    fun `resolvePendingSortTaskAsNewPatient creates a new patient from manually-entered demographics`() = runBlocking {
+        val pendingDir = File(importDir, "_pending_sort").apply { mkdirs() }
+        val staged = File(pendingDir, "task_BIOSTD_mock.xml")
+        staged.writeText(mockBiotronikXml(MockPatient("Parsed", "Wrongname", "1980-01-01"), MockDevice(model = "Amvia Sky DR-T", serial = "S-NEW")))
+        val taskId = repository.createPendingSortTask(
+            createdAt = "2026-07-21T10:00:00Z", sessionId = null,
+            stagedFilePath = staged.absolutePath, originalFileName = "BIOSTD_mock.xml",
+            suggestedPatientId = null, suggestedPatientName = null, note = "No match found.",
+            manufacturer = "Biotronik", deviceModel = "Amvia Sky DR-T", deviceSerial = "S-NEW", interrogationDate = "2026-07-21",
+        )
+
+        resolvePendingSortTaskAsNewPatient(
+            repository, reader, writer, reportsRoot, taskId,
+            firstName = "Correct", lastName = "Realname", dob = "1975-05-05", hospitalPatientId = "MRN-1",
+            lock = NoOpDirectoryLock,
+        ).getOrThrow()
+
+        assertTrue(repository.getPendingSortTasks().isEmpty())
+        assertFalse(staged.exists())
+        val patients = repository.observePatients().first()
+        assertEquals(1, patients.size)
+        assertEquals("Realname", patients.single().lastName, "the manually-entered identity wins, not whatever the parser found")
+        assertEquals("MRN-1", patients.single().hospitalPatientId)
+    }
+
+    @Test
+    fun `resolvePendingSortTaskManually files a report using only the typed-in device identity, no parsing required`() = runBlocking {
+        val existingPatient = repository.importReport(
+            reader, writer, reportsRoot,
+            io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport(
+                manufacturer = "Medtronic",
+                interrogationDate = "2026-06-01",
+                patient = io.github.alexanderlanganke.kardisynch.core.model.PatientInfo("Max", "Testpatient", "1970-03-15"),
+                device = io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo("ICD", "Model1", "EXISTING-SERIAL"),
+            ),
+        ).getOrThrow()
+
+        val pendingDir = File(importDir, "_pending_sort").apply { mkdirs() }
+        val staged = File(pendingDir, "task_unparseable.pkg")
+        staged.writeBytes(byteArrayOf(0, 1, 2, 3)) // not parseable by any registered parser
+        val taskId = repository.createPendingSortTask(
+            createdAt = "2026-07-21T10:00:00Z", sessionId = null,
+            stagedFilePath = staged.absolutePath, originalFileName = "unparseable.pkg",
+            suggestedPatientId = null, suggestedPatientName = null, note = "Couldn't parse this file at all.",
+            manufacturer = null, deviceModel = null, deviceSerial = null, interrogationDate = null,
+        )
+
+        resolvePendingSortTaskManually(
+            repository, reader, writer, reportsRoot, taskId, existingPatient.patientId,
+            manufacturer = "Abbott", deviceType = "ICD", deviceModel = "Manual Model", deviceSerial = "MANUAL-S1",
+            interrogationDate = "2026-07-21", lock = NoOpDirectoryLock,
+        ).getOrThrow()
+
+        assertTrue(repository.getPendingSortTasks().isEmpty())
+        assertFalse(staged.exists())
+        val reports = repository.observeReportsForPatient(existingPatient.patientId).first()
+        assertEquals(2, reports.size)
+        val manual = reports.first { it.id != existingPatient.reportId }
+        assertEquals("Abbott", manual.manufacturer)
+        assertEquals("Manual Model", manual.deviceModel)
+        assertEquals("MANUAL-S1", manual.deviceSerialNumber)
+    }
 }

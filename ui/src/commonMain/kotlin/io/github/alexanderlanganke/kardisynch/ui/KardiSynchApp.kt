@@ -99,6 +99,10 @@ fun KardiSynchApp(
     pendingSortRefreshKey: Any = Unit,
     onApprovePendingSort: ((taskId: String, patientId: String) -> Unit)? = null,
     onDismissPendingSort: ((taskId: String) -> Unit)? = null,
+    onCreateNewPatientFromPendingSort: ((taskId: String, firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
+    onManualAssignPendingSort: ((taskId: String, patientId: String, manufacturer: String, deviceType: String, deviceModel: String, deviceSerial: String, interrogationDate: String) -> Unit)? = null,
+    onReadPendingSortFileBytes: (suspend (stagedFilePath: String) -> ByteArray?)? = null,
+    onReadPendingSortFileText: (suspend (stagedFilePath: String) -> String?)? = null,
     onOpenUrl: ((String) -> Unit)? = null,
     onEditPatientInfo: ((patientId: String, firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
@@ -244,6 +248,10 @@ fun KardiSynchApp(
                 onBack = { screen = Screen.Settings },
                 onApprove = { taskId, patientId -> onApprovePendingSort?.invoke(taskId, patientId) },
                 onDismiss = { taskId -> onDismissPendingSort?.invoke(taskId) },
+                onCreateNewPatient = onCreateNewPatientFromPendingSort,
+                onManualAssign = onManualAssignPendingSort,
+                onReadStagedFileBytes = onReadPendingSortFileBytes,
+                onReadStagedFileText = onReadPendingSortFileText,
             )
 
             is Screen.Duplicates -> DuplicatesScreen(

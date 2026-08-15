@@ -350,6 +350,38 @@ private fun startApp() = application {
                     pendingSortRefreshTrigger++
                 }
             },
+            onCreateNewPatientFromPendingSort = { taskId, firstName, lastName, dob, hospitalPatientId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to assign."
+                    } else {
+                        resolvePendingSortTaskAsNewPatient(repository, reader, writer, reportsRoot, taskId, firstName, lastName, dob, hospitalPatientId, lock).fold(
+                            onSuccess = { "Filed under a new patient." },
+                            onFailure = { e -> "Failed to file: ${e.message}" },
+                        )
+                    }
+                    pendingSortRefreshTrigger++
+                }
+            },
+            onManualAssignPendingSort = { taskId, patientId, manufacturer, deviceType, deviceModel, deviceSerial, interrogationDate ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to assign."
+                    } else {
+                        resolvePendingSortTaskManually(repository, reader, writer, reportsRoot, taskId, patientId, manufacturer, deviceType, deviceModel, deviceSerial, interrogationDate, lock).fold(
+                            onSuccess = { "Filed with manually-entered device info." },
+                            onFailure = { e -> "Failed to file: ${e.message}" },
+                        )
+                    }
+                    pendingSortRefreshTrigger++
+                }
+            },
+            onReadPendingSortFileBytes = { path -> File(path).takeIf { it.isFile }?.readBytes() },
+            onReadPendingSortFileText = { path -> File(path).takeIf { it.isFile }?.readText() },
             onOpenUrl = { url ->
                 try {
                     java.awt.Desktop.getDesktop().browse(java.net.URI(url))
