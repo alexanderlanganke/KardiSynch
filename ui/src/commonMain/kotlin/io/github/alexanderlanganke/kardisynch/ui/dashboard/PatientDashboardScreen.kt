@@ -37,6 +37,7 @@ fun PatientDashboardScreen(
     repository: KardiSynchRepository,
     onOpenPatient: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenDeviceNews: (() -> Unit)? = null,
 ) {
     val patients by repository.observePatients().collectAsState(initial = null)
 
@@ -45,6 +46,9 @@ fun PatientDashboardScreen(
             TopAppBar(
                 title = { Text("KardiSynch") },
                 actions = {
+                    if (onOpenDeviceNews != null) {
+                        TextButton(onClick = onOpenDeviceNews) { Text("Device News") }
+                    }
                     TextButton(onClick = onOpenSettings) { Text("Settings") }
                 },
             )

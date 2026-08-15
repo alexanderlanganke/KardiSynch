@@ -23,8 +23,10 @@ import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScreen
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
 import io.github.alexanderlanganke.kardisynch.ui.duplicates.DuplicatesScreen
+import io.github.alexanderlanganke.kardisynch.ui.news.DeviceNewsScreen
 import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
+import io.github.alexanderlanganke.kardisynch.core.news.CachedDeviceNewsService
 
 private sealed interface Screen {
     data object Dashboard : Screen
@@ -32,6 +34,7 @@ private sealed interface Screen {
     data object Settings : Screen
     data object PendingSort : Screen
     data object Duplicates : Screen
+    data object DeviceNews : Screen
 }
 
 /**
@@ -88,6 +91,7 @@ fun KardiSynchApp(
     appVersion: String? = null,
     notificationMessage: String? = null,
     notificationKey: Any? = null,
+    deviceNewsService: CachedDeviceNewsService? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -106,6 +110,7 @@ fun KardiSynchApp(
                 repository = repository,
                 onOpenPatient = { screen = Screen.Detail(it) },
                 onOpenSettings = { screen = Screen.Settings },
+                onOpenDeviceNews = deviceNewsService?.let { { screen = Screen.DeviceNews } },
             )
 
             is Screen.Detail -> PatientDetailScreen(
@@ -166,6 +171,14 @@ fun KardiSynchApp(
                 onBack = { screen = Screen.Settings },
                 onMerge = { keeperId, loserIds -> onMergeDuplicates?.invoke(keeperId, loserIds) },
             )
+
+            is Screen.DeviceNews -> deviceNewsService?.let { service ->
+                DeviceNewsScreen(
+                    newsService = service,
+                    onBack = { screen = Screen.Dashboard },
+                    onOpenUrl = onOpenUrl,
+                )
+            }
                 }
             }
         }

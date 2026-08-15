@@ -19,6 +19,9 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import io.github.alexanderlanganke.kardisynch.core.news.CachedDeviceNewsService
+import io.github.alexanderlanganke.kardisynch.core.news.DeviceNewsFetcher
+import io.github.alexanderlanganke.kardisynch.core.news.createDeviceNewsHttpClient
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportLead
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportPatient
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportReport
@@ -87,6 +90,7 @@ private fun startApp() = application {
     val writer = remember { DesktopDataRootWriter() }
     val lock = remember { DesktopDirectoryLock() }
     val scope = rememberCoroutineScope()
+    val deviceNewsService = remember { CachedDeviceNewsService(DeviceNewsFetcher(createDeviceNewsHttpClient())) }
 
     var dataRoot by remember { mutableStateOf<String?>(null) }
     var isReindexing by remember { mutableStateOf(false) }
@@ -345,6 +349,7 @@ private fun startApp() = application {
             appVersion = APP_VERSION,
             notificationMessage = lastReindexSummary,
             notificationKey = lastReindexSummary,
+            deviceNewsService = deviceNewsService,
             onEditPatientInfo = { patientId, firstName, lastName, dob, hospitalPatientId ->
                 val root = dataRoot
                 scope.launch {
