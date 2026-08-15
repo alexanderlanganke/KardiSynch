@@ -27,6 +27,9 @@ import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
 import io.github.alexanderlanganke.kardisynch.ui.duplicates.DuplicatesScreen
 import io.github.alexanderlanganke.kardisynch.ui.importhistory.ImportHistoryScreen
 import io.github.alexanderlanganke.kardisynch.ui.news.DeviceNewsScreen
+import io.github.alexanderlanganke.kardisynch.ui.notifications.ActivityTask
+import io.github.alexanderlanganke.kardisynch.ui.notifications.NotificationCenterBell
+import io.github.alexanderlanganke.kardisynch.ui.notifications.NotificationCenterState
 import io.github.alexanderlanganke.kardisynch.ui.onboarding.OnboardingScreen
 import io.github.alexanderlanganke.kardisynch.ui.orphans.OrphanedVisitsScreen
 import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
@@ -71,9 +74,11 @@ private sealed interface Screen {
  * (issue #196): a version line in Settings' new "About" section, and a
  * transient [SnackbarHost] for whatever the platform layer's watchers
  * report (import/reparse/merge results, etc.) — mirrors Electron's
- * `sendNotification` toast, without its persistent notification-center
- * popover (out of scope: this port has nowhere near Electron's volume of
- * background notification sources yet to justify one).
+ * `sendNotification` toast. Every distinct [notificationMessage] is also
+ * kept in a [NotificationCenterState] surfaced via [NotificationCenterBell]
+ * on the Dashboard's top bar (parity plan Phase 13) — see that composable's
+ * doc comment for how it and its Activity/Sorting tabs are scoped down
+ * from Electron's `NotificationCenter.tsx`.
  */
 @Composable
 fun KardiSynchApp(
@@ -138,9 +143,18 @@ fun KardiSynchApp(
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     var dashboardFilterState by remember { mutableStateOf(DashboardFilterState()) }
     val snackbarHostState = remember { SnackbarHostState() }
+    val notificationCenterState = remember { NotificationCenterState() }
+    val activityTasks = buildList {
+        if (isReindexing) add(ActivityTask("reindex", "Reindexing"))
+        if (isReparsing) add(ActivityTask("reparse", "Reparsing all visits"))
+        if (isDeduping) add(ActivityTask("dedup", "Deduplicating reports"))
+    }
 
     LaunchedEffect(notificationKey) {
-        notificationMessage?.let { snackbarHostState.showSnackbar(it) }
+        notificationMessage?.let {
+            snackbarHostState.showSnackbar(it)
+            notificationCenterState.push(it)
+        }
     }
 
     val useDarkTheme = when (themeMode) {
@@ -174,6 +188,21 @@ fun KardiSynchApp(
                 onOpenDeviceNews = deviceNewsService?.let { { screen = Screen.DeviceNews } },
                 onOpenPatientFolder = onOpenPatientFolder,
                 todayIso = todayIso,
+                notificationCenter = {
+                    NotificationCenterBell(
+                        repository = repository,
+                        notificationState = notificationCenterState,
+                        activityTasks = activityTasks,
+                        pendingSortCount = pendingSortCount,
+                        onDismissPendingSort = onDismissPendingSort,
+                        onOpenPendingSortQueue = if (onApprovePendingSort != null || onDismissPendingSort != null) {
+                            { screen = Screen.PendingSort }
+                        } else {
+                            null
+                        },
+                        onOpenImportHistory = { screen = Screen.ImportHistory },
+                    )
+                },
             )
 
             is Screen.Detail -> PatientDetailScreen(

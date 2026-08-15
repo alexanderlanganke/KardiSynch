@@ -69,6 +69,7 @@ fun PatientDashboardScreen(
     onOpenDeviceNews: (() -> Unit)? = null,
     onOpenPatientFolder: ((patientId: String) -> Unit)? = null,
     todayIso: String? = null,
+    notificationCenter: (@Composable () -> Unit)? = null,
 ) {
     val patients by repository.observePatients().collectAsState(initial = null)
     var summaries by remember { mutableStateOf<List<PatientSummary>>(emptyList()) }
@@ -90,6 +91,7 @@ fun PatientDashboardScreen(
                         TextButton(onClick = onOpenDeviceNews) { Text("Device News") }
                     }
                     TextButton(onClick = onOpenSettings) { Text("Settings") }
+                    notificationCenter?.invoke()
                 },
             )
         },
