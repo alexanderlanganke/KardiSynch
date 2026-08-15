@@ -33,6 +33,18 @@ SELECT * FROM Reports WHERE id = ?;
 selectReportsByDatePrefix:
 SELECT * FROM Reports WHERE patientId = ? AND interrogationDate LIKE ? || '%';
 
+-- Groups of >1 report for the same patient on the same day — the raw input
+-- to report-level dedup (distinct from patient-level duplicate detection in
+-- PatientDuplicateDetection.kt). Same-day multi-visit groups aren't
+-- necessarily true duplicates (e.g. an ICD and a separate ICM interrogated
+-- the same day) — device-serial sub-grouping to tell those apart happens in
+-- Kotlin, see KardiSynchRepository.dedupReports.
+selectDuplicateReportDateGroups:
+SELECT patientId, interrogationDate, GROUP_CONCAT(id) AS reportIds
+FROM Reports
+GROUP BY patientId, interrogationDate
+HAVING COUNT(*) > 1;
+
 updateReportPatientId:
 UPDATE Reports SET patientId = ? WHERE id = ?;
 

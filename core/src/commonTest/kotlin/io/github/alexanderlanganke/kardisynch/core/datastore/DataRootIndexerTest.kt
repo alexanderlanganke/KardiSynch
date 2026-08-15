@@ -22,6 +22,8 @@ private class FakeDataRootReader : DataRootReader {
 
     override fun listChildren(directoryHandle: String): List<DataEntry> = dirChildren[directoryHandle] ?: emptyList()
     override fun readText(fileHandle: String): String? = files[fileHandle]
+    override fun readBytes(fileHandle: String): ByteArray? = files[fileHandle]?.encodeToByteArray()
+    override fun fileSize(fileHandle: String): Long? = files[fileHandle]?.encodeToByteArray()?.size?.toLong()
 }
 
 private const val PATIENT_XML = """<?xml version="1.0" encoding="UTF-8"?>

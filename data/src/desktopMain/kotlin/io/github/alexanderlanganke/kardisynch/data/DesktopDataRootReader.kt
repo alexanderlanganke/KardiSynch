@@ -15,4 +15,14 @@ class DesktopDataRootReader : DataRootReader {
         val file = File(fileHandle)
         return if (file.isFile) file.readText(Charsets.UTF_8) else null
     }
+
+    override fun readBytes(fileHandle: String): ByteArray? {
+        val file = File(fileHandle)
+        return if (file.isFile) file.readBytes() else null
+    }
+
+    override fun fileSize(fileHandle: String): Long? {
+        val file = File(fileHandle)
+        return if (file.isFile) file.length() else null
+    }
 }

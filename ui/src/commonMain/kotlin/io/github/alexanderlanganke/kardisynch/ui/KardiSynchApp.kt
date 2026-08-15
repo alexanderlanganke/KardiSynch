@@ -116,6 +116,8 @@ fun KardiSynchApp(
     onUpsertLeadTypeAlias: (suspend (manufacturer: String, model: String, attrs: LeadAliasAttrs) -> Result<Unit>)? = null,
     onDeleteDeviceTypeAlias: (suspend (manufacturer: String, model: String, kind: AliasKind) -> Result<Unit>)? = null,
     onDeleteReport: ((reportId: String) -> Unit)? = null,
+    isDeduping: Boolean = false,
+    onDedupReports: (() -> Unit)? = null,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: ((ThemeMode) -> Unit)? = null,
 ) {
@@ -214,6 +216,8 @@ fun KardiSynchApp(
                 } else {
                     null
                 },
+                isDeduping = isDeduping,
+                onDedupReports = onDedupReports,
                 appVersion = appVersion,
                 themeMode = themeMode,
                 onThemeModeChange = onThemeModeChange,

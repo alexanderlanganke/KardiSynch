@@ -91,6 +91,7 @@ class MainActivity : ComponentActivity() {
             var showScanner by remember { mutableStateOf(false) }
             var showOnboarding by remember { mutableStateOf(false) }
             var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
+            var isDeduping by remember { mutableStateOf(false) }
             var qrDialogImage by remember { mutableStateOf<ImageBitmap?>(null) }
             var themeMode by remember { mutableStateOf(ThemeMode.DARK) }
             val todayIso = remember { java.time.LocalDate.now().toString() }
@@ -354,6 +355,26 @@ class MainActivity : ComponentActivity() {
                                 scope.launch { repository.setSetting(SETTING_ONBOARDING_COMPLETED, "true") }
                             },
                             todayIso = todayIso,
+                            isDeduping = isDeduping,
+                            onDedupReports = {
+                                val root = dataRoot
+                                scope.launch {
+                                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                                    if (reportsRoot == null) {
+                                        lastReindexSummary = "No \"Reports\" folder found — nothing to deduplicate."
+                                    } else {
+                                        isDeduping = true
+                                        val result = repository.dedupReports(reader, reader, reportsRoot)
+                                        isDeduping = false
+                                        lastReindexSummary = if (result.groupsFound == 0) {
+                                            "No duplicates found."
+                                        } else {
+                                            "Deduplicated ${result.groupsFound} group(s), removed ${result.reportsRemoved} duplicate visit(s)." +
+                                                if (result.errors.isNotEmpty()) " ${result.errors.size} couldn't be fully merged." else ""
+                                        }
+                                    }
+                                }
+                            },
                             themeMode = themeMode,
                             onThemeModeChange = { mode ->
                                 themeMode = mode

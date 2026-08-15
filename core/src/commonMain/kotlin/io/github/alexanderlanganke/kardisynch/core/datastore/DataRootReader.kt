@@ -17,4 +17,17 @@ data class DataEntry(val name: String, val handle: String, val isDirectory: Bool
 interface DataRootReader {
     fun listChildren(directoryHandle: String): List<DataEntry>
     fun readText(fileHandle: String): String?
+
+    /**
+     * Raw file bytes, or null on failure — [readText] assumes UTF-8 text,
+     * which corrupts binary visit files (PDFs, images, manufacturer-specific
+     * `.pkg`/`.pdd`/`.bnk` formats). Added for report-level dedup (issue
+     * #197/#198's follow-up UI-parity plan, Phase 6), which content-hashes
+     * arbitrary files to verify two copies are byte-identical before
+     * discarding one.
+     */
+    fun readBytes(fileHandle: String): ByteArray?
+
+    /** File size in bytes, or null if it can't be determined — used to pick the "richer" copy when merging duplicate visit directories (Phase 6). */
+    fun fileSize(fileHandle: String): Long?
 }

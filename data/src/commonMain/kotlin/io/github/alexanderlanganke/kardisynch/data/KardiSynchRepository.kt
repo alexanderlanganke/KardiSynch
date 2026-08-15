@@ -13,10 +13,13 @@ import io.github.alexanderlanganke.kardisynch.core.aliases.removeAlias
 import io.github.alexanderlanganke.kardisynch.core.aliases.seedDeviceTypeAliases
 import io.github.alexanderlanganke.kardisynch.core.aliases.upsertDeviceAlias
 import io.github.alexanderlanganke.kardisynch.core.aliases.upsertLeadAlias
+import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootIndexer
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootReader
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootWriter
 import io.github.alexanderlanganke.kardisynch.core.datastore.IndexedReport
+import io.github.alexanderlanganke.kardisynch.core.dedup.ReportRichness
+import io.github.alexanderlanganke.kardisynch.core.dedup.scoreReport
 import io.github.alexanderlanganke.kardisynch.core.datastore.generatePatientXml
 import io.github.alexanderlanganke.kardisynch.core.datastore.generateVisitXml
 import io.github.alexanderlanganke.kardisynch.core.datastore.parsePatientXml
@@ -540,6 +543,156 @@ class KardiSynchRepository(
             Result.failure(e)
         }
     }
+
+    /** One patient+date's group of >1 report — the raw input to [dedupReports]. */
+    data class DuplicateReportGroup(val patientId: String, val date: String, val reportIds: List<String>)
+
+    suspend fun findDuplicateReportGroups(): List<DuplicateReportGroup> = withContext(ioDispatcher) {
+        db.reportsQueries.selectDuplicateReportDateGroups().executeAsList().map { row ->
+            DuplicateReportGroup(row.patientId, row.interrogationDate, (row.reportIds ?: "").split(","))
+        }
+    }
+
+    /** The outcome of [dedupReports]. */
+    data class DedupResult(val groupsFound: Int, val reportsRemoved: Int, val errors: List<String>)
+
+    private data class DedupCandidate(val reportId: String, val deviceSerialNumber: String?, val score: Double, val fileCount: Int, val visitDirHandle: String?)
+
+    /**
+     * Finds duplicate report *rows* — same patient, same day, and (once
+     * sub-grouped) the same device serial number — and merges each group
+     * down to one: the richest-scoring report's row and visit directory
+     * survive, every other duplicate's unique files are moved into the
+     * survivor's directory (content-hash-verified against name collisions)
+     * before its own row/directory are removed via [deleteReport]. Ported
+     * from Electron's `dedupService.ts`'s database-driven dedup phase
+     * (issue #197/#198's follow-up UI-parity plan, Phase 6) — its
+     * filesystem-driven second phase (reconciling on-disk directories that
+     * don't cleanly map to a single DB row: several directories for one
+     * report, or orphan directories with no row at all) is deliberately
+     * NOT ported here. Every directory-touching operation in this port
+     * ([importReport], [moveReport], [deleteReport], [reindexFrom]) already
+     * maintains a strict one-directory-per-report invariant, so that
+     * category of drift shouldn't arise here the way it could in the
+     * original codebase's longer, more organically-evolved history — revisit
+     * if orphaned/duplicated directories are ever actually observed.
+     *
+     * Same-day multi-visit groups aren't necessarily true duplicates (e.g.
+     * an ICD and a separate ICM interrogated the same day) — only rows that
+     * also share a device serial (or that both lack one) are merged.
+     */
+    suspend fun dedupReports(reader: DataRootReader, writer: DataRootWriter, reportsRootHandle: String): DedupResult = withContext(ioDispatcher) {
+        var groupsFound = 0
+        var reportsRemoved = 0
+        val errors = mutableListOf<String>()
+
+        for (group in findDuplicateReportGroups()) {
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, group.patientId)
+
+            val candidates = group.reportIds.mapNotNull { reportId ->
+                val row = db.reportsQueries.selectReportById(reportId).executeAsOneOrNull() ?: return@mapNotNull null
+                val visitDirHandle = patientDirHandle?.let { dir ->
+                    reader.listChildren(dir).firstOrNull { it.isDirectory && it.name.endsWith("_$reportId") }?.handle
+                }
+                val hasDevice = db.devicesQueries.selectDevicesByReportId(reportId).executeAsList().isNotEmpty()
+                val hasLeads = db.leadsQueries.selectLeadsByReportId(reportId).executeAsList().isNotEmpty()
+                val score = scoreReport(
+                    ReportRichness(row.manufacturer, row.deviceType, row.deviceModel, row.deviceSerialNumber, row.hospitalVisitId, row.rawText, hasDevice, hasLeads),
+                )
+                val fileCount = visitDirHandle?.let { dir -> reader.listChildren(dir).count { !it.isDirectory && !it.name.endsWith(".xml") } } ?: 0
+                DedupCandidate(reportId, row.deviceSerialNumber, score, fileCount, visitDirHandle)
+            }
+
+            for (subgroup in candidates.groupBy { it.deviceSerialNumber.orEmpty().trim().lowercase() }.values) {
+                if (subgroup.size < 2) continue
+                groupsFound++
+
+                val sorted = subgroup.sortedWith(compareByDescending<DedupCandidate> { it.score }.thenByDescending { it.fileCount })
+                val keeper = sorted.first()
+
+                for (dup in sorted.drop(1)) {
+                    val filesCleared = when {
+                        dup.visitDirHandle == null -> true
+                        keeper.visitDirHandle == null -> false
+                        else -> {
+                            val merge = mergeVisitFiles(reader, writer, dup.visitDirHandle, keeper.visitDirHandle)
+                            merge.failed == 0 && isVisitDirSafeToRemove(reader, dup.visitDirHandle)
+                        }
+                    }
+                    if (!filesCleared) {
+                        errors.add("Couldn't fully merge visit ${dup.reportId} into ${keeper.reportId} — left untouched.")
+                        continue
+                    }
+                    deleteReport(reader, writer, reportsRootHandle, dup.reportId).fold(
+                        onSuccess = { reportsRemoved++ },
+                        onFailure = { e -> errors.add("Failed to remove duplicate visit ${dup.reportId}: ${e.message}") },
+                    )
+                }
+            }
+        }
+
+        DedupResult(groupsFound, reportsRemoved, errors)
+    }
+
+    private data class FileMergeOutcome(val merged: Int, val failed: Int)
+
+    /**
+     * Moves every non-metadata file from [srcDirHandle] into [destDirHandle].
+     * A name collision is resolved by content hash: a verified byte-identical
+     * file is dropped from the source; genuinely different content keeps
+     * both, the incoming file suffixed. Ported from `dedupService.ts`'s
+     * `mergeFiles`.
+     */
+    private fun mergeVisitFiles(reader: DataRootReader, writer: DataRootWriter, srcDirHandle: String, destDirHandle: String): FileMergeOutcome {
+        var merged = 0
+        var failed = 0
+        val destChildren = reader.listChildren(destDirHandle).associateBy { it.name }.toMutableMap()
+
+        for (entry in reader.listChildren(srcDirHandle)) {
+            if (entry.isDirectory || entry.name == "visit.xml" || entry.name == "patient.xml") continue
+
+            val existing = destChildren[entry.name]
+            if (existing == null) {
+                val moved = writer.moveFile(entry.handle, destDirHandle, entry.name)
+                if (moved != null) {
+                    merged++
+                    destChildren[entry.name] = DataEntry(entry.name, moved, false)
+                } else {
+                    failed++
+                }
+                continue
+            }
+
+            val srcBytes = reader.readBytes(entry.handle)
+            val destBytes = reader.readBytes(existing.handle)
+            if (srcBytes != null && destBytes != null && sha256Hex(srcBytes) == sha256Hex(destBytes)) {
+                if (writer.deleteFile(entry.handle)) merged++ else failed++
+                continue
+            }
+
+            val ext = entry.name.substringAfterLast('.', "")
+            val base = if (ext.isEmpty()) entry.name else entry.name.removeSuffix(".$ext")
+            var suffix = 2
+            var candidateName: String
+            do {
+                candidateName = if (ext.isEmpty()) "${base}_$suffix" else "${base}_${suffix}.$ext"
+                suffix++
+            } while (destChildren.containsKey(candidateName))
+
+            val moved = writer.moveFile(entry.handle, destDirHandle, candidateName)
+            if (moved != null) {
+                merged++
+                destChildren[candidateName] = DataEntry(candidateName, moved, false)
+            } else {
+                failed++
+            }
+        }
+        return FileMergeOutcome(merged, failed)
+    }
+
+    /** A merged-away visit directory may only be deleted once nothing but the (now-superseded) metadata XML files remain — mirrors `dedupService.ts`'s `isDirSafeToRemove`. */
+    private fun isVisitDirSafeToRemove(reader: DataRootReader, dirHandle: String): Boolean =
+        reader.listChildren(dirHandle).all { it.name == "visit.xml" || it.name == "patient.xml" }
 
     /**
      * Deletes a patient's `_DATA` directory entirely — mirrors Electron's

@@ -105,6 +105,7 @@ private fun startApp() = application {
     var usbSourceDirs by remember { mutableStateOf<List<String>>(emptyList()) }
     var usbTargetDirPath by remember { mutableStateOf<String?>(null) }
     var isReparsing by remember { mutableStateOf(false) }
+    var isDeduping by remember { mutableStateOf(false) }
     var pendingSortRefreshTrigger by remember { mutableStateOf(0) }
     var pendingSortCount by remember { mutableStateOf(0) }
     var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
@@ -490,6 +491,26 @@ private fun startApp() = application {
                             onSuccess = { "Visit deleted." },
                             onFailure = { e -> "Failed to delete visit: ${e.message}" },
                         )
+                    }
+                }
+            },
+            isDeduping = isDeduping,
+            onDedupReports = {
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    if (reportsRoot == null) {
+                        lastReindexSummary = "No \"Reports\" folder found — nothing to deduplicate."
+                    } else {
+                        isDeduping = true
+                        val result = repository.dedupReports(reader, writer, reportsRoot)
+                        isDeduping = false
+                        lastReindexSummary = if (result.groupsFound == 0) {
+                            "No duplicates found."
+                        } else {
+                            "Deduplicated ${result.groupsFound} group(s), removed ${result.reportsRemoved} duplicate visit(s)." +
+                                if (result.errors.isNotEmpty()) " ${result.errors.size} couldn't be fully merged." else ""
+                        }
                     }
                 }
             },

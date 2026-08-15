@@ -39,6 +39,15 @@ class AndroidDataRootReader(private val context: Context) : DataRootReader, Data
         null
     }
 
+    override fun readBytes(fileHandle: String): ByteArray? = try {
+        context.contentResolver.openInputStream(Uri.parse(fileHandle))?.use { it.readBytes() }
+    } catch (e: Exception) {
+        null
+    }
+
+    override fun fileSize(fileHandle: String): Long? =
+        documentFileFor(Uri.parse(fileHandle))?.length()?.takeIf { it >= 0 }
+
     override fun createDirectory(parentHandle: String, name: String): String? {
         val parent = documentFileFor(Uri.parse(parentHandle)) ?: return null
         return parent.createDirectory(name)?.uri?.toString()
@@ -59,6 +68,41 @@ class AndroidDataRootReader(private val context: Context) : DataRootReader, Data
     override fun deleteDirectory(directoryHandle: String): Boolean {
         val dir = documentFileFor(Uri.parse(directoryHandle)) ?: return false
         return dir.delete()
+    }
+
+    override fun writeBytes(parentHandle: String, name: String, content: ByteArray): Boolean {
+        val parent = documentFileFor(Uri.parse(parentHandle)) ?: return false
+        val file = parent.createFile("application/octet-stream", name) ?: return false
+        return try {
+            context.contentResolver.openOutputStream(file.uri)?.use { it.write(content) }
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Same no-generic-cross-provider-move limitation as [moveDirectory] — copies content to the destination, then deletes the source. */
+    override fun moveFile(fileHandle: String, newParentHandle: String, newName: String?): String? {
+        val source = documentFileFor(Uri.parse(fileHandle)) ?: return null
+        if (source.isDirectory) return null
+        val newParent = documentFileFor(Uri.parse(newParentHandle)) ?: return null
+        val destName = newName ?: source.name ?: return null
+        val dest = newParent.createFile(source.type ?: "application/octet-stream", destName) ?: return null
+        return try {
+            context.contentResolver.openInputStream(source.uri)?.use { input ->
+                context.contentResolver.openOutputStream(dest.uri)?.use { output -> input.copyTo(output) }
+            }
+            source.delete()
+            dest.uri.toString()
+        } catch (e: Exception) {
+            dest.delete()
+            null
+        }
+    }
+
+    override fun deleteFile(fileHandle: String): Boolean {
+        val file = documentFileFor(Uri.parse(fileHandle)) ?: return false
+        return !file.isDirectory && file.delete()
     }
 
     /**

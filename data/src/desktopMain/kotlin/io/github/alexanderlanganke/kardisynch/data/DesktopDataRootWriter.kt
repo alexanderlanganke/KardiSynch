@@ -40,6 +40,35 @@ class DesktopDataRootWriter : DataRootWriter {
             null
         }
     }
+
+    override fun writeBytes(parentHandle: String, name: String, content: ByteArray): Boolean {
+        val file = File(parentHandle, name)
+        return try {
+            val tmp = File(parentHandle, "$name.tmp-${System.nanoTime()}")
+            tmp.writeBytes(content)
+            Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    override fun moveFile(fileHandle: String, newParentHandle: String, newName: String?): String? {
+        val source = File(fileHandle)
+        if (!source.isFile) return null
+        val dest = File(newParentHandle, newName ?: source.name)
+        return try {
+            Files.move(source.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            dest.absolutePath
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    override fun deleteFile(fileHandle: String): Boolean {
+        val file = File(fileHandle)
+        return file.isFile && file.delete()
+    }
 }
 
 /**

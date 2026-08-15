@@ -65,12 +65,15 @@ fun SettingsScreen(
     onOpenOrphanedVisits: (() -> Unit)? = null,
     onOpenImportHistory: (() -> Unit)? = null,
     onOpenAliasSettings: (() -> Unit)? = null,
+    isDeduping: Boolean = false,
+    onDedupReports: (() -> Unit)? = null,
     appVersion: String? = null,
     themeMode: ThemeMode = ThemeMode.SYSTEM,
     onThemeModeChange: ((ThemeMode) -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showReparseConfirm by remember { mutableStateOf(false) }
+    var showDedupConfirm by remember { mutableStateOf(false) }
 
     if (showClearConfirm) {
         AlertDialog(
@@ -108,6 +111,26 @@ fun SettingsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showReparseConfirm = false }) { Text("Cancel") }
+            },
+        )
+    }
+
+    if (showDedupConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDedupConfirm = false },
+            title = { Text("Deduplicate reports?") },
+            text = {
+                Text(
+                    "Finds visits that were imported more than once (same patient, day, and " +
+                        "device) and merges each group down to one, keeping the most complete " +
+                        "copy. Files are only removed once verified byte-identical to the kept copy.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showDedupConfirm = false; onDedupReports?.invoke() }) { Text("Deduplicate") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDedupConfirm = false }) { Text("Cancel") }
             },
         )
     }
@@ -169,6 +192,12 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(onClick = onOpenAliasSettings, modifier = Modifier.fillMaxWidth()) {
                     Text("Device & lead type aliases")
+                }
+            }
+            if (onDedupReports != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = { showDedupConfirm = true }, enabled = !isDeduping, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (isDeduping) "Deduplicating..." else "Deduplicate reports")
                 }
             }
 
