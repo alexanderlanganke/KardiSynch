@@ -406,6 +406,13 @@ class MainActivity : ComponentActivity() {
                                     }
                                 }
                             },
+                            onGetVisitFiles = { patientId, reportId ->
+                                val root = dataRoot
+                                val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                                if (reportsRoot == null) emptyList() else repository.getVisitFiles(reader, reportsRoot, patientId, reportId)
+                            },
+                            onReadVisitFileBytes = { fileHandle -> reader.readBytes(fileHandle) },
+                            onReadVisitFileText = { fileHandle -> reader.readText(fileHandle) },
                         )
 
                         qrDialogImage?.let { bitmap ->

@@ -35,6 +35,7 @@ import io.github.alexanderlanganke.kardisynch.ui.theme.ThemeMode
 import io.github.alexanderlanganke.kardisynch.core.aliases.AliasKind
 import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
 import io.github.alexanderlanganke.kardisynch.core.aliases.LeadAliasAttrs
+import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
@@ -125,6 +126,9 @@ fun KardiSynchApp(
     onThemeModeChange: ((ThemeMode) -> Unit)? = null,
     onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)? = null,
     onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)? = null,
+    onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)? = null,
+    onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)? = null,
+    onReadVisitFileText: (suspend (fileHandle: String) -> String?)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     var dashboardFilterState by remember { mutableStateOf(DashboardFilterState()) }
@@ -186,6 +190,9 @@ fun KardiSynchApp(
                 onEditReportDevicesAndLeads = onEditReportDevicesAndLeads,
                 onListDeviceTypeAliases = onListDeviceTypeAliases,
                 onRescanVisit = onRescanVisit,
+                onGetVisitFiles = onGetVisitFiles,
+                onReadVisitFileBytes = onReadVisitFileBytes,
+                onReadVisitFileText = onReadVisitFileText,
             )
 
             is Screen.Settings -> SettingsScreen(

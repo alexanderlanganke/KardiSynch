@@ -420,6 +420,18 @@ class KardiSynchRepository(
         withContext(ioDispatcher) { findPatientDirHandle(reader, reportsRootHandle, patientId) }
 
     /**
+     * Every raw file (excluding `visit.xml`/`patient.xml`) in one visit's
+     * directory — the raw document viewer's file list (issue #197/#198's
+     * follow-up UI-parity plan, Phase 11). Mirrors Electron's `getVisitFiles`.
+     */
+    suspend fun getVisitFiles(reader: DataRootReader, reportsRootHandle: String, patientId: String, reportId: String): List<DataEntry> = withContext(ioDispatcher) {
+        val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId) ?: return@withContext emptyList()
+        val visitDirHandle = reader.listChildren(patientDirHandle).firstOrNull { it.isDirectory && it.name.endsWith("_$reportId") }?.handle
+            ?: return@withContext emptyList()
+        reader.listChildren(visitDirHandle).filter { !it.isDirectory && it.name != "visit.xml" && it.name != "patient.xml" }
+    }
+
+    /**
      * Locks two patient directories for one operation that touches both,
      * always in the same (sorted-by-handle) order regardless of which is
      * "from" and which is "to" — otherwise two concurrent opposite-direction

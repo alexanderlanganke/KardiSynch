@@ -21,6 +21,27 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.ui)
         }
+        val desktopMain by getting {
+            dependencies {
+                // Raw document viewer (issue #197/#198's follow-up UI-parity
+                // plan, Phase 11) — pure-JVM, no native deps, so it works
+                // from a single artifact here the way Android instead uses
+                // its own built-in android.graphics.pdf.PdfRenderer (no
+                // extra dependency needed there at all).
+                implementation(libs.pdfbox)
+            }
+        }
+        val desktopTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                // Skiko's native library (needed by toComposeImageBitmap(),
+                // exercised in PdfPageRendererTest) isn't pulled in by
+                // commonMain's plain compose.ui alone — desktopApp gets it
+                // transitively via compose.desktop.currentOs for the real
+                // app; tests need the same runtime dependency explicitly.
+                implementation(compose.desktop.currentOs)
+            }
+        }
     }
 }
 

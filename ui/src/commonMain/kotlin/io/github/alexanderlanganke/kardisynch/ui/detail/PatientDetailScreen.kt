@@ -32,6 +32,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
+import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
@@ -79,6 +80,9 @@ fun PatientDetailScreen(
     onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)? = null,
     onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)? = null,
     onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)? = null,
+    onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)? = null,
+    onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)? = null,
+    onReadVisitFileText: (suspend (fileHandle: String) -> String?)? = null,
 ) {
     var retryToken by remember(patientId) { mutableStateOf(0) }
     val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
@@ -155,6 +159,9 @@ fun PatientDetailScreen(
                             onListDeviceTypeAliases = onListDeviceTypeAliases,
                             onEditPatientInfo = onEditPatientInfo,
                             onRescanVisit = onRescanVisit,
+                            onGetVisitFiles = onGetVisitFiles,
+                            onReadVisitFileBytes = onReadVisitFileBytes,
+                            onReadVisitFileText = onReadVisitFileText,
                         )
                     }
                 }
@@ -178,6 +185,9 @@ private fun PatientDetailContent(
     onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
     onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)?,
     onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)?,
+    onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)?,
+    onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)?,
+    onReadVisitFileText: (suspend (fileHandle: String) -> String?)?,
 ) {
     var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
     LaunchedEffect(patientId) { latestDevice = repository.getLatestDeviceForPatient(patientId) }
@@ -233,7 +243,11 @@ private fun PatientDetailContent(
             }
             item { LeadTrendSection(repository, patientId) }
             items(reports, key = { it.id }) { report ->
-                ReportCard(repository, report, patient, onExportQr, onOpenUrl, onMoveReport, onDeleteReport, onEditReportDevicesAndLeads, onListDeviceTypeAliases, onEditPatientInfo, onRescanVisit)
+                ReportCard(
+                    repository, report, patient, onExportQr, onOpenUrl, onMoveReport, onDeleteReport,
+                    onEditReportDevicesAndLeads, onListDeviceTypeAliases, onEditPatientInfo, onRescanVisit,
+                    onGetVisitFiles, onReadVisitFileBytes, onReadVisitFileText,
+                )
             }
         }
     }
@@ -317,6 +331,9 @@ private fun ReportCard(
     onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
     onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)?,
     onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)?,
+    onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)?,
+    onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)?,
+    onReadVisitFileText: (suspend (fileHandle: String) -> String?)?,
 ) {
     val currentPatientId = patient.id
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
@@ -329,6 +346,8 @@ private fun ReportCard(
     var isRescanning by remember(report.id) { mutableStateOf(false) }
     var rescanResult by remember(report.id) { mutableStateOf<UnifiedReport?>(null) }
     var rescanMessage by remember(report.id) { mutableStateOf<String?>(null) }
+    var showFiles by remember(report.id) { mutableStateOf(false) }
+    var visitFiles by remember(report.id) { mutableStateOf<List<DataEntry>?>(null) }
     LaunchedEffect(report.id, reloadKey) {
         devices = repository.getDevicesForReport(report.id)
         leads = repository.getLeadsForReport(report.id)
@@ -451,6 +470,18 @@ private fun ReportCard(
             }
             if (onDeleteReport != null) {
                 TextButton(onClick = { showDeleteConfirm = true }) { Text("Delete") }
+            }
+            if (onGetVisitFiles != null && onReadVisitFileBytes != null && onReadVisitFileText != null) {
+                TextButton(onClick = { showFiles = !showFiles }) { Text(if (showFiles) "Hide files" else "View files") }
+                if (showFiles) {
+                    LaunchedEffect(report.id) { visitFiles = onGetVisitFiles(currentPatientId, report.id) }
+                    val files = visitFiles
+                    if (files == null) {
+                        CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
+                    } else {
+                        RawFileViewer(files, onReadVisitFileBytes, onReadVisitFileText)
+                    }
+                }
             }
         }
     }
