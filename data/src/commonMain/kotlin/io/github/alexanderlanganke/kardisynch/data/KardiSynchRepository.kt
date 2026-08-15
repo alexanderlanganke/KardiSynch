@@ -1058,6 +1058,8 @@ class KardiSynchRepository(
             deviceSerialNumber = report.device.serialNumber,
             rawText = report.rawText,
             data_ = null,
+            batteryVoltageValue = report.battery.voltage?.value,
+            batteryVoltageUnit = report.battery.voltage?.unit,
         )
 
         db.devicesQueries.insertDevice(

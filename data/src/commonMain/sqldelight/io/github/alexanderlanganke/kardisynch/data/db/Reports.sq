@@ -9,6 +9,11 @@ CREATE TABLE Reports (
     deviceSerialNumber TEXT,
     rawText TEXT,
     data TEXT,
+    -- Battery voltage at this visit (issue #198's trend chart) — the only
+    -- battery/lead field promoted from visit.xml into the queryable index;
+    -- everything else about a report still requires re-reading visit.xml.
+    batteryVoltageValue REAL,
+    batteryVoltageUnit TEXT,
     FOREIGN KEY (patientId) REFERENCES Patients(id)
 );
 
@@ -16,8 +21,8 @@ CREATE INDEX idx_reports_patient_id ON Reports(patientId);
 CREATE INDEX idx_reports_interrogation_date ON Reports(interrogationDate);
 
 insertReport:
-INSERT OR REPLACE INTO Reports(id, patientId, manufacturer, interrogationDate, hospitalVisitId, deviceType, deviceModel, deviceSerialNumber, rawText, data)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+INSERT OR REPLACE INTO Reports(id, patientId, manufacturer, interrogationDate, hospitalVisitId, deviceType, deviceModel, deviceSerialNumber, rawText, data, batteryVoltageValue, batteryVoltageUnit)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 selectReportsByPatientId:
 SELECT * FROM Reports WHERE patientId = ? ORDER BY interrogationDate DESC;
