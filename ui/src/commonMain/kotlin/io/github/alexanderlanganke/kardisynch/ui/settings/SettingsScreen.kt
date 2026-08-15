@@ -61,6 +61,7 @@ fun SettingsScreen(
     pendingSortCount: Int = 0,
     onOpenPendingSort: (() -> Unit)? = null,
     onOpenDuplicates: (() -> Unit)? = null,
+    appVersion: String? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showReparseConfirm by remember { mutableStateOf(false) }
@@ -232,6 +233,12 @@ fun SettingsScreen(
                         Text("Add source folder")
                     }
                 }
+            }
+
+            if (appVersion != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("About", style = MaterialTheme.typography.titleMedium)
+                Text("KardiSynch $appVersion", style = MaterialTheme.typography.bodySmall)
             }
         }
     }

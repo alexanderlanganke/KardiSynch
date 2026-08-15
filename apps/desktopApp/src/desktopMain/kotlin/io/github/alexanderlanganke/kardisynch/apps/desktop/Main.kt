@@ -13,8 +13,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
+import androidx.compose.ui.window.rememberWindowState
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportLead
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportPatient
 import io.github.alexanderlanganke.kardisynch.core.qrimport.FollowUpExportReport
@@ -34,6 +38,13 @@ private const val SETTING_DATA_ROOT = "dataRootPath"
 private const val SETTING_IMPORT_DIR = "importDirPath"
 private const val SETTING_USB_SOURCE_DIRS = "usbSourceDirs"
 private const val SETTING_USB_TARGET_DIR = "usbTargetDir"
+private const val SETTING_WINDOW_WIDTH = "windowWidth"
+private const val SETTING_WINDOW_HEIGHT = "windowHeight"
+private const val SETTING_WINDOW_X = "windowX"
+private const val SETTING_WINDOW_Y = "windowY"
+
+/** Kept in sync with `nativeDistributions.packageVersion` in apps/desktopApp/build.gradle.kts (issue #196's "About" section — no build-time BuildConfig injection wired up yet, so this is a second source of truth to update by hand). */
+private const val APP_VERSION = "0.1.0"
 
 /** Newline-joined, since a file path can't itself contain a newline on any target platform. */
 private fun encodeUsbSourceDirs(dirs: List<String>): String = dirs.joinToString("\n")
@@ -50,7 +61,27 @@ private fun usbManifestFile() = File(File(System.getProperty("user.home"), ".kar
  */
 private fun defaultImportDir() = File(File(System.getProperty("user.home"), ".kardisynch"), "_IMPORT")
 
-fun main() = application {
+/**
+ * A background-coroutine or non-Compose-thread exception used to just crash
+ * the JVM with a stack trace on stderr and no other trace — this at least
+ * logs where before that happens (issue #196; Electron's equivalent,
+ * `showCrashDialog`, additionally shows a native dialog and offers to file
+ * a GitHub issue — not ported, no GitHub-posting capability from inside
+ * this app either).
+ */
+private fun installUncaughtExceptionHandler() {
+    Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        System.err.println("[KardiSynch] Uncaught exception on thread ${thread.name}:")
+        throwable.printStackTrace()
+    }
+}
+
+fun main() {
+    installUncaughtExceptionHandler()
+    startApp()
+}
+
+private fun startApp() = application {
     val repository = remember { KardiSynchRepository(DatabaseDriverFactory().createDriver()) }
     val reader = remember { DesktopDataRootReader() }
     val writer = remember { DesktopDataRootWriter() }
@@ -68,6 +99,29 @@ fun main() = application {
     var pendingSortRefreshTrigger by remember { mutableStateOf(0) }
     var pendingSortCount by remember { mutableStateOf(0) }
     var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
+    val windowState = rememberWindowState(size = DpSize(1200.dp, 800.dp))
+
+    // Window size/position persistence (issue #196 — Electron's version has
+    // none either, it always opens at a hardcoded size; this is a real
+    // improvement over the original, not a strict port). Loaded once
+    // settings are available, then any later drag/resize is saved back.
+    LaunchedEffect(Unit) {
+        val width = repository.getSetting(SETTING_WINDOW_WIDTH)?.toFloatOrNull()
+        val height = repository.getSetting(SETTING_WINDOW_HEIGHT)?.toFloatOrNull()
+        if (width != null && height != null) windowState.size = DpSize(width.dp, height.dp)
+        val x = repository.getSetting(SETTING_WINDOW_X)?.toFloatOrNull()
+        val y = repository.getSetting(SETTING_WINDOW_Y)?.toFloatOrNull()
+        if (x != null && y != null) windowState.position = WindowPosition(x.dp, y.dp)
+    }
+    LaunchedEffect(windowState.size, windowState.position) {
+        repository.setSetting(SETTING_WINDOW_WIDTH, windowState.size.width.value.toString())
+        repository.setSetting(SETTING_WINDOW_HEIGHT, windowState.size.height.value.toString())
+        val position = windowState.position
+        if (position is WindowPosition.Absolute) {
+            repository.setSetting(SETTING_WINDOW_X, position.x.value.toString())
+            repository.setSetting(SETTING_WINDOW_Y, position.y.value.toString())
+        }
+    }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
@@ -154,7 +208,7 @@ fun main() = application {
         onDispose { watcher.stop() }
     }
 
-    Window(onCloseRequest = ::exitApplication, title = "KardiSynch") {
+    Window(onCloseRequest = ::exitApplication, title = "KardiSynch", state = windowState) {
         KardiSynchApp(
             repository = repository,
             dataRootLabel = dataRoot,
@@ -288,6 +342,9 @@ fun main() = application {
                     lastReindexSummary = "Couldn't open $url: ${e.message}"
                 }
             },
+            appVersion = APP_VERSION,
+            notificationMessage = lastReindexSummary,
+            notificationKey = lastReindexSummary,
             onEditPatientInfo = { patientId, firstName, lastName, dob, hospitalPatientId ->
                 val root = dataRoot
                 scope.launch {

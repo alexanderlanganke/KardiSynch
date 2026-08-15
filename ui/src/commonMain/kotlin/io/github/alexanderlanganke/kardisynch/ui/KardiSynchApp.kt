@@ -1,11 +1,21 @@
 package io.github.alexanderlanganke.kardisynch.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
@@ -30,6 +40,21 @@ private sealed interface Screen {
  * androidApp) supplies the repository and the settings-screen callbacks
  * (data-root picking is inherently platform-specific, see [SettingsScreen]'s
  * doc comment).
+ *
+ * Theming follows the system light/dark setting (issue #196) via Material3's
+ * built-in [isSystemInDarkTheme] — Electron's version has a manual
+ * light/dark/system toggle with its own persisted override
+ * (`ThemeProvider.tsx`); only the "system" behavior is ported here, not a
+ * user-facing override, since Compose's default already covers the common
+ * case and a manual toggle is closer to new feature work than a port.
+ *
+ * [appVersion]/[notificationMessage] surface two more app-shell pieces
+ * (issue #196): a version line in Settings' new "About" section, and a
+ * transient [SnackbarHost] for whatever the platform layer's watchers
+ * report (import/reparse/merge results, etc.) — mirrors Electron's
+ * `sendNotification` toast, without its persistent notification-center
+ * popover (out of scope: this port has nowhere near Electron's volume of
+ * background notification sources yet to justify one).
  */
 @Composable
 fun KardiSynchApp(
@@ -60,11 +85,23 @@ fun KardiSynchApp(
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
     duplicatesRefreshKey: Any = Unit,
     onMergeDuplicates: ((keeperId: String, loserIds: List<String>) -> Unit)? = null,
+    appVersion: String? = null,
+    notificationMessage: String? = null,
+    notificationKey: Any? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    MaterialTheme {
-        when (val current = screen) {
+    LaunchedEffect(notificationKey) {
+        notificationMessage?.let { snackbarHostState.showSnackbar(it) }
+    }
+
+    val colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
+
+    MaterialTheme(colorScheme = colorScheme) {
+        Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { snackbarPadding ->
+            Box(modifier = Modifier.padding(snackbarPadding)) {
+                when (val current = screen) {
             is Screen.Dashboard -> PatientDashboardScreen(
                 repository = repository,
                 onOpenPatient = { screen = Screen.Detail(it) },
@@ -112,6 +149,7 @@ fun KardiSynchApp(
                     null
                 },
                 onOpenDuplicates = onMergeDuplicates?.let { { screen = Screen.Duplicates } },
+                appVersion = appVersion,
             )
 
             is Screen.PendingSort -> PendingSortScreen(
@@ -128,6 +166,8 @@ fun KardiSynchApp(
                 onBack = { screen = Screen.Settings },
                 onMerge = { keeperId, loserIds -> onMergeDuplicates?.invoke(keeperId, loserIds) },
             )
+                }
+            }
         }
     }
 }
