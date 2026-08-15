@@ -12,6 +12,7 @@ import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScreen
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
+import io.github.alexanderlanganke.kardisynch.ui.duplicates.DuplicatesScreen
 import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
 
@@ -20,6 +21,7 @@ private sealed interface Screen {
     data class Detail(val patientId: String) : Screen
     data object Settings : Screen
     data object PendingSort : Screen
+    data object Duplicates : Screen
 }
 
 /**
@@ -54,6 +56,10 @@ fun KardiSynchApp(
     onApprovePendingSort: ((taskId: String, patientId: String) -> Unit)? = null,
     onDismissPendingSort: ((taskId: String) -> Unit)? = null,
     onOpenUrl: ((String) -> Unit)? = null,
+    onEditPatientInfo: ((patientId: String, firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
+    onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
+    duplicatesRefreshKey: Any = Unit,
+    onMergeDuplicates: ((keeperId: String, loserIds: List<String>) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -71,6 +77,14 @@ fun KardiSynchApp(
                 onBack = { screen = Screen.Dashboard },
                 onExportQr = onExportQr,
                 onOpenUrl = onOpenUrl,
+                onEditPatientInfo = if (onEditPatientInfo != null) {
+                    { firstName, lastName, dob, hospitalPatientId ->
+                        onEditPatientInfo(current.patientId, firstName, lastName, dob, hospitalPatientId)
+                    }
+                } else {
+                    null
+                },
+                onMoveReport = onMoveReport,
             )
 
             is Screen.Settings -> SettingsScreen(
@@ -97,6 +111,7 @@ fun KardiSynchApp(
                 } else {
                     null
                 },
+                onOpenDuplicates = onMergeDuplicates?.let { { screen = Screen.Duplicates } },
             )
 
             is Screen.PendingSort -> PendingSortScreen(
@@ -105,6 +120,13 @@ fun KardiSynchApp(
                 onBack = { screen = Screen.Settings },
                 onApprove = { taskId, patientId -> onApprovePendingSort?.invoke(taskId, patientId) },
                 onDismiss = { taskId -> onDismissPendingSort?.invoke(taskId) },
+            )
+
+            is Screen.Duplicates -> DuplicatesScreen(
+                repository = repository,
+                refreshKey = duplicatesRefreshKey,
+                onBack = { screen = Screen.Settings },
+                onMerge = { keeperId, loserIds -> onMergeDuplicates?.invoke(keeperId, loserIds) },
             )
         }
     }

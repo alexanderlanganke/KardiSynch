@@ -60,6 +60,7 @@ fun SettingsScreen(
     onReparseAll: (() -> Unit)? = null,
     pendingSortCount: Int = 0,
     onOpenPendingSort: (() -> Unit)? = null,
+    onOpenDuplicates: (() -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showReparseConfirm by remember { mutableStateOf(false) }
@@ -138,6 +139,12 @@ fun SettingsScreen(
             lastReindexSummary?.let {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(it, style = MaterialTheme.typography.bodySmall)
+            }
+            if (onOpenDuplicates != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = onOpenDuplicates, modifier = Modifier.fillMaxWidth()) {
+                    Text("Review possible duplicate patients")
+                }
             }
 
             if (onPickImportDir != null || onReprocessUnmatched != null || onReparseAll != null || onOpenPendingSort != null) {

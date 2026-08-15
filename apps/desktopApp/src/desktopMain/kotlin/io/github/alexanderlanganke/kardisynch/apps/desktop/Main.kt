@@ -67,6 +67,7 @@ fun main() = application {
     var isReparsing by remember { mutableStateOf(false) }
     var pendingSortRefreshTrigger by remember { mutableStateOf(0) }
     var pendingSortCount by remember { mutableStateOf(0) }
+    var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         dataRoot = repository.getSetting(SETTING_DATA_ROOT)
@@ -285,6 +286,55 @@ fun main() = application {
                     java.awt.Desktop.getDesktop().browse(java.net.URI(url))
                 } catch (e: Exception) {
                     lastReindexSummary = "Couldn't open $url: ${e.message}"
+                }
+            },
+            onEditPatientInfo = { patientId, firstName, lastName, dob, hospitalPatientId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to edit."
+                    } else {
+                        repository.updatePatientInfo(reader, writer, reportsRoot, patientId, firstName, lastName, dob, hospitalPatientId, lock).fold(
+                            onSuccess = { "Patient info updated." },
+                            onFailure = { e -> "Failed to update patient info: ${e.message}" },
+                        )
+                    }
+                }
+            },
+            onMoveReport = { reportId, fromPatientId, toPatientId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to move."
+                    } else {
+                        repository.moveReport(reader, writer, reportsRoot, reportId, fromPatientId, toPatientId, lock).fold(
+                            onSuccess = { "Visit moved." },
+                            onFailure = { e -> "Failed to move visit: ${e.message}" },
+                        )
+                    }
+                }
+            },
+            duplicatesRefreshKey = duplicatesRefreshTrigger,
+            onMergeDuplicates = { keeperId, loserIds ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to merge."
+                    } else {
+                        val result = repository.mergePatients(reader, writer, reportsRoot, keeperId, loserIds, lock)
+                        result.getOrNull()?.let { if (it.patientsDeleted > 0) repository.reindexFrom(reader, reportsRoot) }
+                        result.fold(
+                            onSuccess = { r ->
+                                "Merged ${r.patientsDeleted} patient(s), moved ${r.reportsMoved} visit(s)." +
+                                    if (r.errors.isNotEmpty()) " Errors: ${r.errors.joinToString("; ")}" else ""
+                            },
+                            onFailure = { e -> "Merge failed: ${e.message}" },
+                        )
+                    }
+                    duplicatesRefreshTrigger++
                 }
             },
         )

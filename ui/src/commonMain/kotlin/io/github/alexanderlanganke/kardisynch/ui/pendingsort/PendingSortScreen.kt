@@ -29,16 +29,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.PendingSortTasks
+import io.github.alexanderlanganke.kardisynch.ui.picker.PatientPickerDialog
 
 /**
  * Reviews the manual-sort queue (issue #172/#173) — every file the
  * import-identity ladder wasn't confident enough to attach automatically.
  * A task with a suggested patient can be Approved (attached to that
- * patient) or Dismissed (moved to `_unmatched`); a task with no suggestion
- * (missing identity, no serial match at all) can only be dismissed —
- * reassigning to an arbitrary OTHER patient needs a patient-search
- * component this app doesn't have anywhere yet (issue #178's territory),
- * so that's not offered here.
+ * patient) or Dismissed (moved to `_unmatched`); every task can also be
+ * assigned to an arbitrary OTHER patient via [PatientPickerDialog] (issue
+ * #178 — this used to need a patient-search component this app didn't
+ * have anywhere yet).
  *
  * Not reactive (no `observe*` query backs this list, unlike the dashboard)
  * — [onApprove]/[onDismiss] are expected to trigger a reload via changing
@@ -54,9 +54,22 @@ fun PendingSortScreen(
     onDismiss: (taskId: String) -> Unit,
 ) {
     var tasks by remember { mutableStateOf<List<PendingSortTasks>?>(null) }
+    var pickerForTaskId by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(refreshKey) {
         tasks = repository.getPendingSortTasks()
+    }
+
+    pickerForTaskId?.let { taskId ->
+        PatientPickerDialog(
+            repository = repository,
+            title = "Assign this file to which patient?",
+            onDismiss = { pickerForTaskId = null },
+            onPicked = { patientId ->
+                pickerForTaskId = null
+                onApprove(taskId, patientId)
+            },
+        )
     }
 
     Scaffold(
@@ -93,6 +106,10 @@ fun PendingSortScreen(
 
                             Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp), horizontalArrangement = Arrangement.End) {
                                 OutlinedButton(onClick = { onDismiss(task.id) }) { Text("Dismiss") }
+                                OutlinedButton(
+                                    onClick = { pickerForTaskId = task.id },
+                                    modifier = Modifier.padding(start = 8.dp),
+                                ) { Text("Assign to...") }
                                 task.suggestedPatientId?.let { suggestedId ->
                                     Button(
                                         onClick = { onApprove(task.id, suggestedId) },

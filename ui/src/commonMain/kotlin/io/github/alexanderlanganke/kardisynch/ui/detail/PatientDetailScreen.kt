@@ -32,6 +32,7 @@ import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
+import io.github.alexanderlanganke.kardisynch.ui.picker.PatientPickerDialog
 
 /**
  * Patient identity + reports (each expandable to its device/leads) — the
@@ -39,7 +40,9 @@ import io.github.alexanderlanganke.kardisynch.data.db.Reports
  * #199 — Android only scans/imports a follow-up QR, it doesn't render one)
  * — pass null to hide the export action. [onOpenUrl] is likewise
  * platform-specific (issue #175's "MRI check" link, opened in the system
- * browser) — pass null to hide that action too.
+ * browser) — pass null to hide that action too. [onEditPatientInfo]/
+ * [onMoveReport] wire up backends that already existed (issue #177) but
+ * had no UI before issue #178 — pass null to hide either action.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,15 +52,38 @@ fun PatientDetailScreen(
     onBack: () -> Unit,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)? = null,
     onOpenUrl: ((String) -> Unit)? = null,
+    onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
+    onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
 ) {
     val patient by produceStateOrNull { repository.getPatientById(patientId) }
     val reports by repository.observeReportsForPatient(patientId).collectAsState(initial = null)
+    var showEditDialog by remember { mutableStateOf(false) }
+
+    if (showEditDialog && patient != null) {
+        val current = patient!!
+        PatientInfoEditDialog(
+            initialFirstName = current.firstName.orEmpty(),
+            initialLastName = current.lastName,
+            initialDob = current.dob,
+            initialHospitalPatientId = current.hospitalPatientId,
+            onDismiss = { showEditDialog = false },
+            onSave = { firstName, lastName, dob, hospitalPatientId ->
+                showEditDialog = false
+                onEditPatientInfo?.invoke(firstName, lastName, dob, hospitalPatientId)
+            },
+        )
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(patient?.let { "${it.lastName}, ${it.firstName ?: ""}" } ?: "Patient") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
+                actions = {
+                    if (onEditPatientInfo != null && patient != null) {
+                        TextButton(onClick = { showEditDialog = true }) { Text("Edit") }
+                    }
+                },
             )
         },
     ) { padding ->
@@ -101,7 +127,9 @@ fun PatientDetailScreen(
                 ) { Text("No visits on record for this patient.") }
 
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(currentReports, key = { it.id }) { report -> ReportCard(repository, report, onExportQr, onOpenUrl) }
+                    items(currentReports, key = { it.id }) { report ->
+                        ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport)
+                    }
                 }
             }
         }
@@ -112,14 +140,29 @@ fun PatientDetailScreen(
 private fun ReportCard(
     repository: KardiSynchRepository,
     report: Reports,
+    currentPatientId: String,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
     onOpenUrl: ((String) -> Unit)?,
+    onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
 ) {
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
+    var showMovePicker by remember(report.id) { mutableStateOf(false) }
     LaunchedEffect(report.id) {
         devices = repository.getDevicesForReport(report.id)
         leads = repository.getLeadsForReport(report.id)
+    }
+
+    if (showMovePicker && onMoveReport != null) {
+        PatientPickerDialog(
+            repository = repository,
+            title = "Move this visit to which patient?",
+            onDismiss = { showMovePicker = false },
+            onPicked = { targetPatientId ->
+                showMovePicker = false
+                onMoveReport(report.id, currentPatientId, targetPatientId)
+            },
+        )
     }
 
     Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
@@ -147,6 +190,9 @@ private fun ReportCard(
                 mriCheckUrl(report.manufacturer)?.let { url ->
                     TextButton(onClick = { onOpenUrl(url) }) { Text("Check MRI compatibility") }
                 }
+            }
+            if (onMoveReport != null) {
+                TextButton(onClick = { showMovePicker = true }) { Text("Move to another patient") }
             }
         }
     }
