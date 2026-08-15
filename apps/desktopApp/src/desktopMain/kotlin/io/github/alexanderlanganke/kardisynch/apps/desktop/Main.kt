@@ -33,6 +33,9 @@ import io.github.alexanderlanganke.kardisynch.data.DesktopDirectoryLock
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.resolveReportsRootHandle
 import io.github.alexanderlanganke.kardisynch.ui.KardiSynchApp
+import io.github.alexanderlanganke.kardisynch.ui.theme.ThemeMode
+import io.github.alexanderlanganke.kardisynch.ui.theme.parseThemeMode
+import io.github.alexanderlanganke.kardisynch.ui.theme.toSettingValue
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.swing.JFileChooser
@@ -46,6 +49,7 @@ private const val SETTING_WINDOW_HEIGHT = "windowHeight"
 private const val SETTING_WINDOW_X = "windowX"
 private const val SETTING_WINDOW_Y = "windowY"
 private const val SETTING_ONBOARDING_COMPLETED = "onboardingCompleted"
+private const val SETTING_THEME_MODE = "themeMode"
 
 /** Kept in sync with `nativeDistributions.packageVersion` in apps/desktopApp/build.gradle.kts (issue #196's "About" section — no build-time BuildConfig injection wired up yet, so this is a second source of truth to update by hand). */
 private const val APP_VERSION = "0.1.0"
@@ -105,6 +109,7 @@ private fun startApp() = application {
     var pendingSortCount by remember { mutableStateOf(0) }
     var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
     var showOnboarding by remember { mutableStateOf(false) }
+    var themeMode by remember { mutableStateOf(ThemeMode.DARK) }
     val todayIso = remember { java.time.LocalDate.now().toString() }
     val windowState = rememberWindowState(size = DpSize(1200.dp, 800.dp))
 
@@ -136,6 +141,7 @@ private fun startApp() = application {
         usbSourceDirs = decodeUsbSourceDirs(repository.getSetting(SETTING_USB_SOURCE_DIRS))
         usbTargetDirPath = repository.getSetting(SETTING_USB_TARGET_DIR)
         showOnboarding = repository.getSetting(SETTING_ONBOARDING_COMPLETED) != "true"
+        themeMode = parseThemeMode(repository.getSetting(SETTING_THEME_MODE))
     }
 
     fun runReindex(root: String) {
@@ -486,6 +492,11 @@ private fun startApp() = application {
                         )
                     }
                 }
+            },
+            themeMode = themeMode,
+            onThemeModeChange = { mode ->
+                themeMode = mode
+                scope.launch { repository.setSetting(SETTING_THEME_MODE, mode.toSettingValue()) }
             },
         )
 

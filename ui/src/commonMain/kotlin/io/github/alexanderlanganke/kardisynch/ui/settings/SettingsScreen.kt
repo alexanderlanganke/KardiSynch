@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.alexanderlanganke.kardisynch.ui.theme.ThemeMode
 
 /**
  * _DATA root picker + reindex trigger. Picking the root itself is
@@ -65,6 +66,8 @@ fun SettingsScreen(
     onOpenImportHistory: (() -> Unit)? = null,
     onOpenAliasSettings: (() -> Unit)? = null,
     appVersion: String? = null,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: ((ThemeMode) -> Unit)? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var showReparseConfirm by remember { mutableStateOf(false) }
@@ -252,6 +255,22 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Button(onClick = onAddUsbSourceDir, modifier = Modifier.fillMaxWidth()) {
                         Text("Add source folder")
+                    }
+                }
+            }
+
+            if (onThemeModeChange != null) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text("Appearance", style = MaterialTheme.typography.titleMedium)
+                Row(modifier = Modifier.padding(top = 8.dp)) {
+                    TextButton(onClick = { onThemeModeChange(ThemeMode.LIGHT) }) {
+                        Text(if (themeMode == ThemeMode.LIGHT) "● Light" else "○ Light")
+                    }
+                    TextButton(onClick = { onThemeModeChange(ThemeMode.DARK) }) {
+                        Text(if (themeMode == ThemeMode.DARK) "● Dark" else "○ Dark")
+                    }
+                    TextButton(onClick = { onThemeModeChange(ThemeMode.SYSTEM) }) {
+                        Text(if (themeMode == ThemeMode.SYSTEM) "● System" else "○ System")
                     }
                 }
             }

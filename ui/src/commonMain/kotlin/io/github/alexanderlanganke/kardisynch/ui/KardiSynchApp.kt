@@ -30,6 +30,7 @@ import io.github.alexanderlanganke.kardisynch.ui.onboarding.OnboardingScreen
 import io.github.alexanderlanganke.kardisynch.ui.orphans.OrphanedVisitsScreen
 import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
+import io.github.alexanderlanganke.kardisynch.ui.theme.ThemeMode
 import io.github.alexanderlanganke.kardisynch.core.aliases.AliasKind
 import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
 import io.github.alexanderlanganke.kardisynch.core.aliases.LeadAliasAttrs
@@ -55,11 +56,11 @@ private sealed interface Screen {
  * doc comment).
  *
  * Theming follows the system light/dark setting (issue #196) via Material3's
- * built-in [isSystemInDarkTheme] — Electron's version has a manual
- * light/dark/system toggle with its own persisted override
- * (`ThemeProvider.tsx`); only the "system" behavior is ported here, not a
- * user-facing override, since Compose's default already covers the common
- * case and a manual toggle is closer to new feature work than a port.
+ * built-in [isSystemInDarkTheme] by default, with an optional manual
+ * [themeMode] override (parity plan Phase 3) — mirrors Electron's
+ * `ThemeProvider.tsx`. [onThemeModeChange] is null-gated like every other
+ * platform-bridged capability here; the platform layer owns persisting the
+ * choice (there's no settings-persistence primitive in commonMain).
  *
  * [appVersion]/[notificationMessage] surface two more app-shell pieces
  * (issue #196): a version line in Settings' new "About" section, and a
@@ -114,6 +115,8 @@ fun KardiSynchApp(
     onUpsertLeadTypeAlias: (suspend (manufacturer: String, model: String, attrs: LeadAliasAttrs) -> Result<Unit>)? = null,
     onDeleteDeviceTypeAlias: (suspend (manufacturer: String, model: String, kind: AliasKind) -> Result<Unit>)? = null,
     onDeleteReport: ((reportId: String) -> Unit)? = null,
+    themeMode: ThemeMode = ThemeMode.SYSTEM,
+    onThemeModeChange: ((ThemeMode) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -122,7 +125,12 @@ fun KardiSynchApp(
         notificationMessage?.let { snackbarHostState.showSnackbar(it) }
     }
 
-    val colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
+    val useDarkTheme = when (themeMode) {
+        ThemeMode.LIGHT -> false
+        ThemeMode.DARK -> true
+        ThemeMode.SYSTEM -> isSystemInDarkTheme()
+    }
+    val colorScheme = if (useDarkTheme) darkColorScheme() else lightColorScheme()
 
     MaterialTheme(colorScheme = colorScheme) {
         if (showOnboarding && onOnboardingFinish != null && onOnboardingSkip != null) {
@@ -203,6 +211,8 @@ fun KardiSynchApp(
                     null
                 },
                 appVersion = appVersion,
+                themeMode = themeMode,
+                onThemeModeChange = onThemeModeChange,
             )
 
             is Screen.PendingSort -> PendingSortScreen(

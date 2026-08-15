@@ -44,10 +44,14 @@ import io.github.alexanderlanganke.kardisynch.data.DatabaseDriverFactory
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.resolveReportsRootHandle
 import io.github.alexanderlanganke.kardisynch.ui.KardiSynchApp
+import io.github.alexanderlanganke.kardisynch.ui.theme.ThemeMode
+import io.github.alexanderlanganke.kardisynch.ui.theme.parseThemeMode
+import io.github.alexanderlanganke.kardisynch.ui.theme.toSettingValue
 import kotlinx.coroutines.launch
 
 private const val SETTING_DATA_ROOT = "dataRootPath"
 private const val SETTING_ONBOARDING_COMPLETED = "onboardingCompleted"
+private const val SETTING_THEME_MODE = "themeMode"
 
 /** Kept in sync by hand with the desktop actual's own `APP_VERSION` — see its doc comment for why there's no build-time injection wired up yet. */
 private const val APP_VERSION = "0.1.0"
@@ -88,6 +92,7 @@ class MainActivity : ComponentActivity() {
             var showOnboarding by remember { mutableStateOf(false) }
             var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
             var qrDialogImage by remember { mutableStateOf<ImageBitmap?>(null) }
+            var themeMode by remember { mutableStateOf(ThemeMode.DARK) }
             val todayIso = remember { java.time.LocalDate.now().toString() }
             var hasCameraPermission by remember {
                 mutableStateOf(ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
@@ -96,6 +101,7 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 dataRoot = repository.getSetting(SETTING_DATA_ROOT)
                 showOnboarding = repository.getSetting(SETTING_ONBOARDING_COMPLETED) != "true"
+                themeMode = parseThemeMode(repository.getSetting(SETTING_THEME_MODE))
             }
 
             fun runReindex(root: String) {
@@ -348,6 +354,11 @@ class MainActivity : ComponentActivity() {
                                 scope.launch { repository.setSetting(SETTING_ONBOARDING_COMPLETED, "true") }
                             },
                             todayIso = todayIso,
+                            themeMode = themeMode,
+                            onThemeModeChange = { mode ->
+                                themeMode = mode
+                                scope.launch { repository.setSetting(SETTING_THEME_MODE, mode.toSettingValue()) }
+                            },
                         )
 
                         qrDialogImage?.let { bitmap ->
