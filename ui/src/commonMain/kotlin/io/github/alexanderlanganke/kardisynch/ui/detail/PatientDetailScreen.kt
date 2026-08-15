@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -25,6 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
+import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
@@ -34,7 +37,9 @@ import io.github.alexanderlanganke.kardisynch.data.db.Reports
  * Patient identity + reports (each expandable to its device/leads) — the
  * Phase 1 read-only detail screen. [onExportQr] is desktop-only (issue
  * #199 — Android only scans/imports a follow-up QR, it doesn't render one)
- * — pass null to hide the export action.
+ * — pass null to hide the export action. [onOpenUrl] is likewise
+ * platform-specific (issue #175's "MRI check" link, opened in the system
+ * browser) — pass null to hide that action too.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +48,7 @@ fun PatientDetailScreen(
     patientId: String,
     onBack: () -> Unit,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)? = null,
+    onOpenUrl: ((String) -> Unit)? = null,
 ) {
     val patient by produceStateOrNull { repository.getPatientById(patientId) }
     val reports by repository.observeReportsForPatient(patientId).collectAsState(initial = null)
@@ -56,21 +62,47 @@ fun PatientDetailScreen(
         },
     ) { padding ->
         val currentReports = reports
-        when {
-            currentReports == null -> Column(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+            // Read-only display of whatever's cached in patient.xml — this
+            // app (KMP or the original Electron one) never computes this
+            // itself, see core.mri.ManufacturerWarningStatus's doc comment.
+            parseManufacturerWarningStatus(patient?.manufacturerWarningStatus)
+                ?.takeIf { it.status == "advisory" || it.status == "recall" }
+                ?.let { warning ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp, 8.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                if (warning.status == "recall") "Manufacturer recall posted" else "Manufacturer advisory posted",
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            if (warning.details.isNotBlank()) Text(warning.details, style = MaterialTheme.typography.bodySmall)
+                            val warningLink = warning.link
+                            if (warningLink != null && onOpenUrl != null) {
+                                TextButton(onClick = { onOpenUrl(warningLink) }) { Text("View details") }
+                            }
+                        }
+                    }
+                }
 
-            currentReports.isEmpty() -> Column(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) { Text("No visits on record for this patient.") }
+            when {
+                currentReports == null -> Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) { CircularProgressIndicator() }
 
-            else -> LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
-                items(currentReports, key = { it.id }) { report -> ReportCard(repository, report, onExportQr) }
+                currentReports.isEmpty() -> Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) { Text("No visits on record for this patient.") }
+
+                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(currentReports, key = { it.id }) { report -> ReportCard(repository, report, onExportQr, onOpenUrl) }
+                }
             }
         }
     }
@@ -81,6 +113,7 @@ private fun ReportCard(
     repository: KardiSynchRepository,
     report: Reports,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
+    onOpenUrl: ((String) -> Unit)?,
 ) {
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
@@ -108,6 +141,11 @@ private fun ReportCard(
             if (onExportQr != null) {
                 TextButton(onClick = { onExportQr(report, devices ?: emptyList(), leads ?: emptyList()) }) {
                     Text("Export QR")
+                }
+            }
+            if (onOpenUrl != null) {
+                mriCheckUrl(report.manufacturer)?.let { url ->
+                    TextButton(onClick = { onOpenUrl(url) }) { Text("Check MRI compatibility") }
                 }
             }
         }

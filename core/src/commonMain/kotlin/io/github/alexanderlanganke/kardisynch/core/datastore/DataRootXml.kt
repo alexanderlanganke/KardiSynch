@@ -23,12 +23,29 @@ import io.github.alexanderlanganke.kardisynch.core.xml.XmlParser
  * (built from `visit.xml`, which this file also reads) instead.
  */
 
+/**
+ * [mriStatus]/[manufacturerWarningStatus] are opaque JSON blobs (raw XML
+ * text, not further decoded here) — Electron's own `generatePatientXML`/
+ * `refreshVisitMetadata` (issue #175) only ever pass these through
+ * verbatim too; nothing in the original app actually *computes* an MRI
+ * status (its "MRI check" UI is just a link to the manufacturer's own web
+ * tool, see [io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl])
+ * or a live manufacturer-warning lookup. Kept here purely so a KMP client
+ * editing a patient Electron already cached one of these for doesn't
+ * silently wipe it out — see
+ * [io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus]
+ * for the one field ([manufacturerWarningStatus]) that has a real UI consumer.
+ */
 data class IndexedPatient(
     val id: String,
     val firstName: String,
     val lastName: String,
     val dob: String,
     val hospitalPatientId: String?,
+    val mriStatus: String? = null,
+    val mriDataHash: String? = null,
+    val manufacturerWarningStatus: String? = null,
+    val manufacturerWarningHash: String? = null,
 )
 
 data class IndexedReport(
@@ -48,6 +65,10 @@ fun parsePatientXml(xml: String): IndexedPatient? {
         lastName = root.child("last_name")?.text ?: "",
         dob = root.child("dob")?.text ?: "",
         hospitalPatientId = root.child("hospitalPatientId")?.text?.takeIf { it.isNotEmpty() },
+        mriStatus = root.child("mri_status")?.text?.takeIf { it.isNotEmpty() },
+        mriDataHash = root.child("mri_data_hash")?.text?.takeIf { it.isNotEmpty() },
+        manufacturerWarningStatus = root.child("manufacturer_warning_status")?.text?.takeIf { it.isNotEmpty() },
+        manufacturerWarningHash = root.child("manufacturer_warning_hash")?.text?.takeIf { it.isNotEmpty() },
     )
 }
 

@@ -280,6 +280,13 @@ fun main() = application {
                     pendingSortRefreshTrigger++
                 }
             },
+            onOpenUrl = { url ->
+                try {
+                    java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+                } catch (e: Exception) {
+                    lastReindexSummary = "Couldn't open $url: ${e.message}"
+                }
+            },
         )
 
         qrDialogImage?.let { bitmap ->

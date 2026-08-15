@@ -22,6 +22,30 @@ class DataRootXmlWriterTest {
     }
 
     @Test
+    fun `patient xml round-trips the MRI and manufacturer-warning cache fields`() {
+        val xml = generatePatientXml(
+            id = "patient-1", firstName = "Jane", lastName = "Doe", dob = "1970-05-05", hospitalPatientId = null,
+            mriStatus = """{"foo":"bar"}""", mriDataHash = "hash-1",
+            manufacturerWarningStatus = """{"status":"advisory","details":"Battery advisory"}""", manufacturerWarningHash = "hash-2",
+        )
+        val parsed = parsePatientXml(xml)
+        assertEquals("""{"foo":"bar"}""", parsed?.mriStatus)
+        assertEquals("hash-1", parsed?.mriDataHash)
+        assertEquals("""{"status":"advisory","details":"Battery advisory"}""", parsed?.manufacturerWarningStatus)
+        assertEquals("hash-2", parsed?.manufacturerWarningHash)
+    }
+
+    @Test
+    fun `patient xml omits the MRI and manufacturer-warning fields entirely when null, not as empty elements`() {
+        val xml = generatePatientXml(id = "p1", firstName = "A", lastName = "B", dob = "2000-01-01", hospitalPatientId = null)
+        assertEquals(false, xml.contains("mri_status"))
+        assertEquals(false, xml.contains("manufacturer_warning_status"))
+        val parsed = parsePatientXml(xml)
+        assertEquals(null, parsed?.mriStatus)
+        assertEquals(null, parsed?.manufacturerWarningStatus)
+    }
+
+    @Test
     fun `patient xml omits hospitalPatientId element when null, round-tripping to null not empty string`() {
         val xml = generatePatientXml(id = "p1", firstName = "A", lastName = "B", dob = "2000-01-01", hospitalPatientId = null)
         val parsed = parsePatientXml(xml)

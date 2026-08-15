@@ -21,7 +21,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
 
@@ -81,6 +83,17 @@ private fun PatientRow(patient: Patients, onClick: () -> Unit) {
             Column {
                 Text("${patient.lastName}, ${patient.firstName ?: ""}", style = MaterialTheme.typography.titleMedium)
                 Text("DOB: ${patient.dob}", style = MaterialTheme.typography.bodySmall)
+                // Read-only display of whatever's cached in patient.xml — see
+                // core.mri.ManufacturerWarningStatus's doc comment (issue #175).
+                parseManufacturerWarningStatus(patient.manufacturerWarningStatus)
+                    ?.takeIf { it.status == "advisory" || it.status == "recall" }
+                    ?.let { warning ->
+                        Text(
+                            if (warning.status == "recall") "Manufacturer recall posted" else "Manufacturer advisory posted",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFB3261E),
+                        )
+                    }
             }
         }
     }

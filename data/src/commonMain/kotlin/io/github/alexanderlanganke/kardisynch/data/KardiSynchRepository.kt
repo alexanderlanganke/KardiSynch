@@ -19,6 +19,7 @@ import io.github.alexanderlanganke.kardisynch.core.datastore.DataRootWriter
 import io.github.alexanderlanganke.kardisynch.core.datastore.IndexedReport
 import io.github.alexanderlanganke.kardisynch.core.datastore.generatePatientXml
 import io.github.alexanderlanganke.kardisynch.core.datastore.generateVisitXml
+import io.github.alexanderlanganke.kardisynch.core.datastore.parsePatientXml
 import io.github.alexanderlanganke.kardisynch.core.datastore.parseVisitXml
 import io.github.alexanderlanganke.kardisynch.core.lock.DirectoryLock
 import io.github.alexanderlanganke.kardisynch.core.lock.NoOpDirectoryLock
@@ -390,6 +391,12 @@ class KardiSynchRepository(
      * Updates a patient's identity fields — mirrors Electron's
      * `updatePatientXML` (the patient-info-editing write path; issue #177).
      * Rewrites `patient.xml` and the local index row.
+     *
+     * Reads the existing `patient.xml` first and carries its MRI/
+     * manufacturer-warning cache fields forward unchanged (issue #175) —
+     * [generatePatientXml] otherwise defaults them to absent, which would
+     * silently wipe out whatever an Electron client had already cached
+     * there the moment a KMP client edits this patient's name/DOB.
      */
     suspend fun updatePatientInfo(
         reader: DataRootReader,
@@ -406,7 +413,15 @@ class KardiSynchRepository(
             val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId)
                 ?: return@withContext Result.failure(IllegalStateException("Patient $patientId directory not found"))
             lock.withLock(patientDirHandle, "updatePatientInfo:patientId=$patientId") {
-                val xml = generatePatientXml(patientId, firstName, lastName, dob, hospitalPatientId)
+                val existing = reader.listChildren(patientDirHandle)
+                    .firstOrNull { !it.isDirectory && it.name == "patient.xml" }
+                    ?.let { reader.readText(it.handle) }
+                    ?.let { parsePatientXml(it) }
+                val xml = generatePatientXml(
+                    patientId, firstName, lastName, dob, hospitalPatientId,
+                    mriStatus = existing?.mriStatus, mriDataHash = existing?.mriDataHash,
+                    manufacturerWarningStatus = existing?.manufacturerWarningStatus, manufacturerWarningHash = existing?.manufacturerWarningHash,
+                )
                 if (!writer.writeTextFile(patientDirHandle, "patient.xml", xml)) {
                     return@withLock Result.failure(IllegalStateException("Failed to write patient.xml"))
                 }
@@ -989,10 +1004,10 @@ class KardiSynchRepository(
                     lastNameKey = patient.lastName.trim().lowercase(),
                     dob = patient.dob,
                     hospitalPatientId = patient.hospitalPatientId,
-                    mriStatus = null,
-                    mriDataHash = null,
-                    manufacturerWarningStatus = null,
-                    manufacturerWarningHash = null,
+                    mriStatus = patient.mriStatus,
+                    mriDataHash = patient.mriDataHash,
+                    manufacturerWarningStatus = patient.manufacturerWarningStatus,
+                    manufacturerWarningHash = patient.manufacturerWarningHash,
                     lastIndexedMtime = null,
                 )
             }

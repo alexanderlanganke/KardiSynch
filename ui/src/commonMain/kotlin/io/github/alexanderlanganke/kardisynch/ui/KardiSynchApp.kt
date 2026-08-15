@@ -53,6 +53,7 @@ fun KardiSynchApp(
     pendingSortRefreshKey: Any = Unit,
     onApprovePendingSort: ((taskId: String, patientId: String) -> Unit)? = null,
     onDismissPendingSort: ((taskId: String) -> Unit)? = null,
+    onOpenUrl: ((String) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
 
@@ -69,6 +70,7 @@ fun KardiSynchApp(
                 patientId = current.patientId,
                 onBack = { screen = Screen.Dashboard },
                 onExportQr = onExportQr,
+                onOpenUrl = onOpenUrl,
             )
 
             is Screen.Settings -> SettingsScreen(

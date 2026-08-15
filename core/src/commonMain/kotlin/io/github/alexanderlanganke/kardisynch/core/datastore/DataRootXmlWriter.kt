@@ -17,7 +17,27 @@ import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
  * creates a brand new visit directory, never rewrites an existing one).
  */
 
-fun generatePatientXml(id: String, firstName: String, lastName: String, dob: String, hospitalPatientId: String?): String {
+/**
+ * [mriStatus]/[mriDataHash]/[manufacturerWarningStatus]/[manufacturerWarningHash]
+ * (issue #175) should always be whatever [io.github.alexanderlanganke.kardisynch.core.datastore.IndexedPatient]
+ * already had for this patient — callers that don't have a reason to
+ * change them should read the existing `patient.xml` first (via
+ * [parsePatientXml]) and pass its values straight through, the same way
+ * Electron's `refreshVisitMetadata` preserves them across every rewrite.
+ * Nothing computes a real value for either field anywhere in this app
+ * (see [IndexedPatient]'s doc comment) — this is pass-through-only.
+ */
+fun generatePatientXml(
+    id: String,
+    firstName: String,
+    lastName: String,
+    dob: String,
+    hospitalPatientId: String?,
+    mriStatus: String? = null,
+    mriDataHash: String? = null,
+    manufacturerWarningStatus: String? = null,
+    manufacturerWarningHash: String? = null,
+): String {
     val sb = StringBuilder()
     sb.append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
     sb.append("<patient>\n")
@@ -27,6 +47,14 @@ fun generatePatientXml(id: String, firstName: String, lastName: String, dob: Str
     sb.append("  <dob>${xmlEscapeText(dob)}</dob>\n")
     if (!hospitalPatientId.isNullOrEmpty()) {
         sb.append("  <hospitalPatientId>${xmlEscapeText(hospitalPatientId)}</hospitalPatientId>\n")
+    }
+    if (!mriStatus.isNullOrEmpty()) sb.append("  <mri_status>${xmlEscapeText(mriStatus)}</mri_status>\n")
+    if (!mriDataHash.isNullOrEmpty()) sb.append("  <mri_data_hash>${xmlEscapeText(mriDataHash)}</mri_data_hash>\n")
+    if (!manufacturerWarningStatus.isNullOrEmpty()) {
+        sb.append("  <manufacturer_warning_status>${xmlEscapeText(manufacturerWarningStatus)}</manufacturer_warning_status>\n")
+    }
+    if (!manufacturerWarningHash.isNullOrEmpty()) {
+        sb.append("  <manufacturer_warning_hash>${xmlEscapeText(manufacturerWarningHash)}</manufacturer_warning_hash>\n")
     }
     sb.append("</patient>\n")
     return sb.toString()

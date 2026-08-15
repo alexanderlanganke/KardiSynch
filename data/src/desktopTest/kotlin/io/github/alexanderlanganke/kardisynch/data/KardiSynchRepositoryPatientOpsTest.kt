@@ -68,6 +68,51 @@ class KardiSynchRepositoryPatientOpsTest {
     }
 
     @Test
+    fun `updatePatientInfo preserves an existing MRI-manufacturer-warning cache instead of wiping it (issue 175)`() = runBlocking {
+        val outcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Testpatient", "1970-03-15", "S1")).getOrThrow()
+
+        // Simulate an Electron client having already cached these fields —
+        // rewrite patient.xml directly, bypassing the KMP write path.
+        val cachedXml = io.github.alexanderlanganke.kardisynch.core.datastore.generatePatientXml(
+            outcome.patientId, "Max", "Testpatient", "1970-03-15", null,
+            mriStatus = """{"foo":"bar"}""", mriDataHash = "hash-1",
+            manufacturerWarningStatus = """{"status":"advisory","details":"Battery advisory"}""", manufacturerWarningHash = "hash-2",
+        )
+        File(outcome.patientDirHandle, "patient.xml").writeText(cachedXml)
+
+        repository.updatePatientInfo(
+            reader, writer, reportsRoot, outcome.patientId,
+            firstName = "Maxine", lastName = "Correctname", dob = "1970-03-16", hospitalPatientId = null,
+        ).getOrThrow()
+
+        val xml = File(outcome.patientDirHandle, "patient.xml").readText()
+        assertTrue(xml.contains("Correctname"), "the actual edit still applies")
+        assertTrue(xml.contains("""{"foo":"bar"}"""), "mri_status preserved, not wiped")
+        assertTrue(xml.contains("hash-1"), "mri_data_hash preserved")
+        assertTrue(xml.contains("advisory"), "manufacturer_warning_status preserved")
+        assertTrue(xml.contains("hash-2"), "manufacturer_warning_hash preserved")
+    }
+
+    @Test
+    fun `reindexFrom populates the MRI-manufacturer-warning cache columns from patient xml`() = runBlocking {
+        val outcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Testpatient", "1970-03-15", "S1")).getOrThrow()
+        val cachedXml = io.github.alexanderlanganke.kardisynch.core.datastore.generatePatientXml(
+            outcome.patientId, "Max", "Testpatient", "1970-03-15", null,
+            mriStatus = """{"foo":"bar"}""", mriDataHash = "hash-1",
+            manufacturerWarningStatus = """{"status":"recall"}""", manufacturerWarningHash = "hash-2",
+        )
+        File(outcome.patientDirHandle, "patient.xml").writeText(cachedXml)
+
+        repository.reindexFrom(reader, reportsRoot)
+
+        val patient = repository.getPatientById(outcome.patientId)
+        assertEquals("""{"foo":"bar"}""", patient?.mriStatus)
+        assertEquals("hash-1", patient?.mriDataHash)
+        assertEquals("""{"status":"recall"}""", patient?.manufacturerWarningStatus)
+        assertEquals("hash-2", patient?.manufacturerWarningHash)
+    }
+
+    @Test
     fun `moveReport relocates the visit directory and repoints the index`() = runBlocking {
         val fromOutcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Alpha", "1970-01-01", "S1")).getOrThrow()
         val toOutcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Beta", "1970-02-02", "S2")).getOrThrow()
