@@ -1,5 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.ui.dashboard
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,30 +33,30 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.matching.PatientSummary
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
+import io.github.alexanderlanganke.kardisynch.core.mri.warningUrgencyRank
 import io.github.alexanderlanganke.kardisynch.core.util.daysBetweenIsoDates
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
 
 private const val NOTABLE_DAYS_SINCE_VISIT = 180
 
+/** Matches the manufacturer set Electron's dashboard filter and Settings' automation cards both use. */
+private val KNOWN_MANUFACTURERS = listOf("Medtronic", "Biotronik", "Abbott", "Boston Scientific", "Impulse Dynamics", "MicroPort")
+
 /**
- * Patient list — search, sort, and per-patient stats ported from
- * `PatientDashboard.tsx` (issue #197). Scoped down from the original:
- * search is by name/hospital ID only (the original's DOB/manufacturer
- * filter panel isn't ported — small, but a separate UI surface, deferred);
- * sort is a 2-way Name/Last-visit toggle rather than 7 clickable column
- * headers with a warning-status rank (the underlying data — every column
- * value — is all still shown per row, just not literally sortable by every
- * field); and search/sort state isn't persisted across navigation (the
- * original keeps it in `sessionStorage`) since this port has no
- * equivalent scoped storage yet — a real but minor UX regression, not a
- * missing capability.
+ * Patient list — search, filter, sort, and per-patient stats ported from
+ * `PatientDashboard.tsx` (issues #197 and, for the advanced filter panel/
+ * urgency sort/state persistence, the follow-up UI-parity plan's Phase 4).
+ * Sort is exposed as a horizontally-scrollable row of clickable field chips
+ * rather than literal clickable table-column headers (this screen is a
+ * card list, not a grid) — same 7 sortable fields as the original,
+ * including the warning-status urgency rank. [filterState]/[onFilterStateChange]
+ * are hoisted to the app shell so this state survives navigating to Patient
+ * Detail and back, mirroring Electron's `sessionStorage` persistence.
  *
  * [todayIso] (`YYYY-MM-DD`) drives the "N days ago" / notable-staleness
  * highlight — commonMain has no platform clock, so the platform layer
- * supplies it (same pattern as [io.github.alexanderlanganke.kardisynch.core.util.daysBetweenIsoDates]'s
- * other callers elsewhere in this port). Passing null hides that line
- * entirely rather than guessing.
+ * supplies it. Passing null hides that line entirely rather than guessing.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,17 +64,21 @@ fun PatientDashboardScreen(
     repository: KardiSynchRepository,
     onOpenPatient: (String) -> Unit,
     onOpenSettings: () -> Unit,
+    filterState: DashboardFilterState,
+    onFilterStateChange: (DashboardFilterState) -> Unit,
     onOpenDeviceNews: (() -> Unit)? = null,
     onOpenPatientFolder: ((patientId: String) -> Unit)? = null,
     todayIso: String? = null,
 ) {
     val patients by repository.observePatients().collectAsState(initial = null)
     var summaries by remember { mutableStateOf<List<PatientSummary>>(emptyList()) }
-    var query by remember { mutableStateOf("") }
-    var sortByLastVisit by remember { mutableStateOf(false) }
+    var deviceInfo by remember { mutableStateOf<Map<String, KardiSynchRepository.PatientDeviceSummary>>(emptyMap()) }
 
     LaunchedEffect(patients) {
-        if (patients != null) summaries = repository.getPatientsWithSerials()
+        if (patients != null) {
+            summaries = repository.getPatientsWithSerials()
+            deviceInfo = repository.getPatientsLatestDeviceInfo().associateBy { it.patientId }
+        }
     }
 
     Scaffold(
@@ -106,38 +112,105 @@ fun PatientDashboardScreen(
 
             else -> Column(modifier = Modifier.fillMaxSize().padding(padding)) {
                 Column(modifier = Modifier.fillMaxWidth().padding(12.dp, 8.dp)) {
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        label = { Text("Search by name or hospital ID") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                    )
-                    Row(modifier = Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        FilterChip(selected = !sortByLastVisit, onClick = { sortByLastVisit = false }, label = { Text("Sort: Name") })
-                        FilterChip(selected = sortByLastVisit, onClick = { sortByLastVisit = true }, label = { Text("Sort: Last visit") })
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = filterState.query,
+                            onValueChange = { onFilterStateChange(filterState.copy(query = it)) },
+                            label = { Text("Search by name or hospital ID") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                        )
+                        TextButton(onClick = { onFilterStateChange(filterState.copy(filterPanelExpanded = !filterState.filterPanelExpanded)) }) {
+                            Text(if (filterState.filterPanelExpanded) "Hide filters" else "Filters")
+                        }
+                    }
+
+                    if (filterState.filterPanelExpanded) {
+                        Card(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                OutlinedTextField(
+                                    value = filterState.dobFilter,
+                                    onValueChange = { onFilterStateChange(filterState.copy(dobFilter = it)) },
+                                    label = { Text("Date of birth (exact, YYYY-MM-DD)") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
+                                OutlinedTextField(
+                                    value = filterState.patientIdFilter,
+                                    onValueChange = { onFilterStateChange(filterState.copy(patientIdFilter = it)) },
+                                    label = { Text("Patient ID (internal)") },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    singleLine = true,
+                                )
+                                OutlinedTextField(
+                                    value = filterState.hospitalMrnFilter,
+                                    onValueChange = { onFilterStateChange(filterState.copy(hospitalMrnFilter = it)) },
+                                    label = { Text("Hospital MRN") },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                    singleLine = true,
+                                )
+                                Text("Device manufacturer", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(top = 12.dp))
+                                Row(modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    FilterChip(
+                                        selected = filterState.manufacturerFilter == null,
+                                        onClick = { onFilterStateChange(filterState.copy(manufacturerFilter = null)) },
+                                        label = { Text("All") },
+                                    )
+                                    KNOWN_MANUFACTURERS.forEach { manufacturer ->
+                                        FilterChip(
+                                            selected = filterState.manufacturerFilter == manufacturer,
+                                            onClick = { onFilterStateChange(filterState.copy(manufacturerFilter = manufacturer)) },
+                                            label = { Text(manufacturer) },
+                                        )
+                                    }
+                                }
+                                TextButton(
+                                    onClick = { onFilterStateChange(filterState.copy(dobFilter = "", patientIdFilter = "", hospitalMrnFilter = "", manufacturerFilter = null)) },
+                                    modifier = Modifier.padding(top = 8.dp),
+                                ) { Text("Clear filters") }
+                            }
+                        }
+                    }
+
+                    Row(modifier = Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        SortFieldChip("Name", DashboardSortField.NAME, filterState, onFilterStateChange)
+                        SortFieldChip("DOB", DashboardSortField.DOB, filterState, onFilterStateChange)
+                        SortFieldChip("Hospital ID", DashboardSortField.HOSPITAL_ID, filterState, onFilterStateChange)
+                        SortFieldChip("Manufacturer", DashboardSortField.MANUFACTURER, filterState, onFilterStateChange)
+                        SortFieldChip("Model", DashboardSortField.MODEL, filterState, onFilterStateChange)
+                        SortFieldChip("Last visit", DashboardSortField.LAST_VISIT, filterState, onFilterStateChange)
+                        SortFieldChip("Warning", DashboardSortField.WARNING_URGENCY, filterState, onFilterStateChange)
                     }
                 }
 
                 val bySummaryId = summaries.associateBy { it.id }
-                val q = query.trim().lowercase()
+                val q = filterState.query.trim().lowercase()
                 val filtered = current.filter { p ->
-                    q.isEmpty() ||
+                    (q.isEmpty() ||
                         "${p.lastName} ${p.firstName.orEmpty()}".lowercase().contains(q) ||
-                        p.hospitalPatientId?.lowercase()?.contains(q) == true
+                        p.hospitalPatientId?.lowercase()?.contains(q) == true) &&
+                        (filterState.dobFilter.isBlank() || p.dob == filterState.dobFilter.trim()) &&
+                        (filterState.patientIdFilter.isBlank() || p.id.contains(filterState.patientIdFilter.trim(), ignoreCase = true)) &&
+                        (filterState.hospitalMrnFilter.isBlank() || p.hospitalPatientId?.contains(filterState.hospitalMrnFilter.trim(), ignoreCase = true) == true) &&
+                        (filterState.manufacturerFilter == null || deviceInfo[p.id]?.manufacturer == filterState.manufacturerFilter)
                 }
-                val sorted = if (sortByLastVisit) {
-                    filtered.sortedByDescending { bySummaryId[it.id]?.lastReportDate.orEmpty() }
-                } else {
-                    filtered.sortedWith(compareBy({ it.lastName.lowercase() }, { it.firstName.orEmpty().lowercase() }))
+                val comparator: Comparator<Patients> = when (filterState.sortField) {
+                    DashboardSortField.NAME -> compareBy({ it.lastName.lowercase() }, { it.firstName.orEmpty().lowercase() })
+                    DashboardSortField.DOB -> compareBy { it.dob }
+                    DashboardSortField.HOSPITAL_ID -> compareBy { it.hospitalPatientId.orEmpty().lowercase() }
+                    DashboardSortField.MANUFACTURER -> compareBy { deviceInfo[it.id]?.manufacturer.orEmpty().lowercase() }
+                    DashboardSortField.MODEL -> compareBy { deviceInfo[it.id]?.deviceModel.orEmpty().lowercase() }
+                    DashboardSortField.LAST_VISIT -> compareBy { bySummaryId[it.id]?.lastReportDate.orEmpty() }
+                    DashboardSortField.WARNING_URGENCY -> compareBy { warningUrgencyRank(it.manufacturerWarningStatus) }
                 }
+                val sorted = filtered.sortedWith(if (filterState.sortAscending) comparator else comparator.reversed())
 
                 if (sorted.isEmpty()) {
                     Column(
                         modifier = Modifier.fillMaxSize(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
-                    ) { Text("No patients match \"$query\".", style = MaterialTheme.typography.bodyMedium) }
+                    ) { Text("No patients match the current search/filters.", style = MaterialTheme.typography.bodyMedium) }
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(sorted, key = { it.id }) { patient ->
@@ -154,6 +227,29 @@ fun PatientDashboardScreen(
             }
         }
     }
+}
+
+@Composable
+private fun SortFieldChip(
+    label: String,
+    field: DashboardSortField,
+    filterState: DashboardFilterState,
+    onFilterStateChange: (DashboardFilterState) -> Unit,
+) {
+    val isActive = filterState.sortField == field
+    FilterChip(
+        selected = isActive,
+        onClick = {
+            onFilterStateChange(
+                if (isActive) {
+                    filterState.copy(sortAscending = !filterState.sortAscending)
+                } else {
+                    filterState.copy(sortField = field, sortAscending = true)
+                },
+            )
+        },
+        label = { Text(if (isActive) "$label ${if (filterState.sortAscending) "▲" else "▼"}" else label) },
+    )
 }
 
 @Composable

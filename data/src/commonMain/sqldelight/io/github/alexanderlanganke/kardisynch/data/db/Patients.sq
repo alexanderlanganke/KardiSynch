@@ -44,6 +44,18 @@ FROM Patients p
 LEFT JOIN Reports r ON p.id = r.patientId
 GROUP BY p.id;
 
+-- Each patient's most recent report's manufacturer/model (issue #197's
+-- dashboard manufacturer filter and sortable Manufacturer/Model columns) —
+-- a correlated subquery rather than a MAX()-per-group join, since we need
+-- the *paired* manufacturer+model of the single latest report, not the
+-- independently-latest value of each column.
+selectPatientsWithLatestDevice:
+SELECT
+  p.id AS id,
+  (SELECT r.manufacturer FROM Reports r WHERE r.patientId = p.id ORDER BY r.interrogationDate DESC LIMIT 1) AS manufacturer,
+  (SELECT r.deviceModel FROM Reports r WHERE r.patientId = p.id ORDER BY r.interrogationDate DESC LIMIT 1) AS deviceModel
+FROM Patients p;
+
 -- Most recent patient associated with a device serial number (issue #173's
 -- import-identity ladder). Serial numbers are only unique per manufacturer,
 -- so the caller scopes by manufacturer when it's known — pass NULL to

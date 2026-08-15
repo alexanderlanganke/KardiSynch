@@ -28,3 +28,18 @@ fun parseManufacturerWarningStatus(raw: String?): ManufacturerWarningStatus? {
         null
     }
 }
+
+private val WARNING_URGENCY_RANK = mapOf("recall" to 0, "advisory" to 1, "manual_check" to 2, "safe" to 3)
+
+/**
+ * Ranks [raw] so sorting ascending surfaces the most clinically urgent
+ * patients first — ported from `PatientDashboard.tsx`'s `WARNING_SORT_ORDER`
+ * (issue #197's dashboard urgency sort). `manual_check`/`safe` are real
+ * `manufacturer_warning_status.status` values distinct from the
+ * `advisory`/`recall` pair [hasActiveManufacturerWarning] treats as active —
+ * an unset or unrecognized status ranks last (4).
+ */
+fun warningUrgencyRank(raw: String?): Int {
+    val status = parseManufacturerWarningStatus(raw)?.status ?: "unknown"
+    return WARNING_URGENCY_RANK[status] ?: 4
+}

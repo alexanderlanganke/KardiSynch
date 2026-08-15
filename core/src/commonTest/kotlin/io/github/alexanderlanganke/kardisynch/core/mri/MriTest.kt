@@ -52,4 +52,18 @@ class ManufacturerWarningStatusTest {
         assertFalse(hasActiveManufacturerWarning("""{"status":"manual_check"}"""))
         assertFalse(hasActiveManufacturerWarning(null))
     }
+
+    @Test
+    fun `warningUrgencyRank orders recall before advisory before manual_check before safe`() {
+        assertEquals(0, warningUrgencyRank("""{"status":"recall"}"""))
+        assertEquals(1, warningUrgencyRank("""{"status":"advisory"}"""))
+        assertEquals(2, warningUrgencyRank("""{"status":"manual_check"}"""))
+        assertEquals(3, warningUrgencyRank("""{"status":"safe"}"""))
+    }
+
+    @Test
+    fun `warningUrgencyRank ranks an unrecognized or missing status last`() {
+        assertEquals(4, warningUrgencyRank("""{"status":"something_else"}"""))
+        assertEquals(4, warningUrgencyRank(null))
+    }
 }

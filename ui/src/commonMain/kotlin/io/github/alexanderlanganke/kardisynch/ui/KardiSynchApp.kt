@@ -21,6 +21,7 @@ import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.aliases.AliasSettingsScreen
+import io.github.alexanderlanganke.kardisynch.ui.dashboard.DashboardFilterState
 import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScreen
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
 import io.github.alexanderlanganke.kardisynch.ui.duplicates.DuplicatesScreen
@@ -119,6 +120,7 @@ fun KardiSynchApp(
     onThemeModeChange: ((ThemeMode) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
+    var dashboardFilterState by remember { mutableStateOf(DashboardFilterState()) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(notificationKey) {
@@ -151,6 +153,8 @@ fun KardiSynchApp(
                 repository = repository,
                 onOpenPatient = { screen = Screen.Detail(it) },
                 onOpenSettings = { screen = Screen.Settings },
+                filterState = dashboardFilterState,
+                onFilterStateChange = { dashboardFilterState = it },
                 onOpenDeviceNews = deviceNewsService?.let { { screen = Screen.DeviceNews } },
                 onOpenPatientFolder = onOpenPatientFolder,
                 todayIso = todayIso,

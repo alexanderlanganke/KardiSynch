@@ -550,6 +550,15 @@ class KardiSynchRepository(
         }
     }
 
+    /** Each patient's most recent report's manufacturer/model — the Dashboard's manufacturer filter and sortable Manufacturer/Model columns (issue #197). */
+    data class PatientDeviceSummary(val patientId: String, val manufacturer: String?, val deviceModel: String?)
+
+    suspend fun getPatientsLatestDeviceInfo(): List<PatientDeviceSummary> = withContext(ioDispatcher) {
+        db.patientsQueries.selectPatientsWithLatestDevice().executeAsList().map { row ->
+            PatientDeviceSummary(patientId = row.id, manufacturer = row.manufacturer, deviceModel = row.deviceModel)
+        }
+    }
+
     /** Detects probable-duplicate patient records across the local index (issue #187) — see [findDuplicatePatientGroups] for the tier logic. */
     suspend fun findDuplicatePatients(): List<PatientDupGroup> = findDuplicatePatientGroups(getPatientsWithSerials())
 
