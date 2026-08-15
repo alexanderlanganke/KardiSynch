@@ -39,6 +39,7 @@ import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.util.ageInYears
+import io.github.alexanderlanganke.kardisynch.core.util.formatDelta
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
@@ -242,9 +243,15 @@ private fun PatientDetailContent(
                 TrendChart("Battery voltage trend", "V", trendPoints)
             }
             item { LeadTrendSection(repository, patientId) }
+            // reports is already sorted DESC (newest first) by the query
+            // that produced it, so the "previous" (older) visit for any
+            // given index is simply the next one — used for the delta
+            // display in each ReportCard (parity plan Phase 11's second
+            // deliverable, ported from FormattedReport.tsx's formatDelta).
+            val previousReportById = reports.mapIndexed { i, r -> r.id to reports.getOrNull(i + 1) }.toMap()
             items(reports, key = { it.id }) { report ->
                 ReportCard(
-                    repository, report, patient, onExportQr, onOpenUrl, onMoveReport, onDeleteReport,
+                    repository, report, patient, previousReportById[report.id], onExportQr, onOpenUrl, onMoveReport, onDeleteReport,
                     onEditReportDevicesAndLeads, onListDeviceTypeAliases, onEditPatientInfo, onRescanVisit,
                     onGetVisitFiles, onReadVisitFileBytes, onReadVisitFileText,
                 )
@@ -323,6 +330,7 @@ private fun ReportCard(
     repository: KardiSynchRepository,
     report: Reports,
     patient: Patients,
+    previousReport: Reports?,
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
     onOpenUrl: ((String) -> Unit)?,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
@@ -338,6 +346,7 @@ private fun ReportCard(
     val currentPatientId = patient.id
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
+    var previousLeads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
     var showMovePicker by remember(report.id) { mutableStateOf(false) }
     var showDeleteConfirm by remember(report.id) { mutableStateOf(false) }
     var showDeviceLeadEditor by remember(report.id) { mutableStateOf(false) }
@@ -351,6 +360,7 @@ private fun ReportCard(
     LaunchedEffect(report.id, reloadKey) {
         devices = repository.getDevicesForReport(report.id)
         leads = repository.getLeadsForReport(report.id)
+        previousLeads = previousReport?.let { repository.getLeadsForReport(it.id) }
     }
 
     if (showMovePicker && onMoveReport != null) {
@@ -422,12 +432,20 @@ private fun ReportCard(
             devices?.forEach { d ->
                 Text("Device: ${d.model} (${d.serialNumber}) — ${d.type}", style = MaterialTheme.typography.bodySmall)
             }
+            formatDelta(report.batteryVoltageValue, previousReport?.batteryVoltageValue, report.batteryVoltageUnit.orEmpty(), "Battery")?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
             leads?.forEach { l ->
+                // Matched to the previous visit's same-location lead — this port
+                // doesn't guarantee stable lead ordering across visits the way
+                // Electron's same-index comparison assumes, so location is the
+                // more reliable match key.
+                val previous = previousLeads?.firstOrNull { it.anatomicLocation != null && it.anatomicLocation == l.anatomicLocation }
                 val bits = listOfNotNull(
                     l.anatomicLocation,
-                    l.impedanceValue?.let { "Imp ${it}${l.impedanceUnit ?: ""}" },
-                    l.sensingValue?.let { "Sens ${it}${l.sensingUnit ?: ""}" },
-                    l.pacingThresholdValue?.let { "Thresh ${it}${l.pacingThresholdUnit ?: ""}" },
+                    formatDelta(l.impedanceValue, previous?.impedanceValue, l.impedanceUnit.orEmpty(), "Imp"),
+                    formatDelta(l.sensingValue, previous?.sensingValue, l.sensingUnit.orEmpty(), "Sens"),
+                    formatDelta(l.pacingThresholdValue, previous?.pacingThresholdValue, l.pacingThresholdUnit.orEmpty(), "Thresh"),
                 ).joinToString(" · ")
                 Text("Lead ${l.name}: $bits", style = MaterialTheme.typography.bodySmall)
             }
