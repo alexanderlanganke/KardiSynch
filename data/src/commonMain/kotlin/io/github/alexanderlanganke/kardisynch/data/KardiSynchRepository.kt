@@ -473,6 +473,42 @@ class KardiSynchRepository(
     }
 
     /**
+     * Deletes one visit — its on-disk directory under the owning patient
+     * plus its `Reports`/`Devices`/`Leads` index rows. `Reports.sq`'s
+     * `deleteReport` query existed with no repository wrapper until now
+     * (parity gap analysis, issue #202's UI-parity plan, Phase 1) — this is
+     * the first place either single-report or bulk deletion becomes
+     * reachable at all in this port.
+     */
+    suspend fun deleteReport(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        reportId: String,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val report = db.reportsQueries.selectReportById(reportId).executeAsOneOrNull()
+                ?: return@withContext Result.failure(IllegalStateException("Report $reportId not found"))
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, report.patientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient ${report.patientId} directory not found"))
+
+            lock.withLock(patientDirHandle, "deleteReport:reportId=$reportId") {
+                val visitDirHandle = reader.listChildren(patientDirHandle).firstOrNull { it.isDirectory && it.name.endsWith("_$reportId") }?.handle
+                if (visitDirHandle != null && !writer.deleteDirectory(visitDirHandle)) {
+                    return@withLock Result.failure(IllegalStateException("Failed to delete visit directory"))
+                }
+                db.devicesQueries.deleteDevicesForReport(reportId)
+                db.leadsQueries.deleteLeadsForReport(reportId)
+                db.reportsQueries.deleteReport(reportId)
+                Result.success(Unit)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Deletes a patient's `_DATA` directory entirely — mirrors Electron's
      * `removePatientDirectory` (issue #177), used after a merge has moved
      * all of a patient's visits away. Does not touch the local index row —

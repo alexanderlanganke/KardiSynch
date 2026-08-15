@@ -429,6 +429,64 @@ private fun startApp() = application {
                     duplicatesRefreshTrigger++
                 }
             },
+            onFindOrphanedVisits = {
+                val root = dataRoot
+                val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                if (reportsRoot == null) emptyList() else repository.findOrphanedVisits(reader, reportsRoot)
+            },
+            onMoveOrphanedVisits = { reportIds ->
+                val root = dataRoot
+                val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                if (reportsRoot == null) {
+                    KardiSynchRepository.OrphanMoveResult(0, listOf("No \"Reports\" folder found."))
+                } else {
+                    val result = repository.moveOrphanedVisits(reader, writer, reportsRoot, reportIds, lock)
+                    if (result.moved > 0) repository.reindexFrom(reader, reportsRoot)
+                    result
+                }
+            },
+            onListDeviceTypeAliases = {
+                val root = dataRoot
+                if (root == null) emptyList() else repository.listDeviceTypeAliases(reader, root)
+            },
+            onUpsertDeviceTypeAlias = { manufacturer, model, type ->
+                val root = dataRoot
+                if (root == null) {
+                    Result.failure(IllegalStateException("No _DATA folder set."))
+                } else {
+                    repository.upsertDeviceTypeAlias(reader, writer, root, manufacturer, model, type, java.time.Instant.now().toString())
+                }
+            },
+            onUpsertLeadTypeAlias = { manufacturer, model, attrs ->
+                val root = dataRoot
+                if (root == null) {
+                    Result.failure(IllegalStateException("No _DATA folder set."))
+                } else {
+                    repository.upsertLeadTypeAlias(reader, writer, root, manufacturer, model, attrs, java.time.Instant.now().toString())
+                }
+            },
+            onDeleteDeviceTypeAlias = { manufacturer, model, kind ->
+                val root = dataRoot
+                if (root == null) {
+                    Result.failure(IllegalStateException("No _DATA folder set."))
+                } else {
+                    repository.deleteDeviceTypeAlias(reader, writer, root, manufacturer, model, kind)
+                }
+            },
+            onDeleteReport = { reportId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to delete."
+                    } else {
+                        repository.deleteReport(reader, writer, reportsRoot, reportId, lock).fold(
+                            onSuccess = { "Visit deleted." },
+                            onFailure = { e -> "Failed to delete visit: ${e.message}" },
+                        )
+                    }
+                }
+            },
         )
 
         qrDialogImage?.let { bitmap ->

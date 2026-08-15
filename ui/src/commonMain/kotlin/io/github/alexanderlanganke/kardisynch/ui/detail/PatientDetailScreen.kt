@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -66,6 +67,7 @@ fun PatientDetailScreen(
     onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
     todayIso: String? = null,
+    onDeleteReport: ((reportId: String) -> Unit)? = null,
 ) {
     var retryToken by remember(patientId) { mutableStateOf(0) }
     val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
@@ -137,6 +139,7 @@ fun PatientDetailScreen(
                             onExportQr = onExportQr,
                             onOpenUrl = onOpenUrl,
                             onMoveReport = onMoveReport,
+                            onDeleteReport = onDeleteReport,
                         )
                     }
                 }
@@ -155,7 +158,11 @@ private fun PatientDetailContent(
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
     onOpenUrl: ((String) -> Unit)?,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
+    onDeleteReport: ((reportId: String) -> Unit)?,
 ) {
+    var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
+    LaunchedEffect(patientId) { latestDevice = repository.getLatestDeviceForPatient(patientId) }
+
     // Read-only display of whatever's cached in patient.xml — this app
     // (KMP or the original Electron one) never computes this itself, see
     // core.mri.ManufacturerWarningStatus's doc comment.
@@ -188,7 +195,7 @@ private fun PatientDetailContent(
         ) { CircularProgressIndicator() }
 
         reports.isEmpty() -> {
-            PatientSummaryChip(patient, reports, todayIso)
+            PatientSummaryChip(patient, reports, todayIso, latestDevice)
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -197,7 +204,7 @@ private fun PatientDetailContent(
         }
 
         else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item { PatientSummaryChip(patient, reports, todayIso) }
+            item { PatientSummaryChip(patient, reports, todayIso, latestDevice) }
             item {
                 val trendPoints = reports
                     .filter { it.batteryVoltageValue != null }
@@ -206,20 +213,21 @@ private fun PatientDetailContent(
                 BatteryTrendChart(trendPoints)
             }
             items(reports, key = { it.id }) { report ->
-                ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport)
+                ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport, onDeleteReport)
             }
         }
     }
 }
 
 @Composable
-private fun PatientSummaryChip(patient: Patients, reports: List<Reports>, todayIso: String?) {
+private fun PatientSummaryChip(patient: Patients, reports: List<Reports>, todayIso: String?, latestDevice: Devices?) {
     val mostRecent = reports.maxByOrNull { it.interrogationDate }
     val age = todayIso?.let { ageInYears(patient.dob, it) }
     val bits = listOfNotNull(
         age?.let { "$it y" },
         "${reports.size} visit${if (reports.size == 1) "" else "s"}",
         mostRecent?.let { "${it.deviceModel ?: "Unknown device"} (${it.deviceSerialNumber ?: "?"})" },
+        latestDevice?.implantDate?.let { "implanted $it" },
     )
     if (bits.isNotEmpty()) {
         Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
@@ -234,10 +242,12 @@ private fun ReportCard(
     onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
     onOpenUrl: ((String) -> Unit)?,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
+    onDeleteReport: ((reportId: String) -> Unit)?,
 ) {
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
     var showMovePicker by remember(report.id) { mutableStateOf(false) }
+    var showDeleteConfirm by remember(report.id) { mutableStateOf(false) }
     LaunchedEffect(report.id) {
         devices = repository.getDevicesForReport(report.id)
         leads = repository.getLeadsForReport(report.id)
@@ -251,6 +261,20 @@ private fun ReportCard(
             onPicked = { targetPatientId ->
                 showMovePicker = false
                 onMoveReport(report.id, currentPatientId, targetPatientId)
+            },
+        )
+    }
+
+    if (showDeleteConfirm && onDeleteReport != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Delete this visit?") },
+            text = { Text("Removes the ${report.interrogationDate} visit and its files. This can't be undone.") },
+            confirmButton = {
+                TextButton(onClick = { showDeleteConfirm = false; onDeleteReport(report.id) }) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
             },
         )
     }
@@ -283,6 +307,9 @@ private fun ReportCard(
             }
             if (onMoveReport != null) {
                 TextButton(onClick = { showMovePicker = true }) { Text("Move to another patient") }
+            }
+            if (onDeleteReport != null) {
+                TextButton(onClick = { showDeleteConfirm = true }) { Text("Delete") }
             }
         }
     }

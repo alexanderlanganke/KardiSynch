@@ -20,13 +20,19 @@ import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
+import io.github.alexanderlanganke.kardisynch.ui.aliases.AliasSettingsScreen
 import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScreen
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
 import io.github.alexanderlanganke.kardisynch.ui.duplicates.DuplicatesScreen
+import io.github.alexanderlanganke.kardisynch.ui.importhistory.ImportHistoryScreen
 import io.github.alexanderlanganke.kardisynch.ui.news.DeviceNewsScreen
 import io.github.alexanderlanganke.kardisynch.ui.onboarding.OnboardingScreen
+import io.github.alexanderlanganke.kardisynch.ui.orphans.OrphanedVisitsScreen
 import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
+import io.github.alexanderlanganke.kardisynch.core.aliases.AliasKind
+import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
+import io.github.alexanderlanganke.kardisynch.core.aliases.LeadAliasAttrs
 import io.github.alexanderlanganke.kardisynch.core.news.CachedDeviceNewsService
 
 private sealed interface Screen {
@@ -36,6 +42,9 @@ private sealed interface Screen {
     data object PendingSort : Screen
     data object Duplicates : Screen
     data object DeviceNews : Screen
+    data object OrphanedVisits : Screen
+    data object ImportHistory : Screen
+    data object AliasSettings : Screen
 }
 
 /**
@@ -98,6 +107,13 @@ fun KardiSynchApp(
     onOnboardingSkip: (() -> Unit)? = null,
     onOpenPatientFolder: ((patientId: String) -> Unit)? = null,
     todayIso: String? = null,
+    onFindOrphanedVisits: (suspend () -> List<KardiSynchRepository.OrphanVisit>)? = null,
+    onMoveOrphanedVisits: (suspend (List<String>) -> KardiSynchRepository.OrphanMoveResult)? = null,
+    onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)? = null,
+    onUpsertDeviceTypeAlias: (suspend (manufacturer: String, model: String, type: String) -> Result<Unit>)? = null,
+    onUpsertLeadTypeAlias: (suspend (manufacturer: String, model: String, attrs: LeadAliasAttrs) -> Result<Unit>)? = null,
+    onDeleteDeviceTypeAlias: (suspend (manufacturer: String, model: String, kind: AliasKind) -> Result<Unit>)? = null,
+    onDeleteReport: ((reportId: String) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -147,6 +163,7 @@ fun KardiSynchApp(
                 },
                 onMoveReport = onMoveReport,
                 todayIso = todayIso,
+                onDeleteReport = onDeleteReport,
             )
 
             is Screen.Settings -> SettingsScreen(
@@ -174,6 +191,17 @@ fun KardiSynchApp(
                     null
                 },
                 onOpenDuplicates = onMergeDuplicates?.let { { screen = Screen.Duplicates } },
+                onOpenOrphanedVisits = if (onFindOrphanedVisits != null && onMoveOrphanedVisits != null) {
+                    { screen = Screen.OrphanedVisits }
+                } else {
+                    null
+                },
+                onOpenImportHistory = { screen = Screen.ImportHistory },
+                onOpenAliasSettings = if (onListDeviceTypeAliases != null) {
+                    { screen = Screen.AliasSettings }
+                } else {
+                    null
+                },
                 appVersion = appVersion,
             )
 
@@ -198,6 +226,34 @@ fun KardiSynchApp(
                     onBack = { screen = Screen.Dashboard },
                     onOpenUrl = onOpenUrl,
                 )
+            }
+
+            is Screen.OrphanedVisits -> if (onFindOrphanedVisits != null && onMoveOrphanedVisits != null) {
+                OrphanedVisitsScreen(
+                    repository = repository,
+                    onBack = { screen = Screen.Settings },
+                    onScan = onFindOrphanedVisits,
+                    onMove = onMoveOrphanedVisits,
+                )
+            } else {
+                Unit
+            }
+
+            is Screen.ImportHistory -> ImportHistoryScreen(
+                repository = repository,
+                onBack = { screen = Screen.Settings },
+            )
+
+            is Screen.AliasSettings -> if (onListDeviceTypeAliases != null) {
+                AliasSettingsScreen(
+                    onBack = { screen = Screen.Settings },
+                    onList = onListDeviceTypeAliases,
+                    onUpsertDevice = onUpsertDeviceTypeAlias ?: { _, _, _ -> Result.failure(IllegalStateException("Alias editing unavailable")) },
+                    onUpsertLead = onUpsertLeadTypeAlias ?: { _, _, _ -> Result.failure(IllegalStateException("Alias editing unavailable")) },
+                    onDelete = onDeleteDeviceTypeAlias ?: { _, _, _ -> Result.failure(IllegalStateException("Alias editing unavailable")) },
+                )
+            } else {
+                Unit
             }
                 }
             }

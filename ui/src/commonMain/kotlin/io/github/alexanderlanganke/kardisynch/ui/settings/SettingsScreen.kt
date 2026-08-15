@@ -61,6 +61,9 @@ fun SettingsScreen(
     pendingSortCount: Int = 0,
     onOpenPendingSort: (() -> Unit)? = null,
     onOpenDuplicates: (() -> Unit)? = null,
+    onOpenOrphanedVisits: (() -> Unit)? = null,
+    onOpenImportHistory: (() -> Unit)? = null,
+    onOpenAliasSettings: (() -> Unit)? = null,
     appVersion: String? = null,
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
@@ -145,6 +148,24 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedButton(onClick = onOpenDuplicates, modifier = Modifier.fillMaxWidth()) {
                     Text("Review possible duplicate patients")
+                }
+            }
+            if (onOpenOrphanedVisits != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = onOpenOrphanedVisits, modifier = Modifier.fillMaxWidth()) {
+                    Text("Review misplaced visits")
+                }
+            }
+            if (onOpenImportHistory != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = onOpenImportHistory, modifier = Modifier.fillMaxWidth()) {
+                    Text("Import history")
+                }
+            }
+            if (onOpenAliasSettings != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(onClick = onOpenAliasSettings, modifier = Modifier.fillMaxWidth()) {
+                    Text("Device & lead type aliases")
                 }
             }
 
