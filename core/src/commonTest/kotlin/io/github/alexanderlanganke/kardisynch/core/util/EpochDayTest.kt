@@ -30,4 +30,24 @@ class EpochDayTest {
         assertNull(daysBetweenIsoDates("not a date", "2024-01-01"))
         assertNull(daysBetweenIsoDates("2024-01-01", "also not a date"))
     }
+
+    @Test
+    fun `ageInYears counts a full year once the birthday has passed`() {
+        assertEquals(6, ageInYears("2020-08-14", "2026-08-15"))
+    }
+
+    @Test
+    fun `ageInYears does not count the year until the birthday arrives`() {
+        assertEquals(5, ageInYears("2020-08-14", "2026-08-13"))
+    }
+
+    @Test
+    fun `ageInYears counts the birthday itself as the new age`() {
+        assertEquals(6, ageInYears("2020-08-14", "2026-08-14"))
+    }
+
+    @Test
+    fun `ageInYears yields null for an unparseable date`() {
+        assertNull(ageInYears("not a date", "2026-08-13"))
+    }
 }

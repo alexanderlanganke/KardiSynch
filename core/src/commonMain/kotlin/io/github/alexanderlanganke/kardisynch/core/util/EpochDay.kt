@@ -34,3 +34,18 @@ fun daysBetweenIsoDates(fromIso: String, toIso: String): Int? {
     val to = parseIsoEpochDay(toIso) ?: return null
     return (to - from).toInt()
 }
+
+/**
+ * Whole years between `dobIso` and `asOfIso` (birthday-aware, not a plain
+ * `/365.25` — a patient born 2020-08-14 is 5, not 6, on 2026-08-13). Null
+ * if either date doesn't parse.
+ */
+fun ageInYears(dobIso: String, asOfIso: String): Int? {
+    val dobMatch = Regex("""^(\d{4})-(\d{2})-(\d{2})""").find(dobIso) ?: return null
+    val asOfMatch = Regex("""^(\d{4})-(\d{2})-(\d{2})""").find(asOfIso) ?: return null
+    val (dobY, dobM, dobD) = dobMatch.destructured
+    val (asOfY, asOfM, asOfD) = asOfMatch.destructured
+    var age = asOfY.toInt() - dobY.toInt()
+    if (asOfM.toInt() < dobM.toInt() || (asOfM.toInt() == dobM.toInt() && asOfD.toInt() < dobD.toInt())) age--
+    return age
+}

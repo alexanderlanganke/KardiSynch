@@ -28,11 +28,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
+import io.github.alexanderlanganke.kardisynch.core.util.ageInYears
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
+import io.github.alexanderlanganke.kardisynch.data.db.Patients
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.picker.PatientPickerDialog
+
+private sealed interface DetailLoadState<out T> {
+    data object Loading : DetailLoadState<Nothing>
+    data class Loaded<T>(val value: T) : DetailLoadState<T>
+    data class Failed(val error: Throwable) : DetailLoadState<Nothing>
+}
 
 /**
  * Patient identity + reports (each expandable to its device/leads) — the
@@ -42,7 +50,10 @@ import io.github.alexanderlanganke.kardisynch.ui.picker.PatientPickerDialog
  * platform-specific (issue #175's "MRI check" link, opened in the system
  * browser) — pass null to hide that action too. [onEditPatientInfo]/
  * [onMoveReport] wire up backends that already existed (issue #177) but
- * had no UI before issue #178 — pass null to hide either action.
+ * had no UI before issue #178 — pass null to hide either action. [todayIso]
+ * drives the age chip and (like the Dashboard's own use of it, issue #197)
+ * is supplied by the platform layer since commonMain has no clock — pass
+ * null to hide the age chip.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,18 +65,21 @@ fun PatientDetailScreen(
     onOpenUrl: ((String) -> Unit)? = null,
     onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
+    todayIso: String? = null,
 ) {
-    val patient by produceStateOrNull { repository.getPatientById(patientId) }
+    var retryToken by remember(patientId) { mutableStateOf(0) }
+    val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
     val reports by repository.observeReportsForPatient(patientId).collectAsState(initial = null)
     var showEditDialog by remember { mutableStateOf(false) }
 
-    if (showEditDialog && patient != null) {
-        val current = patient!!
+    val loadedPatient = (patientState as? DetailLoadState.Loaded)?.value
+
+    if (showEditDialog && loadedPatient != null) {
         PatientInfoEditDialog(
-            initialFirstName = current.firstName.orEmpty(),
-            initialLastName = current.lastName,
-            initialDob = current.dob,
-            initialHospitalPatientId = current.hospitalPatientId,
+            initialFirstName = loadedPatient.firstName.orEmpty(),
+            initialLastName = loadedPatient.lastName,
+            initialDob = loadedPatient.dob,
+            initialHospitalPatientId = loadedPatient.hospitalPatientId,
             onDismiss = { showEditDialog = false },
             onSave = { firstName, lastName, dob, hospitalPatientId ->
                 showEditDialog = false
@@ -77,62 +91,138 @@ fun PatientDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(patient?.let { "${it.lastName}, ${it.firstName ?: ""}" } ?: "Patient") },
+                title = { Text(loadedPatient?.let { "${it.lastName}, ${it.firstName ?: ""}" } ?: "Patient") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
                 actions = {
-                    if (onEditPatientInfo != null && patient != null) {
+                    if (onEditPatientInfo != null && loadedPatient != null) {
                         TextButton(onClick = { showEditDialog = true }) { Text("Edit") }
                     }
                 },
             )
         },
     ) { padding ->
-        val currentReports = reports
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // Read-only display of whatever's cached in patient.xml — this
-            // app (KMP or the original Electron one) never computes this
-            // itself, see core.mri.ManufacturerWarningStatus's doc comment.
-            parseManufacturerWarningStatus(patient?.manufacturerWarningStatus)
-                ?.takeIf { it.status == "advisory" || it.status == "recall" }
-                ?.let { warning ->
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp, 8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Text(
-                                if (warning.status == "recall") "Manufacturer recall posted" else "Manufacturer advisory posted",
-                                style = MaterialTheme.typography.titleSmall,
-                            )
-                            if (warning.details.isNotBlank()) Text(warning.details, style = MaterialTheme.typography.bodySmall)
-                            val warningLink = warning.link
-                            if (warningLink != null && onOpenUrl != null) {
-                                TextButton(onClick = { onOpenUrl(warningLink) }) { Text("View details") }
-                            }
-                        }
-                    }
-                }
-
-            when {
-                currentReports == null -> Column(
+            when (val state = patientState) {
+                is DetailLoadState.Loading -> Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) { CircularProgressIndicator() }
 
-                currentReports.isEmpty() -> Column(
+                is DetailLoadState.Failed -> Column(
                     modifier = Modifier.fillMaxSize(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
-                ) { Text("No visits on record for this patient.") }
+                ) {
+                    Text("Couldn't load this patient.", style = MaterialTheme.typography.titleMedium)
+                    Text(state.error.message ?: "Unknown error", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { retryToken++ }) { Text("Retry") }
+                }
 
-                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(currentReports, key = { it.id }) { report ->
-                        ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport)
+                is DetailLoadState.Loaded -> {
+                    val patient = state.value
+                    if (patient == null) {
+                        Column(
+                            modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) { Text("Patient not found.") }
+                    } else {
+                        PatientDetailContent(
+                            repository = repository,
+                            patient = patient,
+                            reports = reports,
+                            patientId = patientId,
+                            todayIso = todayIso,
+                            onExportQr = onExportQr,
+                            onOpenUrl = onOpenUrl,
+                            onMoveReport = onMoveReport,
+                        )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PatientDetailContent(
+    repository: KardiSynchRepository,
+    patient: Patients,
+    reports: List<Reports>?,
+    patientId: String,
+    todayIso: String?,
+    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
+    onOpenUrl: ((String) -> Unit)?,
+    onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
+) {
+    // Read-only display of whatever's cached in patient.xml — this app
+    // (KMP or the original Electron one) never computes this itself, see
+    // core.mri.ManufacturerWarningStatus's doc comment.
+    parseManufacturerWarningStatus(patient.manufacturerWarningStatus)
+        ?.takeIf { it.status == "advisory" || it.status == "recall" }
+        ?.let { warning ->
+            Card(
+                modifier = Modifier.fillMaxWidth().padding(12.dp, 8.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        if (warning.status == "recall") "Manufacturer recall posted" else "Manufacturer advisory posted",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    if (warning.details.isNotBlank()) Text(warning.details, style = MaterialTheme.typography.bodySmall)
+                    val warningLink = warning.link
+                    if (warningLink != null && onOpenUrl != null) {
+                        TextButton(onClick = { onOpenUrl(warningLink) }) { Text("View details") }
+                    }
+                }
+            }
+        }
+
+    when {
+        reports == null -> Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) { CircularProgressIndicator() }
+
+        reports.isEmpty() -> {
+            PatientSummaryChip(patient, reports, todayIso)
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) { Text("No visits on record for this patient.") }
+        }
+
+        else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+            item { PatientSummaryChip(patient, reports, todayIso) }
+            item {
+                val trendPoints = reports
+                    .filter { it.batteryVoltageValue != null }
+                    .sortedBy { it.interrogationDate }
+                    .map { BatteryTrendPoint(it.interrogationDate, it.batteryVoltageValue!!, it.deviceSerialNumber) }
+                BatteryTrendChart(trendPoints)
+            }
+            items(reports, key = { it.id }) { report ->
+                ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PatientSummaryChip(patient: Patients, reports: List<Reports>, todayIso: String?) {
+    val mostRecent = reports.maxByOrNull { it.interrogationDate }
+    val age = todayIso?.let { ageInYears(patient.dob, it) }
+    val bits = listOfNotNull(
+        age?.let { "$it y" },
+        "${reports.size} visit${if (reports.size == 1) "" else "s"}",
+        mostRecent?.let { "${it.deviceModel ?: "Unknown device"} (${it.deviceSerialNumber ?: "?"})" },
+    )
+    if (bits.isNotEmpty()) {
+        Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
     }
 }
 
@@ -198,10 +288,21 @@ private fun ReportCard(
     }
 }
 
-/** Minimal one-shot async loader — this module has no ViewModel layer yet, kept intentionally simple for the Phase 1 read screens. */
+/**
+ * One-shot async loader distinguishing loading/loaded/failed — this module
+ * has no ViewModel layer yet, kept intentionally simple for the Phase 1
+ * read screens. Change [key] (e.g. an incrementing retry counter) to
+ * re-run [loader].
+ */
 @Composable
-private fun <T> produceStateOrNull(loader: suspend () -> T): androidx.compose.runtime.State<T?> {
-    val state = remember { mutableStateOf<T?>(null) }
-    LaunchedEffect(Unit) { state.value = loader() }
+private fun <T> rememberLoadState(key: Any?, loader: suspend () -> T): DetailLoadState<T> {
+    var state by remember(key) { mutableStateOf<DetailLoadState<T>>(DetailLoadState.Loading) }
+    LaunchedEffect(key) {
+        state = try {
+            DetailLoadState.Loaded(loader())
+        } catch (e: Exception) {
+            DetailLoadState.Failed(e)
+        }
+    }
     return state
 }

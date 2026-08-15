@@ -146,6 +146,7 @@ fun KardiSynchApp(
                     null
                 },
                 onMoveReport = onMoveReport,
+                todayIso = todayIso,
             )
 
             is Screen.Settings -> SettingsScreen(
