@@ -38,6 +38,8 @@ import io.github.alexanderlanganke.kardisynch.core.matching.patientIdForDir
 import io.github.alexanderlanganke.kardisynch.core.matching.pickSameDayReport
 import io.github.alexanderlanganke.kardisynch.core.matching.reportIdFromDirName
 import io.github.alexanderlanganke.kardisynch.core.matching.visitDatePrefix
+import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
+import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.PatientInfo
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.core.model.hasLeadData
@@ -1218,6 +1220,64 @@ class KardiSynchRepository(
             db.leadsQueries.deleteLeadsForReport(reportId)
             insertReportRow(IndexedReport(reportId, patientId, finalReport))
             Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Directly replaces a visit's manufacturer/device/leads with manually
+     * corrected values — unlike [reparseVisit], no union-merge against the
+     * existing data, since a manual correction needs to be able to actually
+     * remove a wrong value, not just add to it. Ported from Electron's
+     * `DeviceLeadEditor.tsx`, adapted to this port's data model in two real
+     * ways: [UnifiedReport.device] is a single device per report, not an
+     * editable list (no "several current devices, one explanted" support —
+     * that would need `UnifiedReport`'s device field to become a list
+     * first, out of scope here), and [io.github.alexanderlanganke.kardisynch.core.model.LeadData]
+     * has no connector field at all (the alias store's `LeadAliasAttrs.connector`
+     * — issue #184 — has no destination column to write a correction or a
+     * suggestion into; would need a new `Leads.connector` schema column
+     * first). Everything else about a lead ([LeadData.name]/manufacturer/
+     * model/serial/anatomicLocation/implantDate) is directly editable;
+     * measurement values (impedance/sensing/pacing threshold) are left as
+     * whatever the device readout already recorded — this dialog corrects
+     * identity, not clinical values.
+     */
+    suspend fun updateReportDeviceAndLeads(
+        reader: DataRootReader,
+        writer: DataRootWriter,
+        reportsRootHandle: String,
+        patientId: String,
+        reportId: String,
+        manufacturer: String,
+        device: DeviceInfo,
+        leads: List<LeadData>,
+        lock: DirectoryLock = NoOpDirectoryLock,
+    ): Result<Unit> = withContext(ioDispatcher) {
+        try {
+            val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId)
+                ?: return@withContext Result.failure(IllegalStateException("Patient $patientId directory not found"))
+
+            lock.withLock(patientDirHandle, "updateReportDeviceAndLeads:reportId=$reportId") {
+                val visitDirHandle = reader.listChildren(patientDirHandle).firstOrNull { it.isDirectory && it.name.endsWith("_$reportId") }?.handle
+                    ?: return@withLock Result.failure(IllegalStateException("Visit $reportId not found under patient $patientId"))
+                val existingReport = reader.listChildren(visitDirHandle)
+                    .firstOrNull { !it.isDirectory && it.name == "visit.xml" }
+                    ?.let { reader.readText(it.handle) }
+                    ?.let { parseVisitXml(it, patientId)?.report }
+                    ?: return@withLock Result.failure(IllegalStateException("visit.xml not found or unparseable"))
+
+                val updatedReport = existingReport.copy(manufacturer = manufacturer, device = device, leads = leads.filter(::hasLeadData))
+                if (!writer.writeTextFile(visitDirHandle, "visit.xml", generateVisitXml(reportId, updatedReport))) {
+                    return@withLock Result.failure(IllegalStateException("Failed to write visit.xml"))
+                }
+
+                db.devicesQueries.deleteDevicesForReport(reportId)
+                db.leadsQueries.deleteLeadsForReport(reportId)
+                insertReportRow(IndexedReport(reportId, patientId, updatedReport))
+                Result.success(Unit)
+            }
         } catch (e: Exception) {
             Result.failure(e)
         }

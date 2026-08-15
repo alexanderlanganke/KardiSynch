@@ -31,6 +31,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
+import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
+import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.util.ageInYears
@@ -72,6 +75,8 @@ fun PatientDetailScreen(
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)? = null,
     todayIso: String? = null,
     onDeleteReport: ((reportId: String) -> Unit)? = null,
+    onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)? = null,
+    onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)? = null,
 ) {
     var retryToken by remember(patientId) { mutableStateOf(0) }
     val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
@@ -144,6 +149,8 @@ fun PatientDetailScreen(
                             onOpenUrl = onOpenUrl,
                             onMoveReport = onMoveReport,
                             onDeleteReport = onDeleteReport,
+                            onEditReportDevicesAndLeads = onEditReportDevicesAndLeads,
+                            onListDeviceTypeAliases = onListDeviceTypeAliases,
                         )
                     }
                 }
@@ -163,6 +170,8 @@ private fun PatientDetailContent(
     onOpenUrl: ((String) -> Unit)?,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
     onDeleteReport: ((reportId: String) -> Unit)?,
+    onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)?,
+    onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
 ) {
     var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
     LaunchedEffect(patientId) { latestDevice = repository.getLatestDeviceForPatient(patientId) }
@@ -218,7 +227,7 @@ private fun PatientDetailContent(
             }
             item { LeadTrendSection(repository, patientId) }
             items(reports, key = { it.id }) { report ->
-                ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport, onDeleteReport)
+                ReportCard(repository, report, patientId, onExportQr, onOpenUrl, onMoveReport, onDeleteReport, onEditReportDevicesAndLeads, onListDeviceTypeAliases)
             }
         }
     }
@@ -298,12 +307,17 @@ private fun ReportCard(
     onOpenUrl: ((String) -> Unit)?,
     onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
     onDeleteReport: ((reportId: String) -> Unit)?,
+    onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)?,
+    onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
 ) {
     var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
     var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
     var showMovePicker by remember(report.id) { mutableStateOf(false) }
     var showDeleteConfirm by remember(report.id) { mutableStateOf(false) }
-    LaunchedEffect(report.id) {
+    var showDeviceLeadEditor by remember(report.id) { mutableStateOf(false) }
+    var aliases by remember(report.id) { mutableStateOf<List<DeviceTypeAlias>>(emptyList()) }
+    var reloadKey by remember(report.id) { mutableStateOf(0) }
+    LaunchedEffect(report.id, reloadKey) {
         devices = repository.getDevicesForReport(report.id)
         leads = repository.getLeadsForReport(report.id)
     }
@@ -316,6 +330,22 @@ private fun ReportCard(
             onPicked = { targetPatientId ->
                 showMovePicker = false
                 onMoveReport(report.id, currentPatientId, targetPatientId)
+            },
+        )
+    }
+
+    if (showDeviceLeadEditor && onEditReportDevicesAndLeads != null) {
+        LaunchedEffect(Unit) { aliases = onListDeviceTypeAliases?.invoke() ?: emptyList() }
+        DeviceLeadEditorDialog(
+            manufacturer = report.manufacturer.orEmpty(),
+            device = devices?.firstOrNull(),
+            leads = leads.orEmpty(),
+            aliases = aliases,
+            onDismiss = { showDeviceLeadEditor = false },
+            onSave = { manufacturer, device, editedLeads ->
+                showDeviceLeadEditor = false
+                onEditReportDevicesAndLeads(report.id, currentPatientId, manufacturer, device, editedLeads)
+                reloadKey++
             },
         )
     }
@@ -362,6 +392,9 @@ private fun ReportCard(
             }
             if (onMoveReport != null) {
                 TextButton(onClick = { showMovePicker = true }) { Text("Move to another patient") }
+            }
+            if (onEditReportDevicesAndLeads != null) {
+                TextButton(onClick = { showDeviceLeadEditor = true }) { Text("Edit device & leads") }
             }
             if (onDeleteReport != null) {
                 TextButton(onClick = { showDeleteConfirm = true }) { Text("Delete") }

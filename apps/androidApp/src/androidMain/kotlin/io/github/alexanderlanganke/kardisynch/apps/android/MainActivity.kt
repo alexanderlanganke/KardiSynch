@@ -380,6 +380,20 @@ class MainActivity : ComponentActivity() {
                                 themeMode = mode
                                 scope.launch { repository.setSetting(SETTING_THEME_MODE, mode.toSettingValue()) }
                             },
+                            onEditReportDevicesAndLeads = { reportId, patientId, manufacturer, device, leads ->
+                                val root = dataRoot
+                                scope.launch {
+                                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                                    lastReindexSummary = if (reportsRoot == null) {
+                                        "No \"Reports\" folder found — nothing to edit."
+                                    } else {
+                                        repository.updateReportDeviceAndLeads(reader, reader, reportsRoot, patientId, reportId, manufacturer, device, leads).fold(
+                                            onSuccess = { "Device & leads updated." },
+                                            onFailure = { e -> "Failed to update device & leads: ${e.message}" },
+                                        )
+                                    }
+                                }
+                            },
                         )
 
                         qrDialogImage?.let { bitmap ->
