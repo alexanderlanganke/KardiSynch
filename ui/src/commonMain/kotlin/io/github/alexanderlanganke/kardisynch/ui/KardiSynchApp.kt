@@ -24,6 +24,7 @@ import io.github.alexanderlanganke.kardisynch.ui.dashboard.PatientDashboardScree
 import io.github.alexanderlanganke.kardisynch.ui.detail.PatientDetailScreen
 import io.github.alexanderlanganke.kardisynch.ui.duplicates.DuplicatesScreen
 import io.github.alexanderlanganke.kardisynch.ui.news.DeviceNewsScreen
+import io.github.alexanderlanganke.kardisynch.ui.onboarding.OnboardingScreen
 import io.github.alexanderlanganke.kardisynch.ui.pendingsort.PendingSortScreen
 import io.github.alexanderlanganke.kardisynch.ui.settings.SettingsScreen
 import io.github.alexanderlanganke.kardisynch.core.news.CachedDeviceNewsService
@@ -92,6 +93,9 @@ fun KardiSynchApp(
     notificationMessage: String? = null,
     notificationKey: Any? = null,
     deviceNewsService: CachedDeviceNewsService? = null,
+    showOnboarding: Boolean = false,
+    onOnboardingFinish: (() -> Unit)? = null,
+    onOnboardingSkip: (() -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -103,6 +107,17 @@ fun KardiSynchApp(
     val colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
 
     MaterialTheme(colorScheme = colorScheme) {
+        if (showOnboarding && onOnboardingFinish != null && onOnboardingSkip != null) {
+            OnboardingScreen(
+                dataRootLabel = dataRootLabel,
+                importDirLabel = importDirLabel,
+                onPickDataRoot = onPickDataRoot,
+                onPickImportDir = { onPickImportDir?.invoke() },
+                onFinish = onOnboardingFinish,
+                onSkip = onOnboardingSkip,
+            )
+            return@MaterialTheme
+        }
         Scaffold(snackbarHost = { SnackbarHost(snackbarHostState) }) { snackbarPadding ->
             Box(modifier = Modifier.padding(snackbarPadding)) {
                 when (val current = screen) {

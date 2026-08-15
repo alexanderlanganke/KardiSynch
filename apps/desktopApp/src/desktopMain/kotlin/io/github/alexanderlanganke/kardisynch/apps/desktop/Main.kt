@@ -45,6 +45,7 @@ private const val SETTING_WINDOW_WIDTH = "windowWidth"
 private const val SETTING_WINDOW_HEIGHT = "windowHeight"
 private const val SETTING_WINDOW_X = "windowX"
 private const val SETTING_WINDOW_Y = "windowY"
+private const val SETTING_ONBOARDING_COMPLETED = "onboardingCompleted"
 
 /** Kept in sync with `nativeDistributions.packageVersion` in apps/desktopApp/build.gradle.kts (issue #196's "About" section — no build-time BuildConfig injection wired up yet, so this is a second source of truth to update by hand). */
 private const val APP_VERSION = "0.1.0"
@@ -103,6 +104,7 @@ private fun startApp() = application {
     var pendingSortRefreshTrigger by remember { mutableStateOf(0) }
     var pendingSortCount by remember { mutableStateOf(0) }
     var duplicatesRefreshTrigger by remember { mutableStateOf(0) }
+    var showOnboarding by remember { mutableStateOf(false) }
     val windowState = rememberWindowState(size = DpSize(1200.dp, 800.dp))
 
     // Window size/position persistence (issue #196 — Electron's version has
@@ -132,6 +134,7 @@ private fun startApp() = application {
         importDirPath = repository.getSetting(SETTING_IMPORT_DIR) ?: defaultImportDir().absolutePath
         usbSourceDirs = decodeUsbSourceDirs(repository.getSetting(SETTING_USB_SOURCE_DIRS))
         usbTargetDirPath = repository.getSetting(SETTING_USB_TARGET_DIR)
+        showOnboarding = repository.getSetting(SETTING_ONBOARDING_COMPLETED) != "true"
     }
 
     fun runReindex(root: String) {
@@ -350,6 +353,15 @@ private fun startApp() = application {
             notificationMessage = lastReindexSummary,
             notificationKey = lastReindexSummary,
             deviceNewsService = deviceNewsService,
+            showOnboarding = showOnboarding,
+            onOnboardingFinish = {
+                showOnboarding = false
+                scope.launch { repository.setSetting(SETTING_ONBOARDING_COMPLETED, "true") }
+            },
+            onOnboardingSkip = {
+                showOnboarding = false
+                scope.launch { repository.setSetting(SETTING_ONBOARDING_COMPLETED, "true") }
+            },
             onEditPatientInfo = { patientId, firstName, lastName, dob, hospitalPatientId ->
                 val root = dataRoot
                 scope.launch {
