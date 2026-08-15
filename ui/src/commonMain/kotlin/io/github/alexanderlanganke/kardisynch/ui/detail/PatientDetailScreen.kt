@@ -84,6 +84,7 @@ fun PatientDetailScreen(
     onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)? = null,
     onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)? = null,
     onReadVisitFileText: (suspend (fileHandle: String) -> String?)? = null,
+    onGetMergedAdditionalFields: (suspend (patientId: String) -> Map<String, KardiSynchRepository.MergedAdditionalField>)? = null,
 ) {
     var retryToken by remember(patientId) { mutableStateOf(0) }
     val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
@@ -163,6 +164,7 @@ fun PatientDetailScreen(
                             onGetVisitFiles = onGetVisitFiles,
                             onReadVisitFileBytes = onReadVisitFileBytes,
                             onReadVisitFileText = onReadVisitFileText,
+                            onGetMergedAdditionalFields = onGetMergedAdditionalFields,
                         )
                     }
                 }
@@ -189,6 +191,7 @@ private fun PatientDetailContent(
     onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)?,
     onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)?,
     onReadVisitFileText: (suspend (fileHandle: String) -> String?)?,
+    onGetMergedAdditionalFields: (suspend (patientId: String) -> Map<String, KardiSynchRepository.MergedAdditionalField>)?,
 ) {
     var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
     LaunchedEffect(patientId) { latestDevice = repository.getLatestDeviceForPatient(patientId) }
@@ -235,6 +238,10 @@ private fun PatientDetailContent(
 
         else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
             item { PatientSummaryChip(patient, reports, todayIso, latestDevice) }
+            item { LatestValuesCard(repository, reports) }
+            if (onGetMergedAdditionalFields != null) {
+                item { AdditionalDataCard(patientId, onGetMergedAdditionalFields) }
+            }
             item {
                 val trendPoints = reports
                     .filter { it.batteryVoltageValue != null }
@@ -272,6 +279,67 @@ private fun PatientSummaryChip(patient: Patients, reports: List<Reports>, todayI
     )
     if (bits.isNotEmpty()) {
         Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+    }
+}
+
+/**
+ * A quick-glance snapshot of the most recent visit's device and per-lead
+ * readings — the "latest values" half of Electron's pinned "Summary"
+ * pseudo-report (`SummaryReport.tsx`, parity plan Phase 12). The per-visit
+ * trend charts it also showed are already always-visible sections on this
+ * screen (batteries: Phase 5/issue #198; leads: Phase 5), so this card is
+ * the one genuinely new piece — everything else "Summary" showed already
+ * has a permanent home here rather than being gated behind a pseudo-report
+ * selector the way Electron's report dropdown does it.
+ */
+@Composable
+private fun LatestValuesCard(repository: KardiSynchRepository, reports: List<Reports>) {
+    val latest = reports.maxByOrNull { it.interrogationDate } ?: return
+    var latestLeads by remember(latest.id) { mutableStateOf<List<Leads>?>(null) }
+    LaunchedEffect(latest.id) { latestLeads = repository.getLeadsForReport(latest.id) }
+
+    Card(modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Latest values (${latest.interrogationDate})", style = MaterialTheme.typography.titleSmall)
+            Text("${latest.manufacturer ?: "Unknown"} ${latest.deviceModel ?: "Unknown"} (${latest.deviceSerialNumber ?: "?"})", style = MaterialTheme.typography.bodyMedium)
+            if (latest.batteryVoltageValue != null) {
+                Text("Battery: ${latest.batteryVoltageValue} ${latest.batteryVoltageUnit.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+            }
+            latestLeads?.forEach { l ->
+                val bits = listOfNotNull(
+                    l.impedanceValue?.let { "Imp $it${l.impedanceUnit.orEmpty()}" },
+                    l.sensingValue?.let { "Sens $it${l.sensingUnit.orEmpty()}" },
+                    l.pacingThresholdValue?.let { "Thresh $it${l.pacingThresholdUnit.orEmpty()}" },
+                ).joinToString(" · ")
+                Text("${l.anatomicLocation ?: l.name}: $bits", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
+
+/**
+ * Manufacturer-specific fields not in the standard schema (EF, NYHA class,
+ * etc.), merged across every visit — Electron's `SummaryReport.tsx`
+ * "Additional Data" card (parity plan Phase 12). Loaded lazily and only
+ * when [onGetMergedAdditionalFields] is supplied — unlike almost
+ * everything else on this screen, this re-reads every visit.xml from disk
+ * (see [KardiSynchRepository.getMergedAdditionalFields]'s doc comment).
+ */
+@Composable
+private fun AdditionalDataCard(patientId: String, onGetMergedAdditionalFields: suspend (String) -> Map<String, KardiSynchRepository.MergedAdditionalField>) {
+    var fields by remember(patientId) { mutableStateOf<Map<String, KardiSynchRepository.MergedAdditionalField>?>(null) }
+    LaunchedEffect(patientId) { fields = onGetMergedAdditionalFields(patientId) }
+
+    val current = fields
+    if (current.isNullOrEmpty()) return
+
+    Card(modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text("Additional data", style = MaterialTheme.typography.titleSmall)
+            current.entries.sortedBy { it.key }.forEach { (key, field) ->
+                Text("$key: ${field.value} (as of ${field.lastSeenDate})", style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
 }
 

@@ -584,6 +584,11 @@ private fun startApp() = application {
             },
             onReadVisitFileBytes = { fileHandle -> reader.readBytes(fileHandle) },
             onReadVisitFileText = { fileHandle -> reader.readText(fileHandle) },
+            onGetMergedAdditionalFields = { patientId ->
+                val root = dataRoot
+                val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                if (reportsRoot == null) emptyMap() else repository.getMergedAdditionalFields(reader, reportsRoot, patientId)
+            },
         )
 
         qrDialogImage?.let { bitmap ->

@@ -133,6 +133,7 @@ fun KardiSynchApp(
     onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)? = null,
     onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)? = null,
     onReadVisitFileText: (suspend (fileHandle: String) -> String?)? = null,
+    onGetMergedAdditionalFields: (suspend (patientId: String) -> Map<String, KardiSynchRepository.MergedAdditionalField>)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     var dashboardFilterState by remember { mutableStateOf(DashboardFilterState()) }
@@ -197,6 +198,7 @@ fun KardiSynchApp(
                 onGetVisitFiles = onGetVisitFiles,
                 onReadVisitFileBytes = onReadVisitFileBytes,
                 onReadVisitFileText = onReadVisitFileText,
+                onGetMergedAdditionalFields = onGetMergedAdditionalFields,
             )
 
             is Screen.Settings -> SettingsScreen(

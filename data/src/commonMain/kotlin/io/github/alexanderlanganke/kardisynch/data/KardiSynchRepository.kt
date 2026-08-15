@@ -431,6 +431,38 @@ class KardiSynchRepository(
         reader.listChildren(visitDirHandle).filter { !it.isDirectory && it.name != "visit.xml" && it.name != "patient.xml" }
     }
 
+    /** One `additionalFields` entry, with the date of the visit it was last seen on. */
+    data class MergedAdditionalField(val value: String, val lastSeenDate: String)
+
+    /**
+     * Every manufacturer-specific field not in the standard schema
+     * (`UnifiedReport.additionalFields`), merged across all of a patient's
+     * visits — newest visit wins per field, matching Electron's
+     * `summaryData.ts`'s `mergeAdditionalFields` exactly (parity plan
+     * Phase 12's "Additional Data" card). `additionalFields` is written to
+     * each visit's `visit.xml` (see [io.github.alexanderlanganke.kardisynch.core.datastore.generateVisitXml])
+     * but was never indexed into the SQLite tables, so — unlike almost
+     * every other query in this class — this one re-reads every visit.xml
+     * from disk rather than querying the DB; only worth doing for a
+     * screen a clinician opens deliberately, not a hot path.
+     */
+    suspend fun getMergedAdditionalFields(reader: DataRootReader, reportsRootHandle: String, patientId: String): Map<String, MergedAdditionalField> = withContext(ioDispatcher) {
+        val patientDirHandle = findPatientDirHandle(reader, reportsRootHandle, patientId) ?: return@withContext emptyMap()
+        val chronological = reader.listChildren(patientDirHandle)
+            .filter { it.isDirectory }
+            .mapNotNull { visitDir ->
+                val visitXmlHandle = reader.listChildren(visitDir.handle).firstOrNull { !it.isDirectory && it.name == "visit.xml" }?.handle ?: return@mapNotNull null
+                reader.readText(visitXmlHandle)?.let { parseVisitXml(it, patientId)?.report }
+            }
+            .sortedBy { it.interrogationDate }
+
+        val merged = linkedMapOf<String, MergedAdditionalField>()
+        for (report in chronological) {
+            for ((key, value) in report.additionalFields) merged[key] = MergedAdditionalField(value, report.interrogationDate)
+        }
+        merged
+    }
+
     /**
      * Locks two patient directories for one operation that touches both,
      * always in the same (sorted-by-handle) order regardless of which is
