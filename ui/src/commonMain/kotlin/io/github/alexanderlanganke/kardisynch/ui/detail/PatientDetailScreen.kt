@@ -1,21 +1,16 @@
 package io.github.alexanderlanganke.kardisynch.ui.detail
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -27,25 +22,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
-import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
-import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
-import io.github.alexanderlanganke.kardisynch.core.util.ageInYears
-import io.github.alexanderlanganke.kardisynch.core.util.formatDelta
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
 import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.picker.PatientPickerDialog
+import kotlinx.coroutines.launch
 
 private sealed interface DetailLoadState<out T> {
     data object Loading : DetailLoadState<Nothing>
@@ -54,17 +49,21 @@ private sealed interface DetailLoadState<out T> {
 }
 
 /**
- * Patient identity + reports (each expandable to its device/leads) — the
- * Phase 1 read-only detail screen. [onExportQr] is desktop-only (issue
- * #199 — Android only scans/imports a follow-up QR, it doesn't render one)
- * — pass null to hide the export action. [onOpenUrl] is likewise
- * platform-specific (issue #175's "MRI check" link, opened in the system
- * browser) — pass null to hide that action too. [onEditPatientInfo]/
- * [onMoveReport] wire up backends that already existed (issue #177) but
- * had no UI before issue #178 — pass null to hide either action. [todayIso]
- * drives the age chip and (like the Dashboard's own use of it, issue #197)
- * is supplied by the platform layer since commonMain has no clock — pass
- * null to hide the age chip.
+ * Patient identity, an expandable device/leads header, a two-pane report
+ * viewer, and a horizontal visit timeline — ported from `PatientDetail.tsx`
+ * (UI-parity follow-up; supersedes the earlier Phase 1 single-scrolling-list
+ * layout). See [PatientHeaderSection], [TwoPaneViewer], and
+ * [VisitTimelineRow]'s doc comments for the header/pane/timeline pieces and
+ * their scope adaptations. [onExportQr] is desktop-only (issue #199 —
+ * Android only scans/imports a follow-up QR, it doesn't render one) — pass
+ * null to hide the export action. [onOpenUrl] is likewise platform-specific
+ * (issue #175's "MRI check" link, opened in the system browser) — pass null
+ * to hide that action too. [onEditPatientInfo]/[onMoveReport] wire up
+ * backends that already existed (issue #177) but had no UI before issue
+ * #178 — pass null to hide either action. [todayIso] drives the age chip
+ * and "days since last visit" banner and (like the Dashboard's own use of
+ * it, issue #197) is supplied by the platform layer since commonMain has no
+ * clock — pass null to hide both.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,34 +88,14 @@ fun PatientDetailScreen(
     var retryToken by remember(patientId) { mutableStateOf(0) }
     val patientState = rememberLoadState(key = patientId to retryToken) { repository.getPatientById(patientId) }
     val reports by repository.observeReportsForPatient(patientId).collectAsState(initial = null)
-    var showEditDialog by remember { mutableStateOf(false) }
 
     val loadedPatient = (patientState as? DetailLoadState.Loaded)?.value
-
-    if (showEditDialog && loadedPatient != null) {
-        PatientInfoEditDialog(
-            initialFirstName = loadedPatient.firstName.orEmpty(),
-            initialLastName = loadedPatient.lastName,
-            initialDob = loadedPatient.dob,
-            initialHospitalPatientId = loadedPatient.hospitalPatientId,
-            onDismiss = { showEditDialog = false },
-            onSave = { firstName, lastName, dob, hospitalPatientId ->
-                showEditDialog = false
-                onEditPatientInfo?.invoke(firstName, lastName, dob, hospitalPatientId)
-            },
-        )
-    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(loadedPatient?.let { "${it.lastName}, ${it.firstName ?: ""}" } ?: "Patient") },
                 navigationIcon = { TextButton(onClick = onBack) { Text("Back") } },
-                actions = {
-                    if (onEditPatientInfo != null && loadedPatient != null) {
-                        TextButton(onClick = { showEditDialog = true }) { Text("Edit") }
-                    }
-                },
             )
         },
     ) { padding ->
@@ -193,385 +172,283 @@ private fun PatientDetailContent(
     onReadVisitFileText: (suspend (fileHandle: String) -> String?)?,
     onGetMergedAdditionalFields: (suspend (patientId: String) -> Map<String, KardiSynchRepository.MergedAdditionalField>)?,
 ) {
-    var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
-    LaunchedEffect(patientId) { latestDevice = repository.getLatestDeviceForPatient(patientId) }
+    val coroutineScope = rememberCoroutineScope()
 
-    // Read-only display of whatever's cached in patient.xml — this app
-    // (KMP or the original Electron one) never computes this itself, see
-    // core.mri.ManufacturerWarningStatus's doc comment.
-    parseManufacturerWarningStatus(patient.manufacturerWarningStatus)
-        ?.takeIf { it.status == "advisory" || it.status == "recall" }
-        ?.let { warning ->
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(12.dp, 8.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        if (warning.status == "recall") "Manufacturer recall posted" else "Manufacturer advisory posted",
-                        style = MaterialTheme.typography.titleSmall,
-                    )
-                    if (warning.details.isNotBlank()) Text(warning.details, style = MaterialTheme.typography.bodySmall)
-                    val warningLink = warning.link
-                    if (warningLink != null && onOpenUrl != null) {
-                        TextButton(onClick = { onOpenUrl(warningLink) }) { Text("View details") }
+    // Bumped after any device/lead edit or rescan-merge so the header and
+    // whichever pane(s) show the affected visit reload — those edits land
+    // on the Devices/Leads tables (and sometimes the Reports row's
+    // denormalized device columns), which a plain `LaunchedEffect(report.id)`
+    // wouldn't notice since the id itself never changes.
+    var reloadKey by remember(patientId) { mutableStateOf(0) }
+
+    var latestDevice by remember(patientId) { mutableStateOf<Devices?>(null) }
+    var latestLeads by remember(patientId) { mutableStateOf<List<Leads>?>(null) }
+    LaunchedEffect(patientId, reloadKey) {
+        val device = repository.getLatestDeviceForPatient(patientId)
+        latestDevice = device
+        latestLeads = device?.let { repository.getLeadsForReport(it.reportId) }
+    }
+
+    var showEditPatientInfo by remember { mutableStateOf(false) }
+    var editDeviceLeadsReport by remember { mutableStateOf<Reports?>(null) }
+    var moveReport by remember { mutableStateOf<Reports?>(null) }
+    var deleteConfirmReport by remember { mutableStateOf<Reports?>(null) }
+    var aliases by remember { mutableStateOf<List<DeviceTypeAlias>>(emptyList()) }
+    var rescanningReportId by remember { mutableStateOf<String?>(null) }
+    var rescanTargetReportId by remember { mutableStateOf<String?>(null) }
+    var rescanResult by remember { mutableStateOf<UnifiedReport?>(null) }
+    var rescanMessage by remember { mutableStateOf<String?>(null) }
+
+    // Two panes, defaulting to the two most recent visits side by side —
+    // deliberately diverging from Electron's `PatientDetail.tsx` (both
+    // panes there start on the pinned Summary pseudo-report) per explicit
+    // request. Seeded once `reports` first loads for this patient (it's
+    // null until the reactive query emits) and never re-seeded afterward,
+    // so it doesn't fight whatever the user picks afterward. Falls back to
+    // Summary in a pane if there's no second (or first) visit to show.
+    var paneSelections by remember(patientId) { mutableStateOf<List<PaneSelection?>>(listOf(PaneSelection.Summary, PaneSelection.Summary)) }
+    var paneSelectionsSeeded by remember(patientId) { mutableStateOf(false) }
+    LaunchedEffect(patientId, reports) {
+        if (!paneSelectionsSeeded && reports != null) {
+            paneSelectionsSeeded = true
+            val defaults = reports.take(2).map { PaneSelection.Visit(it.id) }
+            paneSelections = listOf(defaults.getOrNull(0) ?: PaneSelection.Summary, defaults.getOrNull(1) ?: PaneSelection.Summary)
+        }
+    }
+    var paneBounds by remember { mutableStateOf<List<Rect?>>(listOf(null, null)) }
+    var draggedReport by remember { mutableStateOf<Reports?>(null) }
+    var dragPositionInRoot by remember { mutableStateOf<Offset?>(null) }
+    val dragOverPaneIndex = dragPositionInRoot?.let { pos -> paneBounds.indexOfFirst { it?.contains(pos) == true }.takeIf { it >= 0 } }
+
+    fun assignToPane(index: Int, report: Reports) {
+        paneSelections = paneSelections.toMutableList().also { it[index] = PaneSelection.Visit(report.id) }
+    }
+
+    if (showEditPatientInfo && onEditPatientInfo != null) {
+        PatientInfoEditDialog(
+            initialFirstName = patient.firstName.orEmpty(),
+            initialLastName = patient.lastName,
+            initialDob = patient.dob,
+            initialHospitalPatientId = patient.hospitalPatientId,
+            onDismiss = { showEditPatientInfo = false },
+            onSave = { firstName, lastName, dob, hospitalPatientId ->
+                showEditPatientInfo = false
+                onEditPatientInfo(firstName, lastName, dob, hospitalPatientId)
+            },
+        )
+    }
+
+    editDeviceLeadsReport?.let { report ->
+        if (onEditReportDevicesAndLeads != null) {
+            var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
+            var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
+            LaunchedEffect(report.id) {
+                devices = repository.getDevicesForReport(report.id)
+                leads = repository.getLeadsForReport(report.id)
+                aliases = onListDeviceTypeAliases?.invoke() ?: emptyList()
+            }
+            DeviceLeadEditorDialog(
+                manufacturer = report.manufacturer.orEmpty(),
+                device = devices?.firstOrNull(),
+                leads = leads.orEmpty(),
+                aliases = aliases,
+                onDismiss = { editDeviceLeadsReport = null },
+                onSave = { manufacturer, device, editedLeads ->
+                    editDeviceLeadsReport = null
+                    onEditReportDevicesAndLeads(report.id, patientId, manufacturer, device, editedLeads)
+                    reloadKey++
+                },
+            )
+        }
+    }
+
+    moveReport?.let { report ->
+        if (onMoveReport != null) {
+            PatientPickerDialog(
+                repository = repository,
+                title = "Move this visit to which patient?",
+                onDismiss = { moveReport = null },
+                onPicked = { targetPatientId ->
+                    moveReport = null
+                    onMoveReport(report.id, patientId, targetPatientId)
+                },
+            )
+        }
+    }
+
+    deleteConfirmReport?.let { report ->
+        if (onDeleteReport != null) {
+            AlertDialog(
+                onDismissRequest = { deleteConfirmReport = null },
+                title = { Text("Delete this visit?") },
+                text = { Text("Removes the ${report.interrogationDate} visit and its files. This can't be undone.") },
+                confirmButton = {
+                    TextButton(onClick = { deleteConfirmReport = null; onDeleteReport(report.id) }) { Text("Delete") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { deleteConfirmReport = null }) { Text("Cancel") }
+                },
+            )
+        }
+    }
+
+    rescanResult?.let { scanned ->
+        val targetReportId = rescanTargetReportId
+        if (targetReportId != null) {
+            var devices by remember(targetReportId) { mutableStateOf<List<Devices>?>(null) }
+            var leads by remember(targetReportId) { mutableStateOf<List<Leads>?>(null) }
+            LaunchedEffect(targetReportId) {
+                devices = repository.getDevicesForReport(targetReportId)
+                leads = repository.getLeadsForReport(targetReportId)
+            }
+            RescanDiffDialog(
+                currentPatient = patient,
+                currentDevices = devices.orEmpty(),
+                currentLeads = leads.orEmpty(),
+                scanned = scanned,
+                onDismiss = { rescanResult = null; rescanTargetReportId = null },
+                onConfirm = { applyDemographics, applyDeviceLeads ->
+                    if (applyDemographics) {
+                        onEditPatientInfo?.invoke(scanned.patient.firstName, scanned.patient.lastName, scanned.patient.dob, scanned.patient.hospitalPatientId)
                     }
-                }
+                    if (applyDeviceLeads) {
+                        onEditReportDevicesAndLeads?.invoke(targetReportId, patientId, scanned.manufacturer, scanned.device, scanned.leads)
+                    }
+                    rescanResult = null
+                    rescanTargetReportId = null
+                    reloadKey++
+                },
+            )
+        }
+    }
+
+    val rescanningId = rescanningReportId
+    if (rescanningId != null && onRescanVisit != null) {
+        LaunchedEffect(rescanningId) {
+            val scanned = onRescanVisit(patientId, rescanningId)
+            rescanningReportId = null
+            if (scanned == null) {
+                rescanMessage = "No parseable files found in this visit's folder."
+            } else {
+                rescanTargetReportId = rescanningId
+                rescanResult = scanned
             }
         }
+    }
 
-    when {
-        reports == null -> Column(
-            modifier = Modifier.fillMaxSize(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) { CircularProgressIndicator() }
+    Column(modifier = Modifier.fillMaxSize()) {
+        PatientHeaderSection(
+            patient = patient,
+            reports = reports.orEmpty(),
+            latestDevice = latestDevice,
+            latestLeads = latestLeads,
+            todayIso = todayIso,
+            onOpenUrl = onOpenUrl,
+            onEditPatientInfo = if (onEditPatientInfo != null) { { showEditPatientInfo = true } } else null,
+            onEditDeviceAndLeads = if (onEditReportDevicesAndLeads != null) {
+                { reports?.maxByOrNull { it.interrogationDate }?.let { editDeviceLeadsReport = it } }
+            } else {
+                null
+            },
+            onExportLatestVisitQr = if (onExportQr != null) {
+                {
+                    reports?.maxByOrNull { it.interrogationDate }?.let { latest ->
+                        coroutineScope.launch {
+                            val devices = repository.getDevicesForReport(latest.id)
+                            val leads = repository.getLeadsForReport(latest.id)
+                            onExportQr(latest, devices, leads)
+                        }
+                    }
+                }
+            } else {
+                null
+            },
+        )
 
-        reports.isEmpty() -> {
-            PatientSummaryChip(patient, reports, todayIso, latestDevice)
-            Column(
+        rescanMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp)) }
+
+        when {
+            reports == null -> Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) { CircularProgressIndicator() }
+
+            reports.isEmpty() -> Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) { Text("No visits on record for this patient.") }
-        }
 
-        else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-            item { PatientSummaryChip(patient, reports, todayIso, latestDevice) }
-            item { LatestValuesCard(repository, reports) }
-            if (onGetMergedAdditionalFields != null) {
-                item { AdditionalDataCard(patientId, onGetMergedAdditionalFields) }
-            }
-            item {
-                val trendPoints = reports
-                    .filter { it.batteryVoltageValue != null }
-                    .sortedBy { it.interrogationDate }
-                    .map { TrendPoint(it.interrogationDate, it.batteryVoltageValue!!, it.deviceSerialNumber) }
-                TrendChart("Battery voltage trend", "V", trendPoints)
-            }
-            item { LeadTrendSection(repository, patientId) }
-            // reports is already sorted DESC (newest first) by the query
-            // that produced it, so the "previous" (older) visit for any
-            // given index is simply the next one — used for the delta
-            // display in each ReportCard (parity plan Phase 11's second
-            // deliverable, ported from FormattedReport.tsx's formatDelta).
-            val previousReportById = reports.mapIndexed { i, r -> r.id to reports.getOrNull(i + 1) }.toMap()
-            items(reports, key = { it.id }) { report ->
-                ReportCard(
-                    repository, report, patient, previousReportById[report.id], onExportQr, onOpenUrl, onMoveReport, onDeleteReport,
-                    onEditReportDevicesAndLeads, onListDeviceTypeAliases, onEditPatientInfo, onRescanVisit,
-                    onGetVisitFiles, onReadVisitFileBytes, onReadVisitFileText,
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun PatientSummaryChip(patient: Patients, reports: List<Reports>, todayIso: String?, latestDevice: Devices?) {
-    val mostRecent = reports.maxByOrNull { it.interrogationDate }
-    val age = todayIso?.let { ageInYears(patient.dob, it) }
-    val bits = listOfNotNull(
-        age?.let { "$it y" },
-        "${reports.size} visit${if (reports.size == 1) "" else "s"}",
-        mostRecent?.let { "${it.deviceModel ?: "Unknown device"} (${it.deviceSerialNumber ?: "?"})" },
-        latestDevice?.implantDate?.let { "implanted $it" },
-    )
-    if (bits.isNotEmpty()) {
-        Text(bits.joinToString(" · "), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-    }
-}
-
-/**
- * A quick-glance snapshot of the most recent visit's device and per-lead
- * readings — the "latest values" half of Electron's pinned "Summary"
- * pseudo-report (`SummaryReport.tsx`, parity plan Phase 12). The per-visit
- * trend charts it also showed are already always-visible sections on this
- * screen (batteries: Phase 5/issue #198; leads: Phase 5), so this card is
- * the one genuinely new piece — everything else "Summary" showed already
- * has a permanent home here rather than being gated behind a pseudo-report
- * selector the way Electron's report dropdown does it.
- */
-@Composable
-private fun LatestValuesCard(repository: KardiSynchRepository, reports: List<Reports>) {
-    val latest = reports.maxByOrNull { it.interrogationDate } ?: return
-    var latestLeads by remember(latest.id) { mutableStateOf<List<Leads>?>(null) }
-    LaunchedEffect(latest.id) { latestLeads = repository.getLeadsForReport(latest.id) }
-
-    Card(modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Latest values (${latest.interrogationDate})", style = MaterialTheme.typography.titleSmall)
-            Text("${latest.manufacturer ?: "Unknown"} ${latest.deviceModel ?: "Unknown"} (${latest.deviceSerialNumber ?: "?"})", style = MaterialTheme.typography.bodyMedium)
-            if (latest.batteryVoltageValue != null) {
-                Text("Battery: ${latest.batteryVoltageValue} ${latest.batteryVoltageUnit.orEmpty()}", style = MaterialTheme.typography.bodySmall)
-            }
-            latestLeads?.forEach { l ->
-                val bits = listOfNotNull(
-                    l.impedanceValue?.let { "Imp $it${l.impedanceUnit.orEmpty()}" },
-                    l.sensingValue?.let { "Sens $it${l.sensingUnit.orEmpty()}" },
-                    l.pacingThresholdValue?.let { "Thresh $it${l.pacingThresholdUnit.orEmpty()}" },
-                ).joinToString(" · ")
-                Text("${l.anatomicLocation ?: l.name}: $bits", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-/**
- * Manufacturer-specific fields not in the standard schema (EF, NYHA class,
- * etc.), merged across every visit — Electron's `SummaryReport.tsx`
- * "Additional Data" card (parity plan Phase 12). Loaded lazily and only
- * when [onGetMergedAdditionalFields] is supplied — unlike almost
- * everything else on this screen, this re-reads every visit.xml from disk
- * (see [KardiSynchRepository.getMergedAdditionalFields]'s doc comment).
- */
-@Composable
-private fun AdditionalDataCard(patientId: String, onGetMergedAdditionalFields: suspend (String) -> Map<String, KardiSynchRepository.MergedAdditionalField>) {
-    var fields by remember(patientId) { mutableStateOf<Map<String, KardiSynchRepository.MergedAdditionalField>?>(null) }
-    LaunchedEffect(patientId) { fields = onGetMergedAdditionalFields(patientId) }
-
-    val current = fields
-    if (current.isNullOrEmpty()) return
-
-    Card(modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Additional data", style = MaterialTheme.typography.titleSmall)
-            current.entries.sortedBy { it.key }.forEach { (key, field) ->
-                Text("$key: ${field.value} (as of ${field.lastSeenDate})", style = MaterialTheme.typography.bodySmall)
-            }
-        }
-    }
-}
-
-/**
- * Per-lead-location impedance/sensing/pacing-threshold trend charts — the
- * "additional per-lead trends" [TrendChart]'s doc comment flagged as
- * scoped out of the original battery-only chart (issue #198's follow-up
- * UI-parity plan, Phase 5). A patient can have multiple lead locations
- * (e.g. RA/RV/LV for a CRT device); the chip row picks which one the three
- * charts below plot. Renders nothing if the patient has no lead readings
- * on file at all.
- */
-@Composable
-private fun LeadTrendSection(repository: KardiSynchRepository, patientId: String) {
-    var locations by remember(patientId) { mutableStateOf<List<String>>(emptyList()) }
-    var selectedLocation by remember(patientId) { mutableStateOf<String?>(null) }
-    var leadPoints by remember { mutableStateOf<List<KardiSynchRepository.LeadTrendPoint>>(emptyList()) }
-
-    LaunchedEffect(patientId) {
-        locations = repository.getLeadLocationsForPatient(patientId)
-        selectedLocation = locations.firstOrNull()
-    }
-    LaunchedEffect(selectedLocation) {
-        val location = selectedLocation
-        leadPoints = if (location != null) repository.getLeadTrendByLocation(patientId, location) else emptyList()
-    }
-
-    if (locations.isEmpty()) return
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Lead trends", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 16.dp))
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            locations.forEach { location ->
-                FilterChip(selected = selectedLocation == location, onClick = { selectedLocation = location }, label = { Text(location) })
-            }
-        }
-
-        fun pointsFor(unit: (KardiSynchRepository.LeadTrendPoint) -> String?, value: (KardiSynchRepository.LeadTrendPoint) -> Double?) =
-            leadPoints.mapNotNull { p -> value(p)?.let { TrendPoint(p.interrogationDate, it, p.deviceSerialNumber) } } to
-                (leadPoints.firstNotNullOfOrNull(unit) ?: "")
-
-        val (impedancePoints, impedanceUnit) = pointsFor({ it.impedanceUnit }, { it.impedanceValue })
-        TrendChart("Impedance trend", impedanceUnit, impedancePoints)
-        val (sensingPoints, sensingUnit) = pointsFor({ it.sensingUnit }, { it.sensingValue })
-        TrendChart("Sensing trend", sensingUnit, sensingPoints)
-        val (thresholdPoints, thresholdUnit) = pointsFor({ it.pacingThresholdUnit }, { it.pacingThresholdValue })
-        TrendChart("Pacing threshold trend", thresholdUnit, thresholdPoints)
-    }
-}
-
-@Composable
-private fun ReportCard(
-    repository: KardiSynchRepository,
-    report: Reports,
-    patient: Patients,
-    previousReport: Reports?,
-    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
-    onOpenUrl: ((String) -> Unit)?,
-    onMoveReport: ((reportId: String, fromPatientId: String, toPatientId: String) -> Unit)?,
-    onDeleteReport: ((reportId: String) -> Unit)?,
-    onEditReportDevicesAndLeads: ((reportId: String, patientId: String, manufacturer: String, device: DeviceInfo, leads: List<LeadData>) -> Unit)?,
-    onListDeviceTypeAliases: (suspend () -> List<DeviceTypeAlias>)?,
-    onEditPatientInfo: ((firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)?,
-    onRescanVisit: (suspend (patientId: String, reportId: String) -> UnifiedReport?)?,
-    onGetVisitFiles: (suspend (patientId: String, reportId: String) -> List<DataEntry>)?,
-    onReadVisitFileBytes: (suspend (fileHandle: String) -> ByteArray?)?,
-    onReadVisitFileText: (suspend (fileHandle: String) -> String?)?,
-) {
-    val currentPatientId = patient.id
-    var devices by remember(report.id) { mutableStateOf<List<Devices>?>(null) }
-    var leads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
-    var previousLeads by remember(report.id) { mutableStateOf<List<Leads>?>(null) }
-    var showMovePicker by remember(report.id) { mutableStateOf(false) }
-    var showDeleteConfirm by remember(report.id) { mutableStateOf(false) }
-    var showDeviceLeadEditor by remember(report.id) { mutableStateOf(false) }
-    var aliases by remember(report.id) { mutableStateOf<List<DeviceTypeAlias>>(emptyList()) }
-    var reloadKey by remember(report.id) { mutableStateOf(0) }
-    var isRescanning by remember(report.id) { mutableStateOf(false) }
-    var rescanResult by remember(report.id) { mutableStateOf<UnifiedReport?>(null) }
-    var rescanMessage by remember(report.id) { mutableStateOf<String?>(null) }
-    var showFiles by remember(report.id) { mutableStateOf(false) }
-    var visitFiles by remember(report.id) { mutableStateOf<List<DataEntry>?>(null) }
-    LaunchedEffect(report.id, reloadKey) {
-        devices = repository.getDevicesForReport(report.id)
-        leads = repository.getLeadsForReport(report.id)
-        previousLeads = previousReport?.let { repository.getLeadsForReport(it.id) }
-    }
-
-    if (showMovePicker && onMoveReport != null) {
-        PatientPickerDialog(
-            repository = repository,
-            title = "Move this visit to which patient?",
-            onDismiss = { showMovePicker = false },
-            onPicked = { targetPatientId ->
-                showMovePicker = false
-                onMoveReport(report.id, currentPatientId, targetPatientId)
-            },
-        )
-    }
-
-    if (showDeviceLeadEditor && onEditReportDevicesAndLeads != null) {
-        LaunchedEffect(Unit) { aliases = onListDeviceTypeAliases?.invoke() ?: emptyList() }
-        DeviceLeadEditorDialog(
-            manufacturer = report.manufacturer.orEmpty(),
-            device = devices?.firstOrNull(),
-            leads = leads.orEmpty(),
-            aliases = aliases,
-            onDismiss = { showDeviceLeadEditor = false },
-            onSave = { manufacturer, device, editedLeads ->
-                showDeviceLeadEditor = false
-                onEditReportDevicesAndLeads(report.id, currentPatientId, manufacturer, device, editedLeads)
-                reloadKey++
-            },
-        )
-    }
-
-    rescanResult?.let { scanned ->
-        RescanDiffDialog(
-            currentPatient = patient,
-            currentDevices = devices.orEmpty(),
-            currentLeads = leads.orEmpty(),
-            scanned = scanned,
-            onDismiss = { rescanResult = null },
-            onConfirm = { applyDemographics, applyDeviceLeads ->
-                if (applyDemographics) {
-                    onEditPatientInfo?.invoke(scanned.patient.firstName, scanned.patient.lastName, scanned.patient.dob, scanned.patient.hospitalPatientId)
-                }
-                if (applyDeviceLeads) {
-                    onEditReportDevicesAndLeads?.invoke(report.id, currentPatientId, scanned.manufacturer, scanned.device, scanned.leads)
-                }
-                rescanResult = null
-                reloadKey++
-            },
-        )
-    }
-
-    if (showDeleteConfirm && onDeleteReport != null) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("Delete this visit?") },
-            text = { Text("Removes the ${report.interrogationDate} visit and its files. This can't be undone.") },
-            confirmButton = {
-                TextButton(onClick = { showDeleteConfirm = false; onDeleteReport(report.id) }) { Text("Delete") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) { Text("Cancel") }
-            },
-        )
-    }
-
-    Card(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text(report.interrogationDate, style = MaterialTheme.typography.titleMedium)
-            Text("${report.manufacturer ?: "Unknown"} · ${report.deviceModel ?: "Unknown"}", style = MaterialTheme.typography.bodyMedium)
-            devices?.forEach { d ->
-                Text("Device: ${d.model} (${d.serialNumber}) — ${d.type}", style = MaterialTheme.typography.bodySmall)
-            }
-            formatDelta(report.batteryVoltageValue, previousReport?.batteryVoltageValue, report.batteryVoltageUnit.orEmpty(), "Battery")?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall)
-            }
-            leads?.forEach { l ->
-                // Matched to the previous visit's same-location lead — this port
-                // doesn't guarantee stable lead ordering across visits the way
-                // Electron's same-index comparison assumes, so location is the
-                // more reliable match key.
-                val previous = previousLeads?.firstOrNull { it.anatomicLocation != null && it.anatomicLocation == l.anatomicLocation }
-                val bits = listOfNotNull(
-                    l.anatomicLocation,
-                    formatDelta(l.impedanceValue, previous?.impedanceValue, l.impedanceUnit.orEmpty(), "Imp"),
-                    formatDelta(l.sensingValue, previous?.sensingValue, l.sensingUnit.orEmpty(), "Sens"),
-                    formatDelta(l.pacingThresholdValue, previous?.pacingThresholdValue, l.pacingThresholdUnit.orEmpty(), "Thresh"),
-                ).joinToString(" · ")
-                Text("Lead ${l.name}: $bits", style = MaterialTheme.typography.bodySmall)
-            }
-            if (onExportQr != null) {
-                TextButton(onClick = { onExportQr(report, devices ?: emptyList(), leads ?: emptyList()) }) {
-                    Text("Export QR")
-                }
-            }
-            if (onOpenUrl != null) {
-                mriCheckUrl(report.manufacturer)?.let { url ->
-                    TextButton(onClick = { onOpenUrl(url) }) { Text("Check MRI compatibility") }
-                }
-            }
-            if (onMoveReport != null) {
-                TextButton(onClick = { showMovePicker = true }) { Text("Move to another patient") }
-            }
-            if (onEditReportDevicesAndLeads != null) {
-                TextButton(onClick = { showDeviceLeadEditor = true }) { Text("Edit device & leads") }
-            }
-            if (onRescanVisit != null) {
-                TextButton(
-                    onClick = {
-                        isRescanning = true
-                        rescanMessage = null
-                    },
-                    enabled = !isRescanning,
-                ) { Text(if (isRescanning) "Rescanning…" else "Rescan") }
-                if (isRescanning) {
-                    LaunchedEffect(report.id) {
-                        val scanned = onRescanVisit(currentPatientId, report.id)
-                        isRescanning = false
-                        if (scanned == null) {
-                            rescanMessage = "No parseable files found in this visit's folder."
-                        } else {
-                            rescanResult = scanned
+            else -> {
+                // Neither Modifier.weight(1f) NOR a bare Modifier.fillMaxSize()
+                // reliably sizes this pane area in this exact position (a
+                // Scaffold content slot, itself SubcomposeLayout-based,
+                // several Columns/Boxes down) — both reproducibly measured to
+                // zero size, while a hardcoded Modifier.height(300.dp) in the
+                // very same spot rendered correctly. So: BoxWithConstraints
+                // to read the real available height once, then apply it as
+                // an explicit dp value everywhere below — the one sizing
+                // strategy actually proven to work here.
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                    val paneHeight = (maxHeight - TIMELINE_RESERVED_HEIGHT).coerceAtLeast(0.dp)
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.height(paneHeight).fillMaxWidth()) {
+                            TwoPaneViewer(
+                                repository = repository,
+                                reports = reports,
+                                patientId = patientId,
+                                paneSelections = paneSelections,
+                                onPaneSelectionChange = { index, selection ->
+                                    paneSelections = paneSelections.toMutableList().also { it[index] = selection }
+                                },
+                                dragOverPaneIndex = dragOverPaneIndex,
+                                onPaneBoundsChanged = { index, rect -> paneBounds = paneBounds.toMutableList().also { it[index] = rect } },
+                                onGetVisitFiles = onGetVisitFiles,
+                                onReadVisitFileBytes = onReadVisitFileBytes,
+                                onReadVisitFileText = onReadVisitFileText,
+                                onGetMergedAdditionalFields = onGetMergedAdditionalFields,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
-                    }
-                }
-                rescanMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-            }
-            if (onDeleteReport != null) {
-                TextButton(onClick = { showDeleteConfirm = true }) { Text("Delete") }
-            }
-            if (onGetVisitFiles != null && onReadVisitFileBytes != null && onReadVisitFileText != null) {
-                TextButton(onClick = { showFiles = !showFiles }) { Text(if (showFiles) "Hide files" else "View files") }
-                if (showFiles) {
-                    LaunchedEffect(report.id) { visitFiles = onGetVisitFiles(currentPatientId, report.id) }
-                    val files = visitFiles
-                    if (files == null) {
-                        CircularProgressIndicator(modifier = Modifier.padding(top = 8.dp))
-                    } else {
-                        RawFileViewer(files, onReadVisitFileBytes, onReadVisitFileText)
+
+                        VisitTimelineRow(
+                        reports = reports,
+                        patientId = patientId,
+                        onVisitClick = { report ->
+                            val emptyIndex = paneSelections.indexOfFirst { it == null }
+                            assignToPane(if (emptyIndex >= 0) emptyIndex else 0, report)
+                        },
+                        onDragTo = { report, startPos -> draggedReport = report; dragPositionInRoot = startPos },
+                        onDragMove = { delta -> dragPositionInRoot = (dragPositionInRoot ?: Offset.Zero) + delta },
+                        onDragEnd = {
+                            val pos = dragPositionInRoot
+                            val report = draggedReport
+                            if (pos != null && report != null) {
+                                val target = paneBounds.indexOfFirst { it?.contains(pos) == true }
+                                if (target >= 0) assignToPane(target, report)
+                            }
+                            draggedReport = null
+                            dragPositionInRoot = null
+                        },
+                        onRescanVisit = if (onRescanVisit != null) { { report -> rescanningReportId = report.id; rescanMessage = null } } else null,
+                        onMoveVisit = if (onMoveReport != null) { { report -> moveReport = report } } else null,
+                        onDeleteVisit = if (onDeleteReport != null) { { report -> deleteConfirmReport = report } } else null,
+                        onEditDeviceAndLeads = if (onEditReportDevicesAndLeads != null) { { report -> editDeviceLeadsReport = report } } else null,
+                        onExportQr = onExportQr,
+                        repository = repository,
+                        onGetVisitFiles = onGetVisitFiles,
+                        modifier = Modifier.height(TIMELINE_RESERVED_HEIGHT).fillMaxWidth(),
+                    )
                     }
                 }
             }
         }
     }
 }
+
+/** Header text row (~30dp) + the fixed-height LazyRow (130dp, see [VisitTimelineRow]) + a little breathing room. */
+private val TIMELINE_RESERVED_HEIGHT = 172.dp
 
 /**
  * One-shot async loader distinguishing loading/loaded/failed — this module

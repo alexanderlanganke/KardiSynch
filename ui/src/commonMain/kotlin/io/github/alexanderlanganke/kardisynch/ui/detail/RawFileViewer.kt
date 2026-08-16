@@ -35,12 +35,11 @@ import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
  * (manufacturer-proprietary `.pkg`/`.pdd`/`.bnk` formats) gets the same
  * "can't be displayed here" fallback Electron shows.
  *
- * Simplified from the original in two ways: no PDF search/zoom (a stretch
- * goal per the parity plan, not a blocker for landing this), and no
- * drag-and-drop visit-to-pane assignment (tap/select through [RawFileViewer]'s
- * own prev/next instead — this port has no fixed dual-pane layout to drag
- * into, each visit's files live in their own expandable section on its
- * report card).
+ * Simplified from the original in one way: no PDF search/zoom (a stretch
+ * goal per the parity plan, not a blocker for landing this). Drag-and-drop
+ * visit-to-pane assignment *is* built (see [TwoPaneViewer]'s doc comment) —
+ * this composable is what a pane renders once a visit lands in it, in Raw
+ * mode.
  */
 @Composable
 fun RawFileViewer(
