@@ -3,6 +3,7 @@ package io.github.alexanderlanganke.kardisynch.ui.dashboard
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -10,6 +11,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -32,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.matching.PatientSummary
+import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.mri.warningUrgencyRank
 import io.github.alexanderlanganke.kardisynch.core.util.daysBetweenIsoDates
@@ -68,6 +72,7 @@ fun PatientDashboardScreen(
     onFilterStateChange: (DashboardFilterState) -> Unit,
     onOpenDeviceNews: (() -> Unit)? = null,
     onOpenPatientFolder: ((patientId: String) -> Unit)? = null,
+    onOpenUrl: ((String) -> Unit)? = null,
     todayIso: String? = null,
     notificationCenter: (@Composable () -> Unit)? = null,
 ) {
@@ -219,9 +224,11 @@ fun PatientDashboardScreen(
                             PatientRow(
                                 patient = patient,
                                 summary = bySummaryId[patient.id],
+                                device = deviceInfo[patient.id],
                                 todayIso = todayIso,
                                 onClick = { onOpenPatient(patient.id) },
                                 onOpenFolder = onOpenPatientFolder?.let { { it(patient.id) } },
+                                onOpenUrl = onOpenUrl,
                             )
                         }
                     }
@@ -254,50 +261,111 @@ private fun SortFieldChip(
     )
 }
 
+/**
+ * One patient row — ported from `PatientDashboard.tsx`'s `renderPatientCard`
+ * (its 7-column table layout, minus the manufacturer *logo image*: this
+ * port has no SVG brand-logo assets, so a text/chip badge carries the same
+ * information — device manufacturer, model, warning status, and an MRI
+ * compatibility check, none of which rendered here before even though the
+ * data (`device`) was already being loaded per-patient at the screen level).
+ */
 @Composable
 private fun PatientRow(
     patient: Patients,
     summary: PatientSummary?,
+    device: KardiSynchRepository.PatientDeviceSummary?,
     todayIso: String?,
     onClick: () -> Unit,
     onOpenFolder: (() -> Unit)?,
+    onOpenUrl: ((String) -> Unit)?,
 ) {
+    val warning = parseManufacturerWarningStatus(patient.manufacturerWarningStatus)
+        ?.takeIf { it.status != "safe" }
+    val reportCount = summary?.reportCount ?: 0
+    val lastReportDate = summary?.lastReportDate
+    val daysSince = if (todayIso != null && lastReportDate != null) daysBetweenIsoDates(lastReportDate, todayIso) else null
+
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         onClick = onClick,
     ) {
-        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Column {
-                Text("${patient.lastName}, ${patient.firstName ?: ""}", style = MaterialTheme.typography.titleMedium)
-                Text("DOB: ${patient.dob}", style = MaterialTheme.typography.bodySmall)
-
-                val reportCount = summary?.reportCount ?: 0
-                val lastReportDate = summary?.lastReportDate
-                val daysSince = if (todayIso != null && lastReportDate != null) daysBetweenIsoDates(lastReportDate, todayIso) else null
-                val statsLine = buildString {
-                    append(if (reportCount == 1) "1 report" else "$reportCount reports")
-                    if (daysSince != null) append(" · last visit ${daysSince}d ago") else if (lastReportDate == null) append(" · no visits on file")
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Column {
+                    Text("${patient.lastName}, ${patient.firstName ?: ""}", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "DOB: ${patient.dob}" + (patient.hospitalPatientId?.let { " · ID: $it" } ?: ""),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
-                Text(
-                    statsLine,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (daysSince != null && daysSince > NOTABLE_DAYS_SINCE_VISIT) Color(0xFF9A6700) else Color.Unspecified,
-                )
-
-                // Read-only display of whatever's cached in patient.xml — see
-                // core.mri.ManufacturerWarningStatus's doc comment (issue #175).
-                parseManufacturerWarningStatus(patient.manufacturerWarningStatus)
-                    ?.takeIf { it.status == "advisory" || it.status == "recall" }
-                    ?.let { warning ->
-                        Text(
-                            if (warning.status == "recall") "Manufacturer recall posted" else "Manufacturer advisory posted",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFB3261E),
-                        )
-                    }
+                if (onOpenFolder != null) {
+                    TextButton(onClick = onOpenFolder) { Text("Open Folder") }
+                }
             }
-            if (onOpenFolder != null) {
-                TextButton(onClick = onOpenFolder) { Text("Open Folder") }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                AssistChip(
+                    onClick = {},
+                    label = { Text(device?.manufacturer ?: "Unknown manufacturer") },
+                    colors = AssistChipDefaults.assistChipColors(),
+                )
+                Text(
+                    device?.deviceModel ?: "Unknown model",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val statsLine = buildString {
+                        append(if (reportCount == 1) "1 report" else "$reportCount reports")
+                        if (daysSince != null) append(" · last visit ${daysSince}d ago") else if (lastReportDate == null) append(" · no visits on file")
+                    }
+                    Text(
+                        statsLine,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (daysSince != null && daysSince > NOTABLE_DAYS_SINCE_VISIT) Color(0xFF9A6700) else Color.Unspecified,
+                    )
+                    if (onOpenUrl != null) {
+                        mriCheckUrl(device?.manufacturer)?.let { url ->
+                            TextButton(onClick = { onOpenUrl(url) }, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                                Text("Check MRI", style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+                if (warning != null) {
+                    val label = when (warning.status) {
+                        "recall" -> "⚠ Recall"
+                        "advisory" -> "⚠ Advisory"
+                        "manual_check" -> "? Manual check"
+                        else -> "? Unknown"
+                    }
+                    AssistChip(
+                        onClick = { warning.link?.let { onOpenUrl?.invoke(it) } },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = if (warning.status == "recall" || warning.status == "advisory") {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                            labelColor = if (warning.status == "recall" || warning.status == "advisory") {
+                                MaterialTheme.colorScheme.onErrorContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            },
+                        ),
+                    )
+                }
             }
         }
     }

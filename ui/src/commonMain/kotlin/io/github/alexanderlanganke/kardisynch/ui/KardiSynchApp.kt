@@ -187,6 +187,7 @@ fun KardiSynchApp(
                 onFilterStateChange = { dashboardFilterState = it },
                 onOpenDeviceNews = deviceNewsService?.let { { screen = Screen.DeviceNews } },
                 onOpenPatientFolder = onOpenPatientFolder,
+                onOpenUrl = onOpenUrl,
                 todayIso = todayIso,
                 notificationCenter = {
                     NotificationCenterBell(
