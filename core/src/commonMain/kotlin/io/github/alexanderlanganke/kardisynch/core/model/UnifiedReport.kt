@@ -59,11 +59,22 @@ data class DeviceInfo(
 enum class ParseStatus { OK, PARTIAL, FAILED }
 
 /**
+ * Ported from `UnifiedReport.arrhythmia_summary` (src/main/reports.ts). That
+ * TS type also allows arbitrary extra `[key: string]: any` entries; not
+ * ported since no parser (Electron or here) currently populates any beyond
+ * these two.
+ */
+data class ArrhythmiaSummary(
+    val atrialFibrillationBurden: Measurement? = null,
+    val ventricularTachycardiaEpisodes: Int? = null,
+)
+
+/**
  * The top-level, standardized structure for a parsed interrogation report.
- * Ported from `UnifiedReport` (src/main/reports.ts). `arrhythmiaSummary` and
- * `parseWarnings`/diagnostics are simplified (or omitted) for now — this
- * covers what the ported parsers (Medtronic .pdd, Biotronik, Microport)
- * actually populate this session; extend as more parsers are ported.
+ * Ported from `UnifiedReport` (src/main/reports.ts). `parseWarnings`/
+ * diagnostics are simplified (or omitted) for now — this covers what the
+ * ported parsers (Medtronic .pdd, Biotronik, Microport) actually populate
+ * this session; extend as more parsers are ported.
  */
 data class UnifiedReport(
     val manufacturer: String,
@@ -74,6 +85,7 @@ data class UnifiedReport(
     val device: DeviceInfo,
     val battery: BatteryData = BatteryData(),
     val leads: List<LeadData> = emptyList(),
+    val arrhythmiaSummary: ArrhythmiaSummary? = null,
     val additionalFields: Map<String, String> = emptyMap(),
     val rawText: String? = null,
     val formatVariant: String? = null,

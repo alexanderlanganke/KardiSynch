@@ -1,5 +1,6 @@
 package io.github.alexanderlanganke.kardisynch.core.parsers.biotronik
 
+import io.github.alexanderlanganke.kardisynch.core.model.ArrhythmiaSummary
 import io.github.alexanderlanganke.kardisynch.core.model.BatteryData
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
@@ -316,9 +317,11 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
     val hasPatientIdentity = patientLastName.isNotEmpty() || patientDob.isNotEmpty()
     val hasDeviceIdentity = deviceModelStr.isNotEmpty() || deviceSerial.isNotEmpty()
 
-    // arrhythmiaSummary (atrial fibrillation burden, VT episode count) isn't
-    // carried on this port's UnifiedReport yet (see its doc comment) — nsTCount
-    // and the AF-burden lookup are computed above but not attached anywhere.
+    val afBurden = safe({ findEntryMultilang(statsTable, "Atriale Arrhythmielast", "Atrial Arrhythmia Burden") }, null)
+    val arrhythmiaSummary = ArrhythmiaSummary(
+        atrialFibrillationBurden = afBurden?.toDoubleOrNull()?.let { Measurement(it, "%") },
+        ventricularTachycardiaEpisodes = nsTCount,
+    )
 
     return UnifiedReport(
         manufacturer = manufacturer,
@@ -331,6 +334,7 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
             status = batteryStatus,
         ),
         leads = leads,
+        arrhythmiaSummary = arrhythmiaSummary,
         rawText = xmlData,
         formatVariant = "biotronik",
         parseStatus = if (!hasPatientIdentity && !hasDeviceIdentity) ParseStatus.FAILED else ParseStatus.OK,

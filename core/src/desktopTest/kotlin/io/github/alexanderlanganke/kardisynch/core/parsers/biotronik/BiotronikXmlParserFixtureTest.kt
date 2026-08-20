@@ -35,6 +35,12 @@ private data class FixtureLead(
 )
 
 @Serializable
+private data class FixtureArrhythmiaSummary(
+    val atrial_fibrillation_burden: FixtureMeasurement? = null,
+    val ventricular_tachycardia_episodes: Int? = null,
+)
+
+@Serializable
 private data class FixtureReport(
     val manufacturer: String,
     val interrogation_date: String,
@@ -42,6 +48,7 @@ private data class FixtureReport(
     val device: FixtureDevice,
     val battery: FixtureBattery = FixtureBattery(),
     val leads: List<FixtureLead> = emptyList(),
+    val arrhythmia_summary: FixtureArrhythmiaSummary? = null,
 )
 
 private const val EPSILON = 0.005
@@ -119,6 +126,20 @@ class BiotronikXmlParserFixtureTest {
                 "expected '${expected.battery.remaining_longevity?.value}', got ${actual.battery.remainingLongevity?.value}",
             )
             check("battery.status", actual.battery.status == expected.battery.status, "expected '${expected.battery.status}', got '${actual.battery.status}'")
+
+            check(
+                "arrhythmiaSummary.atrialFibrillationBurden",
+                closeEnough(
+                    leadingDouble(expected.arrhythmia_summary?.atrial_fibrillation_burden?.value),
+                    actual.arrhythmiaSummary?.atrialFibrillationBurden?.value,
+                ),
+                "expected '${expected.arrhythmia_summary?.atrial_fibrillation_burden?.value}', got ${actual.arrhythmiaSummary?.atrialFibrillationBurden?.value}",
+            )
+            check(
+                "arrhythmiaSummary.ventricularTachycardiaEpisodes",
+                actual.arrhythmiaSummary?.ventricularTachycardiaEpisodes == (expected.arrhythmia_summary?.ventricular_tachycardia_episodes ?: 0),
+                "expected ${expected.arrhythmia_summary?.ventricular_tachycardia_episodes}, got ${actual.arrhythmiaSummary?.ventricularTachycardiaEpisodes}",
+            )
 
             check("leads.count", actual.leads.size == expected.leads.size, "expected ${expected.leads.size} leads, got ${actual.leads.size}")
             for ((i, expectedLead) in expected.leads.withIndex()) {
