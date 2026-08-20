@@ -36,6 +36,7 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
+import io.github.alexanderlanganke.kardisynch.core.util.isoDateOnly
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import kotlinx.coroutines.launch
@@ -183,7 +184,7 @@ private fun VisitCard(
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(10.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(report.interrogationDate, style = MaterialTheme.typography.labelMedium)
+                Text(isoDateOnly(report.interrogationDate), style = MaterialTheme.typography.labelMedium)
                 Box(modifier = Modifier.weight(1f))
                 if (onRescanVisit != null || onMoveVisit != null || onDeleteVisit != null || onEditDeviceAndLeads != null || onExportQr != null) {
                     Box {

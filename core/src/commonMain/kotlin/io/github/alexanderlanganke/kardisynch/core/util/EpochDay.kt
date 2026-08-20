@@ -28,6 +28,17 @@ fun parseIsoEpochDay(date: String): Long? {
     }
 }
 
+/**
+ * Trims an ISO instant (`2025-11-04T08:13:54.615Z`) or plain date down to
+ * just its `YYYY-MM-DD` portion. commonMain has no cross-platform locale
+ * date formatter (this port already avoids pulling in kotlinx-datetime for
+ * lesser reasons, see `VisitMatch.kt`'s doc comment), so this is a
+ * deliberately simple display transform rather than a "Nov 4, 2025"-style
+ * formatter — it exists purely to stop raw timestamps (with seconds and a
+ * trailing `Z`) from showing up in visit dates throughout the UI.
+ */
+fun isoDateOnly(raw: String): String = raw.substringBefore('T')
+
 /** `toIso` minus `fromIso`, in whole days — null if either date doesn't parse. */
 fun daysBetweenIsoDates(fromIso: String, toIso: String): Int? {
     val from = parseIsoEpochDay(fromIso) ?: return null

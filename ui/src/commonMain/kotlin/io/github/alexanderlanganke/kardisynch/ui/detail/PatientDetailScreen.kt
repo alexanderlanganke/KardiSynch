@@ -34,6 +34,7 @@ import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
+import io.github.alexanderlanganke.kardisynch.core.util.isoDateOnly
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
@@ -281,7 +282,7 @@ private fun PatientDetailContent(
             AlertDialog(
                 onDismissRequest = { deleteConfirmReport = null },
                 title = { Text("Delete this visit?") },
-                text = { Text("Removes the ${report.interrogationDate} visit and its files. This can't be undone.") },
+                text = { Text("Removes the ${isoDateOnly(report.interrogationDate)} visit and its files. This can't be undone.") },
                 confirmButton = {
                     TextButton(onClick = { deleteConfirmReport = null; onDeleteReport(report.id) }) { Text("Delete") }
                 },

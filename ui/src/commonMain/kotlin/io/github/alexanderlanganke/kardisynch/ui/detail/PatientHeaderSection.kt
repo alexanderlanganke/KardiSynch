@@ -3,11 +3,16 @@ package io.github.alexanderlanganke.kardisynch.ui.detail
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -20,12 +25,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.mri.ManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.util.ageInYears
 import io.github.alexanderlanganke.kardisynch.core.util.daysBetweenIsoDates
+import io.github.alexanderlanganke.kardisynch.core.util.isoDateOnly
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
@@ -86,24 +93,34 @@ fun PatientHeaderSection(
             ) {
                 Text("${patient.lastName}, ${patient.firstName.orEmpty()}", style = MaterialTheme.typography.titleSmall)
                 Text(patient.dob + (age?.let { " (${it}y)" } ?: ""), style = MaterialTheme.typography.labelSmall)
+                HeaderDivider()
                 Text(deviceLeadSummary(latestDevice, latestLeads), style = MaterialTheme.typography.labelSmall)
                 if (onOpenUrl != null) {
                     mriCheckUrl(mostRecent?.manufacturer)?.let { url ->
-                        TextButton(onClick = { onOpenUrl(url) }) { Text("Check MRI", style = MaterialTheme.typography.labelSmall) }
+                        AssistChip(onClick = { onOpenUrl(url) }, label = { Text("Check MRI", style = MaterialTheme.typography.labelSmall) })
                     }
                 }
                 if (warning != null) {
-                    Text(
-                        "⚠ Warning",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.error,
+                    AssistChip(
+                        onClick = { warning.link?.let { onOpenUrl?.invoke(it) } },
+                        label = { Text(if (warning.status == "recall") "⚠ Recall" else "⚠ Advisory", style = MaterialTheme.typography.labelSmall) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                            labelColor = MaterialTheme.colorScheme.onErrorContainer,
+                        ),
                     )
                 }
+                HeaderDivider()
                 Text(
-                    mostRecent?.let { "${it.interrogationDate}${daysSinceLastVisit?.let { d -> " (${d}d)" } ?: ""}" } ?: "No visits",
+                    mostRecent?.let { "${isoDateOnly(it.interrogationDate)}${daysSinceLastVisit?.let { d -> " (${d}d)" } ?: ""}" } ?: "No visits",
                     style = MaterialTheme.typography.labelSmall,
+                    color = if (daysSinceLastVisit != null && daysSinceLastVisit > NOTABLE_DAYS_SINCE_VISIT) {
+                        Color(0xFF9A6700)
+                    } else {
+                        Color.Unspecified
+                    },
                 )
-                Text("${reports.size} visit${if (reports.size == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall)
+                AssistChip(onClick = {}, label = { Text("${reports.size} visit${if (reports.size == 1) "" else "s"}", style = MaterialTheme.typography.labelSmall) })
                 TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "▲ Details" else "▼ Details") }
             }
 
@@ -182,6 +199,12 @@ private fun WarningBanner(warning: ManufacturerWarningStatus, onOpenUrl: ((Strin
             }
         }
     }
+}
+
+/** A thin vertical separator between header segments — mirrors `PatientDetail.tsx`'s `w-px h-4 bg-border/60` bars, which broke the compact row into readable groups instead of a wall of unrelated text. */
+@Composable
+private fun HeaderDivider() {
+    Box(Modifier.height(16.dp).width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
 }
 
 private fun deviceLeadSummary(device: Devices?, leads: List<Leads>?): String {

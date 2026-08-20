@@ -40,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.util.formatDelta
+import io.github.alexanderlanganke.kardisynch.core.util.isoDateOnly
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
 import io.github.alexanderlanganke.kardisynch.data.db.Leads
@@ -171,7 +172,7 @@ private fun ReportViewPaneSlot(
                         Text(
                             when {
                                 selection is PaneSelection.Summary -> "Summary"
-                                selectedReport != null -> "${selectedReport.interrogationDate} · ${selectedReport.manufacturer ?: "Unknown"}"
+                                selectedReport != null -> "${isoDateOnly(selectedReport.interrogationDate)} · ${selectedReport.manufacturer ?: "Unknown"}"
                                 selection is PaneSelection.Visit -> "Visit removed"
                                 else -> "Select…"
                             },
@@ -183,7 +184,7 @@ private fun ReportViewPaneSlot(
                         DropdownMenuItem(text = { Text("Summary") }, onClick = { selectorExpanded = false; onSelectionChange(PaneSelection.Summary) })
                         reports.forEach { r ->
                             DropdownMenuItem(
-                                text = { Text("${r.interrogationDate} · ${r.manufacturer ?: "Unknown"}") },
+                                text = { Text("${isoDateOnly(r.interrogationDate)} · ${r.manufacturer ?: "Unknown"}") },
                                 onClick = { selectorExpanded = false; onSelectionChange(PaneSelection.Visit(r.id)) },
                             )
                         }
@@ -268,7 +269,7 @@ private fun FormattedVisitContent(repository: KardiSynchRepository, report: Repo
         previousLeads = previousReport?.let { repository.getLeadsForReport(it.id) }
     }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp)) {
-        Text(report.interrogationDate, style = MaterialTheme.typography.titleSmall)
+        Text(isoDateOnly(report.interrogationDate), style = MaterialTheme.typography.titleSmall)
         Text("${report.manufacturer ?: "Unknown"} · ${report.deviceModel ?: "Unknown"}", style = MaterialTheme.typography.bodyMedium)
         devices?.forEach { d ->
             Text("Device: ${d.model} (${d.serialNumber}) — ${d.type}", style = MaterialTheme.typography.bodySmall)
@@ -315,7 +316,7 @@ private fun SummaryPaneContent(
         val trendPoints = reports
             .filter { it.batteryVoltageValue != null }
             .sortedBy { it.interrogationDate }
-            .map { TrendPoint(it.interrogationDate, it.batteryVoltageValue!!, it.deviceSerialNumber) }
+            .map { TrendPoint(isoDateOnly(it.interrogationDate), it.batteryVoltageValue!!, it.deviceSerialNumber) }
         TrendChart("Battery voltage trend", "V", trendPoints)
         LeadTrendSection(repository, patientId)
     }
@@ -329,7 +330,7 @@ private fun LatestValuesCard(repository: KardiSynchRepository, reports: List<Rep
 
     Card(modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp)) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Text("Latest values (${latest.interrogationDate})", style = MaterialTheme.typography.titleSmall)
+            Text("Latest values (${isoDateOnly(latest.interrogationDate)})", style = MaterialTheme.typography.titleSmall)
             Text("${latest.manufacturer ?: "Unknown"} ${latest.deviceModel ?: "Unknown"} (${latest.deviceSerialNumber ?: "?"})", style = MaterialTheme.typography.bodyMedium)
             if (latest.batteryVoltageValue != null) {
                 Text("Battery: ${latest.batteryVoltageValue} ${latest.batteryVoltageUnit.orEmpty()}", style = MaterialTheme.typography.bodySmall)
@@ -407,7 +408,7 @@ private fun LeadTrendSection(repository: KardiSynchRepository, patientId: String
         }
 
         fun pointsFor(unit: (KardiSynchRepository.LeadTrendPoint) -> String?, value: (KardiSynchRepository.LeadTrendPoint) -> Double?) =
-            leadPoints.mapNotNull { p -> value(p)?.let { TrendPoint(p.interrogationDate, it, p.deviceSerialNumber) } } to
+            leadPoints.mapNotNull { p -> value(p)?.let { TrendPoint(isoDateOnly(p.interrogationDate), it, p.deviceSerialNumber) } } to
                 (leadPoints.firstNotNullOfOrNull(unit) ?: "")
 
         val (impedancePoints, impedanceUnit) = pointsFor({ it.impedanceUnit }, { it.impedanceValue })
