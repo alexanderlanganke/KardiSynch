@@ -364,6 +364,7 @@ private fun PatientDetailContent(
             } else {
                 null
             },
+            deviceTypeAliases = aliases,
         )
 
         rescanMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = 16.dp)) }

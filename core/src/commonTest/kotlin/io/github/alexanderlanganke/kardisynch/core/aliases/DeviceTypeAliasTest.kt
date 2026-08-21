@@ -196,3 +196,40 @@ class SeedDeviceTypeAliasesTest {
         assertEquals(keys.size, keys.toSet().size, "no duplicate (manufacturer, model) within the seed table")
     }
 }
+
+class GetConnectorFlagTest {
+    @Test
+    fun `flags DF-1 regardless of role`() {
+        val aliases = listOf(DeviceTypeAlias("Medtronic", "6944", "", "2024-01-01", AliasKind.LEAD, connector = "DF-1", role = null, verified = true))
+        val flag = getConnectorFlag("Medtronic", "6944", aliases)
+        assertEquals(ConnectorFlag("DF-1", confirmed = true), flag)
+    }
+
+    @Test
+    fun `flags IS-1 only when role is LV`() {
+        val aliases = listOf(
+            DeviceTypeAlias("Medtronic", "4396", "", "2024-01-01", AliasKind.LEAD, connector = "IS-1", role = "LV", verified = true),
+            DeviceTypeAlias("Medtronic", "4193", "", "2024-01-01", AliasKind.LEAD, connector = "IS-1", role = null, verified = true),
+        )
+        assertEquals(ConnectorFlag("IS-1", confirmed = true), getConnectorFlag("Medtronic", "4396", aliases))
+        assertNull(getConnectorFlag("Medtronic", "4193", aliases))
+    }
+
+    @Test
+    fun `other connectors are not flagged`() {
+        val aliases = listOf(DeviceTypeAlias("Biotronik", "Plexa", "", "2024-01-01", AliasKind.LEAD, connector = "IS4", verified = true))
+        assertNull(getConnectorFlag("Biotronik", "Plexa", aliases))
+    }
+
+    @Test
+    fun `unverified seed entries report confirmed=false`() {
+        val aliases = listOf(DeviceTypeAlias("Medtronic", "6935", "", "2024-01-01", AliasKind.LEAD, connector = "IS-1", role = "LV", verified = false))
+        assertEquals(ConnectorFlag("IS-1", confirmed = false), getConnectorFlag("Medtronic", "6935", aliases))
+    }
+
+    @Test
+    fun `no matching alias yields no flag`() {
+        assertNull(getConnectorFlag("Medtronic", "Unknown-Model", emptyList()))
+        assertNull(getConnectorFlag(null, null, emptyList()))
+    }
+}

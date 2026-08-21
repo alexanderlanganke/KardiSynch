@@ -150,3 +150,24 @@ fun removeAlias(aliases: List<DeviceTypeAlias>, manufacturer: String, model: Str
     val key = normalizeAliasKey(manufacturer, model)
     return aliases.filterNot { it.kind == kind && normalizeAliasKey(it.manufacturer, it.model) == key }
 }
+
+data class ConnectorFlag(val connector: String, val confirmed: Boolean)
+
+/**
+ * Decides whether a lead should get the prominent DF-1 / IS-1-in-LV-port
+ * highlight. Ported from `getConnectorFlag` (`src/lib/leadConnectorLookup.ts`,
+ * issue #198's connector-flag gap). The TS original also checks the lead's
+ * own `connector` field before falling back to the alias — omitted here
+ * because no parser (Electron's or this port's) ever populates a per-lead
+ * `connector` value, so that branch is dead code in practice; the alias
+ * lookup is the only real source either way.
+ */
+fun getConnectorFlag(manufacturer: String?, model: String?, aliases: List<DeviceTypeAlias>): ConnectorFlag? {
+    val alias = aliases.firstOrNull {
+        it.kind == AliasKind.LEAD && normalizeAliasKey(it.manufacturer, it.model) == normalizeAliasKey(manufacturer, model)
+    }
+    val connector = alias?.connector ?: return null
+    val isFlagged = connector == "DF-1" || (connector == "IS-1" && alias.role == "LV")
+    if (!isFlagged) return null
+    return ConnectorFlag(connector = connector, confirmed = alias.verified)
+}

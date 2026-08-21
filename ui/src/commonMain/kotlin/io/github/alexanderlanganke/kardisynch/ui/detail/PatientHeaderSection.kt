@@ -27,6 +27,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import io.github.alexanderlanganke.kardisynch.core.aliases.ConnectorFlag
+import io.github.alexanderlanganke.kardisynch.core.aliases.DeviceTypeAlias
+import io.github.alexanderlanganke.kardisynch.core.aliases.getConnectorFlag
 import io.github.alexanderlanganke.kardisynch.core.mri.ManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
@@ -73,6 +76,7 @@ fun PatientHeaderSection(
     onEditPatientInfo: (() -> Unit)?,
     onEditDeviceAndLeads: (() -> Unit)?,
     onExportLatestVisitQr: (() -> Unit)?,
+    deviceTypeAliases: List<DeviceTypeAlias> = emptyList(),
 ) {
     var expanded by remember { mutableStateOf(false) }
     val mostRecent = reports.maxByOrNull { it.interrogationDate }
@@ -149,10 +153,16 @@ fun PatientHeaderSection(
                                 Text("No leads recorded", style = MaterialTheme.typography.bodySmall)
                             } else {
                                 leads.forEach { l ->
-                                    Text(
-                                        "${l.model ?: l.name}${l.anatomicLocation?.let { " · $it" } ?: ""} — SN: ${l.serial ?: "Unknown"}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                    )
+                                    val flag = getConnectorFlag(l.manufacturer, l.model, deviceTypeAliases)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(
+                                            "${l.model ?: l.name}${l.anatomicLocation?.let { " · $it" } ?: ""} — SN: ${l.serial ?: "Unknown"}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                        )
+                                        if (flag != null) {
+                                            ConnectorFlagBadge(flag)
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -199,6 +209,25 @@ private fun WarningBanner(warning: ManufacturerWarningStatus, onOpenUrl: ((Strin
             }
         }
     }
+}
+
+/**
+ * The DF-1 / IS-1-in-LV-port highlight from `PatientDetail.tsx`'s per-lead
+ * amber card+badge (issue #198's connector-flag gap) — condensed to just
+ * the badge here since this row is already a single dense line rather than
+ * per-lead cards. A trailing "?" marks a seeded-but-not-clinician-confirmed
+ * connector, matching the original's differing tooltip copy for that case.
+ */
+@Composable
+private fun ConnectorFlagBadge(flag: ConnectorFlag) {
+    val amber = Color(0xFF9A6700)
+    val label = if (flag.connector == "IS-1") "IS-1 (LV)" else flag.connector
+    AssistChip(
+        onClick = {},
+        label = { Text(if (flag.confirmed) label else "$label ?", style = MaterialTheme.typography.labelSmall) },
+        colors = AssistChipDefaults.assistChipColors(containerColor = amber.copy(alpha = 0.15f), labelColor = amber),
+        border = AssistChipDefaults.assistChipBorder(enabled = true, borderColor = amber),
+    )
 }
 
 /** A thin vertical separator between header segments — mirrors `PatientDetail.tsx`'s `w-px h-4 bg-border/60` bars, which broke the compact row into readable groups instead of a wall of unrelated text. */
