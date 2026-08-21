@@ -16,11 +16,18 @@ import io.github.alexanderlanganke.kardisynch.core.xml.XmlParser
  * KMP migration plan requires — schema confirmed against the real writer,
  * not guessed.
  *
- * `patient.xml` also carries a curated devices/leads *history* list — not
- * read here. Per the migration plan's Decision 3, this port doesn't try to
- * replicate that separately-maintained aggregate; "current devices/leads"
- * for a patient is a query against their most recent report's rows
- * (built from `visit.xml`, which this file also reads) instead.
+ * `patient.xml` also carries a curated devices/leads *history* list. Per the
+ * migration plan's Decision 3, this port doesn't try to replicate that
+ * separately-maintained aggregate; "current devices/leads" for a patient is
+ * a query against their most recent report's rows (built from `visit.xml`,
+ * which this file also reads) instead. But Decision 3 not *reading* it is
+ * different from a read-merge-write *destroying* it: [IndexedPatient]
+ * captures the `<devices>`/`<leads>` elements as opaque [XmlNode] subtrees
+ * (unparsed — this port has no model for their fields) purely so
+ * [generatePatientXml] can splice them back in unchanged. Without this, a
+ * KMP client sharing `_DATA` with Electron would silently delete a
+ * patient's device/lead history — including explanted-device tracking —
+ * the moment it edited that patient's name/DOB/hospital ID.
  */
 
 /**
@@ -46,6 +53,9 @@ data class IndexedPatient(
     val mriDataHash: String? = null,
     val manufacturerWarningStatus: String? = null,
     val manufacturerWarningHash: String? = null,
+    /** The `<devices>`/`<leads>` history blocks, unparsed — see this file's doc comment. Pass straight through to [generatePatientXml] on any read-merge-write. */
+    val devicesXml: XmlNode? = null,
+    val leadsXml: XmlNode? = null,
 )
 
 data class IndexedReport(
@@ -69,6 +79,8 @@ fun parsePatientXml(xml: String): IndexedPatient? {
         mriDataHash = root.child("mri_data_hash")?.text?.takeIf { it.isNotEmpty() },
         manufacturerWarningStatus = root.child("manufacturer_warning_status")?.text?.takeIf { it.isNotEmpty() },
         manufacturerWarningHash = root.child("manufacturer_warning_hash")?.text?.takeIf { it.isNotEmpty() },
+        devicesXml = root.child("devices"),
+        leadsXml = root.child("leads"),
     )
 }
 

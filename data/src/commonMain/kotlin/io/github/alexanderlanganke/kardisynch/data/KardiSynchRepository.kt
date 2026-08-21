@@ -486,10 +486,12 @@ class KardiSynchRepository(
      * Rewrites `patient.xml` and the local index row.
      *
      * Reads the existing `patient.xml` first and carries its MRI/
-     * manufacturer-warning cache fields forward unchanged (issue #175) —
-     * [generatePatientXml] otherwise defaults them to absent, which would
-     * silently wipe out whatever an Electron client had already cached
-     * there the moment a KMP client edits this patient's name/DOB.
+     * manufacturer-warning cache fields (issue #175) and `<devices>`/`<leads>`
+     * history block (opaque to this port — see [io.github.alexanderlanganke.kardisynch.core.datastore.IndexedPatient]'s
+     * doc comment) forward unchanged — [generatePatientXml] otherwise
+     * defaults them all to absent, which would silently wipe out whatever
+     * an Electron client had already written there the moment a KMP client
+     * edits this patient's name/DOB.
      */
     suspend fun updatePatientInfo(
         reader: DataRootReader,
@@ -514,6 +516,7 @@ class KardiSynchRepository(
                     patientId, firstName, lastName, dob, hospitalPatientId,
                     mriStatus = existing?.mriStatus, mriDataHash = existing?.mriDataHash,
                     manufacturerWarningStatus = existing?.manufacturerWarningStatus, manufacturerWarningHash = existing?.manufacturerWarningHash,
+                    devicesXml = existing?.devicesXml, leadsXml = existing?.leadsXml,
                 )
                 if (!writer.writeTextFile(patientDirHandle, "patient.xml", xml)) {
                     return@withLock Result.failure(IllegalStateException("Failed to write patient.xml"))

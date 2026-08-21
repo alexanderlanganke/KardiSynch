@@ -107,4 +107,89 @@ class DataRootXmlWriterTest {
         assertEquals("Model \"X\"", parsed?.report?.device?.model)
         assertEquals("5 < 10 & 10 > 5", parsed?.report?.additionalFields?.get("note"))
     }
+
+    /** A literal `patient.xml` shaped exactly like Electron's `generatePatientXML` output (`src/main/storage.ts`) — device/lead history included, one explanted device, one lead with no serial (name-only identity). */
+    private val electronPatientXmlWithHistory = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <patient>
+          <id>patient-1</id>
+          <first_name>Jane</first_name>
+          <last_name>Doe</last_name>
+          <dob>1970-05-05</dob>
+          <hospitalPatientId>MRN123</hospitalPatientId>
+          <devices>
+            <device>
+              <model>Old Generator</model>
+              <serial>OLD001</serial>
+              <manufacturer>Medtronic</manufacturer>
+              <implant_date>2015-03-01</implant_date>
+              <type>ICD</type>
+              <status>explanted</status>
+            </device>
+            <device>
+              <model>New Generator</model>
+              <serial>NEW001</serial>
+              <manufacturer>Medtronic</manufacturer>
+              <implant_date>2024-06-01</implant_date>
+              <type>ICD</type>
+              <status>current</status>
+            </device>
+          </devices>
+          <leads>
+            <lead>
+              <model>Sprint Quattro</model>
+              <serial>LEAD001</serial>
+              <manufacturer>Medtronic</manufacturer>
+              <implant_date>2015-03-01</implant_date>
+              <type>Defibrillation</type>
+              <connector>DF-1</connector>
+            </lead>
+          </leads>
+        </patient>
+    """.trimIndent()
+
+    @Test
+    fun `parsePatientXml captures the devices and leads history blocks`() {
+        val parsed = parsePatientXml(electronPatientXmlWithHistory)
+        assertEquals("devices", parsed?.devicesXml?.name)
+        assertEquals(2, parsed?.devicesXml?.childrenNamed("device")?.size)
+        assertEquals("explanted", parsed?.devicesXml?.childrenNamed("device")?.get(0)?.child("status")?.text)
+        assertEquals("leads", parsed?.leadsXml?.name)
+        assertEquals("DF-1", parsed?.leadsXml?.child("lead")?.child("connector")?.text)
+    }
+
+    @Test
+    fun `a patient-info edit preserves the devices and leads history untouched — the updatePatientInfo read-merge-write this port must not corrupt`() {
+        val existing = parsePatientXml(electronPatientXmlWithHistory)!!
+
+        // Simulates KardiSynchRepository.updatePatientInfo: regenerate with new
+        // identity fields, passing the existing devicesXml/leadsXml straight through.
+        val rewritten = generatePatientXml(
+            id = existing.id, firstName = "Janet", lastName = existing.lastName, dob = existing.dob,
+            hospitalPatientId = existing.hospitalPatientId,
+            devicesXml = existing.devicesXml, leadsXml = existing.leadsXml,
+        )
+
+        val reparsed = parsePatientXml(rewritten)
+        assertEquals("Janet", reparsed?.firstName)
+        val devices = reparsed?.devicesXml?.childrenNamed("device")
+        assertEquals(2, devices?.size)
+        assertEquals("OLD001", devices?.get(0)?.child("serial")?.text)
+        assertEquals("explanted", devices?.get(0)?.child("status")?.text)
+        assertEquals("NEW001", devices?.get(1)?.child("serial")?.text)
+        assertEquals("current", devices?.get(1)?.child("status")?.text)
+        val lead = reparsed?.leadsXml?.child("lead")
+        assertEquals("LEAD001", lead?.child("serial")?.text)
+        assertEquals("DF-1", lead?.child("connector")?.text)
+    }
+
+    @Test
+    fun `a brand-new patient with no existing file omits devices and leads entirely`() {
+        val xml = generatePatientXml(id = "p1", firstName = "A", lastName = "B", dob = "2000-01-01", hospitalPatientId = null)
+        assertEquals(false, xml.contains("<devices>"))
+        assertEquals(false, xml.contains("<leads>"))
+        val parsed = parsePatientXml(xml)
+        assertEquals(null, parsed?.devicesXml)
+        assertEquals(null, parsed?.leadsXml)
+    }
 }

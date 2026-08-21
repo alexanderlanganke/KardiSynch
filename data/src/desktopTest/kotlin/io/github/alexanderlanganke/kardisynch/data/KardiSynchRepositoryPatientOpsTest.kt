@@ -94,6 +94,57 @@ class KardiSynchRepositoryPatientOpsTest {
     }
 
     @Test
+    fun `updatePatientInfo preserves an existing devices-leads history block instead of deleting it (issue 176 data-loss fix)`() = runBlocking {
+        val outcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Testpatient", "1970-03-15", "S1")).getOrThrow()
+
+        // Simulate an Electron client's patient.xml carrying real device/lead
+        // history (explanted-device tracking this port has no model for) —
+        // this is exactly the shape generatePatientXML (storage.ts) writes.
+        val electronPatientXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <patient>
+              <id>${outcome.patientId}</id>
+              <first_name>Max</first_name>
+              <last_name>Testpatient</last_name>
+              <dob>1970-03-15</dob>
+              <devices>
+                <device>
+                  <model>Old Generator</model>
+                  <serial>OLD001</serial>
+                  <manufacturer>Medtronic</manufacturer>
+                  <implant_date>2015-03-01</implant_date>
+                  <type>ICD</type>
+                  <status>explanted</status>
+                </device>
+              </devices>
+              <leads>
+                <lead>
+                  <model>Sprint Quattro</model>
+                  <serial>LEAD001</serial>
+                  <manufacturer>Medtronic</manufacturer>
+                  <implant_date>2015-03-01</implant_date>
+                  <type>Defibrillation</type>
+                  <connector>DF-1</connector>
+                </lead>
+              </leads>
+            </patient>
+        """.trimIndent()
+        File(outcome.patientDirHandle, "patient.xml").writeText(electronPatientXml)
+
+        repository.updatePatientInfo(
+            reader, writer, reportsRoot, outcome.patientId,
+            firstName = "Maxine", lastName = "Correctname", dob = "1970-03-16", hospitalPatientId = null,
+        ).getOrThrow()
+
+        val xml = File(outcome.patientDirHandle, "patient.xml").readText()
+        assertTrue(xml.contains("Correctname"), "the actual edit still applies")
+        assertTrue(xml.contains("OLD001"), "explanted device's serial preserved")
+        assertTrue(xml.contains("explanted"), "explanted status preserved")
+        assertTrue(xml.contains("LEAD001"), "lead serial preserved")
+        assertTrue(xml.contains("DF-1"), "lead connector preserved")
+    }
+
+    @Test
     fun `reindexFrom populates the MRI-manufacturer-warning cache columns from patient xml`() = runBlocking {
         val outcome = repository.importReport(reader, writer, reportsRoot, sampleReport("Testpatient", "1970-03-15", "S1")).getOrThrow()
         val cachedXml = io.github.alexanderlanganke.kardisynch.core.datastore.generatePatientXml(

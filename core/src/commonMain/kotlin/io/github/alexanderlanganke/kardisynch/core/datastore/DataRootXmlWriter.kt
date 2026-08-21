@@ -3,6 +3,7 @@ package io.github.alexanderlanganke.kardisynch.core.datastore
 import io.github.alexanderlanganke.kardisynch.core.model.LeadData
 import io.github.alexanderlanganke.kardisynch.core.model.Measurement
 import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
+import io.github.alexanderlanganke.kardisynch.core.xml.XmlNode
 
 /**
  * Writers for `patient.xml`/`visit.xml`, matching the exact schema
@@ -37,6 +38,9 @@ fun generatePatientXml(
     mriDataHash: String? = null,
     manufacturerWarningStatus: String? = null,
     manufacturerWarningHash: String? = null,
+    /** The `<devices>`/`<leads>` history blocks — see [IndexedPatient]'s doc comment. Pass the existing `patient.xml`'s [IndexedPatient.devicesXml]/[IndexedPatient.leadsXml] straight through on any read-merge-write; leave null only when there's no existing file (brand-new patient). */
+    devicesXml: XmlNode? = null,
+    leadsXml: XmlNode? = null,
 ): String {
     val sb = StringBuilder()
     sb.append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
@@ -48,6 +52,8 @@ fun generatePatientXml(
     if (!hospitalPatientId.isNullOrEmpty()) {
         sb.append("  <hospitalPatientId>${xmlEscapeText(hospitalPatientId)}</hospitalPatientId>\n")
     }
+    devicesXml?.let { sb.append(serializeXmlNode(it, depth = 1)) }
+    leadsXml?.let { sb.append(serializeXmlNode(it, depth = 1)) }
     if (!mriStatus.isNullOrEmpty()) sb.append("  <mri_status>${xmlEscapeText(mriStatus)}</mri_status>\n")
     if (!mriDataHash.isNullOrEmpty()) sb.append("  <mri_data_hash>${xmlEscapeText(mriDataHash)}</mri_data_hash>\n")
     if (!manufacturerWarningStatus.isNullOrEmpty()) {
@@ -123,3 +129,29 @@ private fun xmlEscapeText(s: String): String = s
     .replace(">", "&gt;")
 
 private fun xmlEscapeAttribute(s: String): String = xmlEscapeText(s).replace("\"", "&quot;")
+
+/**
+ * Re-serializes a parsed [XmlNode] subtree back to XML text, indented
+ * [depth] levels (2 spaces each) — how [generatePatientXml] passes the
+ * `<devices>`/`<leads>` history block through unchanged (see
+ * [IndexedPatient]'s doc comment). Not byte-for-byte identical to whatever
+ * originally produced [node] (attribute order/whitespace can differ), but
+ * semantically identical and correctly re-parseable by both this port's own
+ * [XmlParser] and Electron's fast-xml-parser — element order and structure
+ * are what round-trips, not literal formatting.
+ */
+internal fun serializeXmlNode(node: XmlNode, depth: Int): String {
+    val indent = "  ".repeat(depth)
+    val sb = StringBuilder()
+    sb.append(indent).append('<').append(node.name)
+    for ((key, value) in node.attributes) sb.append(" $key=\"${xmlEscapeAttribute(value)}\"")
+    return if (node.children.isEmpty() && node.text.isEmpty()) {
+        sb.append(" />\n").toString()
+    } else if (node.children.isEmpty()) {
+        sb.append('>').append(xmlEscapeText(node.text)).append("</").append(node.name).append(">\n").toString()
+    } else {
+        sb.append(">\n")
+        for (child in node.children) sb.append(serializeXmlNode(child, depth + 1))
+        sb.append(indent).append("</").append(node.name).append(">\n").toString()
+    }
+}
