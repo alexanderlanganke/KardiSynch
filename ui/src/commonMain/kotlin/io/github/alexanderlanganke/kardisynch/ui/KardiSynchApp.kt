@@ -189,6 +189,7 @@ fun KardiSynchApp(
                 onOpenPatientFolder = onOpenPatientFolder,
                 onOpenUrl = onOpenUrl,
                 todayIso = todayIso,
+                onExportQr = onExportQr,
                 notificationCenter = {
                     NotificationCenterBell(
                         repository = repository,

@@ -27,6 +27,11 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 selectReportsByPatientId:
 SELECT * FROM Reports WHERE patientId = ? ORDER BY interrogationDate DESC;
 
+-- The Dashboard's per-row QR export button (issue #197) only needs the
+-- most recent report, not the full history selectReportsByPatientId loads.
+selectLatestReportForPatient:
+SELECT * FROM Reports WHERE patientId = ? ORDER BY interrogationDate DESC LIMIT 1;
+
 selectReportById:
 SELECT * FROM Reports WHERE id = ?;
 

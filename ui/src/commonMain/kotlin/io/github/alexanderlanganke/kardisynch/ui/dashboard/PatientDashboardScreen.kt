@@ -1,5 +1,11 @@
 package io.github.alexanderlanganke.kardisynch.ui.dashboard
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,15 +14,23 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GppBad
+import androidx.compose.material.icons.filled.GppGood
+import androidx.compose.material.icons.filled.GppMaybe
+import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -29,18 +43,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.matching.PatientSummary
+import io.github.alexanderlanganke.kardisynch.core.mri.ManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl
 import io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus
 import io.github.alexanderlanganke.kardisynch.core.mri.warningUrgencyRank
 import io.github.alexanderlanganke.kardisynch.core.util.daysBetweenIsoDates
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
+import io.github.alexanderlanganke.kardisynch.data.db.Devices
+import io.github.alexanderlanganke.kardisynch.data.db.Leads
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
+import io.github.alexanderlanganke.kardisynch.data.db.Reports
+import kotlinx.coroutines.launch
 
 private const val NOTABLE_DAYS_SINCE_VISIT = 180
 
@@ -75,6 +96,7 @@ fun PatientDashboardScreen(
     onOpenUrl: ((String) -> Unit)? = null,
     todayIso: String? = null,
     notificationCenter: (@Composable () -> Unit)? = null,
+    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)? = null,
 ) {
     val patients by repository.observePatients().collectAsState(initial = null)
     var summaries by remember { mutableStateOf<List<PatientSummary>>(emptyList()) }
@@ -222,6 +244,7 @@ fun PatientDashboardScreen(
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
                         items(sorted, key = { it.id }) { patient ->
                             PatientRow(
+                                repository = repository,
                                 patient = patient,
                                 summary = bySummaryId[patient.id],
                                 device = deviceInfo[patient.id],
@@ -229,6 +252,7 @@ fun PatientDashboardScreen(
                                 onClick = { onOpenPatient(patient.id) },
                                 onOpenFolder = onOpenPatientFolder?.let { { it(patient.id) } },
                                 onOpenUrl = onOpenUrl,
+                                onExportQr = onExportQr,
                             )
                         }
                     }
@@ -271,6 +295,7 @@ private fun SortFieldChip(
  */
 @Composable
 private fun PatientRow(
+    repository: KardiSynchRepository,
     patient: Patients,
     summary: PatientSummary?,
     device: KardiSynchRepository.PatientDeviceSummary?,
@@ -278,12 +303,13 @@ private fun PatientRow(
     onClick: () -> Unit,
     onOpenFolder: (() -> Unit)?,
     onOpenUrl: ((String) -> Unit)?,
+    onExportQr: ((Reports, List<Devices>, List<Leads>) -> Unit)?,
 ) {
     val warning = parseManufacturerWarningStatus(patient.manufacturerWarningStatus)
-        ?.takeIf { it.status != "safe" }
     val reportCount = summary?.reportCount ?: 0
     val lastReportDate = summary?.lastReportDate
     val daysSince = if (todayIso != null && lastReportDate != null) daysBetweenIsoDates(lastReportDate, todayIso) else null
+    val coroutineScope = rememberCoroutineScope()
 
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
@@ -298,8 +324,22 @@ private fun PatientRow(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                if (onOpenFolder != null) {
-                    TextButton(onClick = onOpenFolder) { Text("Open Folder") }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onExportQr != null) {
+                        IconButton(onClick = {
+                            coroutineScope.launch {
+                                val latest = repository.getLatestReportForPatient(patient.id) ?: return@launch
+                                val devices = repository.getDevicesForReport(latest.id)
+                                val leads = repository.getLeadsForReport(latest.id)
+                                onExportQr(latest, devices, leads)
+                            }
+                        }) {
+                            Icon(Icons.Filled.QrCode, contentDescription = "Export QR")
+                        }
+                    }
+                    if (onOpenFolder != null) {
+                        TextButton(onClick = onOpenFolder) { Text("Open Folder") }
+                    }
                 }
             }
 
@@ -343,30 +383,43 @@ private fun PatientRow(
                     }
                 }
                 if (warning != null) {
-                    val label = when (warning.status) {
-                        "recall" -> "⚠ Recall"
-                        "advisory" -> "⚠ Advisory"
-                        "manual_check" -> "? Manual check"
-                        else -> "? Unknown"
-                    }
-                    AssistChip(
-                        onClick = { warning.link?.let { onOpenUrl?.invoke(it) } },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        colors = AssistChipDefaults.assistChipColors(
-                            containerColor = if (warning.status == "recall" || warning.status == "advisory") {
-                                MaterialTheme.colorScheme.errorContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            labelColor = if (warning.status == "recall" || warning.status == "advisory") {
-                                MaterialTheme.colorScheme.onErrorContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        ),
-                    )
+                    WarningShieldIcon(warning, onOpenUrl)
                 }
             }
         }
+    }
+}
+
+/**
+ * The shield icon from `PatientDashboard.tsx`'s `WarningBadge` (issue #197):
+ * green "GppGood" for safe, red "GppBad" (pulsing) for advisory/recall,
+ * gray "GppMaybe" for manual_check or any other/unrecognized status value —
+ * clicking opens [warning]'s advisory link, same as the original.
+ */
+@Composable
+private fun WarningShieldIcon(warning: ManufacturerWarningStatus, onOpenUrl: ((String) -> Unit)?) {
+    val (icon, tint) = when (warning.status) {
+        "safe" -> Icons.Filled.GppGood to Color(0xFF2E7D32)
+        "recall", "advisory" -> Icons.Filled.GppBad to MaterialTheme.colorScheme.error
+        else -> Icons.Filled.GppMaybe to MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val pulse = warning.status == "recall" || warning.status == "advisory"
+    val alpha = if (pulse) {
+        val transition = rememberInfiniteTransition(label = "warning-shield-pulse")
+        val value by transition.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.4f,
+            animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Reverse),
+            label = "warning-shield-pulse-alpha",
+        )
+        value
+    } else {
+        1f
+    }
+    IconButton(
+        onClick = { warning.link?.let { onOpenUrl?.invoke(it) } },
+        modifier = Modifier.size(32.dp),
+    ) {
+        Icon(icon, contentDescription = warning.status, tint = tint, modifier = Modifier.alpha(alpha))
     }
 }

@@ -102,6 +102,11 @@ class KardiSynchRepository(
         db.devicesQueries.selectDevicesByReportId(reportId).executeAsList()
     }
 
+    /** The Dashboard's per-row QR export button (issue #197) needs only this, not the full [observeReportsForPatient] history. */
+    suspend fun getLatestReportForPatient(patientId: String): Reports? = withContext(ioDispatcher) {
+        db.reportsQueries.selectLatestReportForPatient(patientId).executeAsOneOrNull()
+    }
+
     suspend fun getLeadsForReport(reportId: String): List<Leads> = withContext(ioDispatcher) {
         db.leadsQueries.selectLeadsByReportId(reportId).executeAsList()
     }
