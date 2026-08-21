@@ -23,8 +23,6 @@ import androidx.compose.material.icons.filled.GppBad
 import androidx.compose.material.icons.filled.GppGood
 import androidx.compose.material.icons.filled.GppMaybe
 import androidx.compose.material.icons.filled.QrCode
-import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -348,10 +346,11 @@ private fun PatientRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                AssistChip(
-                    onClick = {},
-                    label = { Text(device?.manufacturer ?: "Unknown manufacturer") },
-                    colors = AssistChipDefaults.assistChipColors(),
+                val brand = manufacturerBrand(device?.manufacturer)
+                Text(
+                    brand?.label ?: device?.manufacturer ?: "Unknown manufacturer",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = brand?.color ?: MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     device?.deviceModel ?: "Unknown model",
@@ -422,4 +421,33 @@ private fun WarningShieldIcon(warning: ManufacturerWarningStatus, onOpenUrl: ((S
     ) {
         Icon(icon, contentDescription = warning.status, tint = tint, modifier = Modifier.alpha(alpha))
     }
+}
+
+private data class ManufacturerBrand(val label: String, val color: Color)
+
+/**
+ * The manufacturer "logo" column from `PatientDashboard.tsx`'s
+ * `MANUFACTURER_LOGOS` (issue #197). Those assets (`assets/logos`, one SVG
+ * file per manufacturer) are placeholder text-on-color SVGs, not real
+ * trademarked artwork — a
+ * `<text fill="#004B87">Medtronic</text>`, not a logo image — so this
+ * reproduces the same visual (brand-colored name) directly as styled
+ * `Text` rather than standing up a Compose Resources/SVG pipeline to
+ * render seven files that are text already. Matched the same way the
+ * original's `getManufacturerLogo` did: case-insensitive substring
+ * match against the parsed manufacturer string, first match wins.
+ */
+private val MANUFACTURER_BRANDS: List<Pair<String, ManufacturerBrand>> = listOf(
+    "Medtronic" to ManufacturerBrand("Medtronic", Color(0xFF004B87)),
+    "Biotronik" to ManufacturerBrand("BIOTRONIK", Color(0xFF5F212D)),
+    "Abbott" to ManufacturerBrand("Abbott", Color(0xFF000000)),
+    "Boston Scientific" to ManufacturerBrand("Boston Scientific", Color(0xFF003C71)),
+    "Impulse Dynamics" to ManufacturerBrand("IMPULSE DYNAMICS", Color(0xFF333333)),
+    "Microport" to ManufacturerBrand("MicroPort", Color(0xFF0099CC)),
+)
+
+private fun manufacturerBrand(name: String?): ManufacturerBrand? {
+    if (name.isNullOrBlank()) return null
+    val lower = name.lowercase()
+    return MANUFACTURER_BRANDS.firstOrNull { (key, _) -> lower.contains(key.lowercase()) }?.second
 }
