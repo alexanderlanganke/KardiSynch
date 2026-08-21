@@ -1,0 +1,49 @@
+name: KMP Windows Desktop Build
+
+# Manual only: jpackage bundles a platform-native runtime image, so a
+# Windows .exe can only be produced by actually running the build ON
+# Windows — Compose Desktop can't cross-compile it from Linux (see the
+# comment on apps/desktopApp/build.gradle.kts's nativeDistributions block,
+# issue #182). This gives an on-demand way to get a real Windows build
+# without needing a Windows machine, without adding Windows packaging to
+# every push (windows-latest runners are slower/costlier than Linux ones).
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Windows app image
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # An app-image (createReleaseDistributable), not an installer: it
+      # needs no WiX/Inno Setup toolchain and produces a folder with a
+      # ready-to-run .exe plus a bundled JRE — exactly what "let me try
+      # it" needs. A signed .msi installer is separate follow-up work
+      # (issue #182) once there's a code-signing cert to use.
+      - name: Build Windows app image
+        run: .\gradlew.bat :apps:desktopApp:createReleaseDistributable
+
+      - name: Zip app image
+        shell: bash
+        run: |
+          cd apps/desktopApp/build/compose/binaries/main-release/app
+          7z a -tzip kardisynch-windows.zip kardisynch
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kardisynch-windows
+          path: apps/desktopApp/build/compose/binaries/main-release/app/kardisynch-windows.zip
+          retention-days: 14
