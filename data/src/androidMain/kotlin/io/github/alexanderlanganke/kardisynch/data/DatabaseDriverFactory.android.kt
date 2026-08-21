@@ -8,7 +8,7 @@ import io.github.alexanderlanganke.kardisynch.data.db.KardiSynchDatabase
 private const val DB_NAME = "database.db"
 
 /** Kept in sync with the desktop actual's own `LOCAL_SCHEMA_VERSION` — see its doc comment for why this hand-maintained constant exists at all instead of [KardiSynchDatabase.Schema.version]. */
-private const val LOCAL_SCHEMA_VERSION = 3
+private const val LOCAL_SCHEMA_VERSION = 4
 private const val PREFS_NAME = "kardisynch_db"
 private const val PREFS_KEY_SCHEMA_VERSION = "schemaVersion"
 

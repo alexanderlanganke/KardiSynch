@@ -1444,6 +1444,10 @@ class KardiSynchRepository(
             data_ = null,
             batteryVoltageValue = report.battery.voltage?.value,
             batteryVoltageUnit = report.battery.voltage?.unit,
+            batteryStatus = report.battery.status,
+            afBurdenValue = report.arrhythmiaSummary?.atrialFibrillationBurden?.value,
+            afBurdenUnit = report.arrhythmiaSummary?.atrialFibrillationBurden?.unit,
+            vtEpisodes = report.arrhythmiaSummary?.ventricularTachycardiaEpisodes?.toLong(),
         )
 
         db.devicesQueries.insertDevice(

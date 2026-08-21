@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -40,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.alexanderlanganke.kardisynch.core.datastore.DataEntry
 import io.github.alexanderlanganke.kardisynch.core.util.formatDelta
+import io.github.alexanderlanganke.kardisynch.core.util.isCriticalBatteryStatus
 import io.github.alexanderlanganke.kardisynch.core.util.isoDateOnly
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Devices
@@ -274,9 +276,7 @@ private fun FormattedVisitContent(repository: KardiSynchRepository, report: Repo
         devices?.forEach { d ->
             Text("Device: ${d.model} (${d.serialNumber}) — ${d.type}", style = MaterialTheme.typography.bodySmall)
         }
-        formatDelta(report.batteryVoltageValue, previousReport?.batteryVoltageValue, report.batteryVoltageUnit.orEmpty(), "Battery")?.let {
-            Text(it, style = MaterialTheme.typography.bodySmall)
-        }
+        BatteryStatusSection(report, previousReport)
         leads?.forEach { l ->
             // Matched to the previous visit's same-location lead — this port
             // doesn't guarantee stable lead ordering across visits the way
@@ -290,6 +290,52 @@ private fun FormattedVisitContent(repository: KardiSynchRepository, report: Repo
                 formatDelta(l.pacingThresholdValue, previous?.pacingThresholdValue, l.pacingThresholdUnit.orEmpty(), "Thresh"),
             ).joinToString(" · ")
             Text("Lead ${l.name}: $bits", style = MaterialTheme.typography.bodySmall)
+        }
+        ArrhythmiaSummarySection(report)
+    }
+}
+
+/**
+ * Battery voltage delta plus status, red-highlighted when [isCriticalBatteryStatus]
+ * — ported from `FormattedReport.tsx`'s Battery Status card (issue #198).
+ */
+@Composable
+private fun BatteryStatusSection(report: Reports, previousReport: Reports?) {
+    val voltageLine = formatDelta(report.batteryVoltageValue, previousReport?.batteryVoltageValue, report.batteryVoltageUnit.orEmpty(), "Battery")
+    val status = report.batteryStatus
+    if (voltageLine == null && status.isNullOrBlank()) return
+    val critical = isCriticalBatteryStatus(status)
+    if (critical) {
+        Card(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+        ) {
+            Column(Modifier.padding(10.dp)) {
+                Text("Battery status: $status", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onErrorContainer)
+                voltageLine?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer) }
+            }
+        }
+    } else {
+        voltageLine?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+        status?.takeIf { it.isNotBlank() }?.let { Text("Battery status: $it", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+/**
+ * AF burden / VT episode count — the core-model field exists (`UnifiedReport.arrhythmiaSummary`,
+ * populated by the Biotronik parser) but Electron itself never surfaces it
+ * in any UI (`FormattedReport.tsx`'s "Episode Summary" reads a different,
+ * never-actually-populated `report.episodes` field instead) — this is new,
+ * not a strict port, closing the gap between what's parsed and what's shown.
+ */
+@Composable
+private fun ArrhythmiaSummarySection(report: Reports) {
+    if (report.afBurdenValue == null && report.vtEpisodes == null) return
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+        Column(Modifier.padding(10.dp)) {
+            Text("Arrhythmia summary", style = MaterialTheme.typography.labelMedium)
+            report.afBurdenValue?.let { Text("AF burden: $it ${report.afBurdenUnit.orEmpty()}", style = MaterialTheme.typography.bodySmall) }
+            report.vtEpisodes?.let { Text("VT episodes: $it", style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
@@ -332,8 +378,12 @@ private fun LatestValuesCard(repository: KardiSynchRepository, reports: List<Rep
         Column(modifier = Modifier.padding(16.dp)) {
             Text("Latest values (${isoDateOnly(latest.interrogationDate)})", style = MaterialTheme.typography.titleSmall)
             Text("${latest.manufacturer ?: "Unknown"} ${latest.deviceModel ?: "Unknown"} (${latest.deviceSerialNumber ?: "?"})", style = MaterialTheme.typography.bodyMedium)
-            if (latest.batteryVoltageValue != null) {
-                Text("Battery: ${latest.batteryVoltageValue} ${latest.batteryVoltageUnit.orEmpty()}", style = MaterialTheme.typography.bodySmall)
+            if (latest.batteryVoltageValue != null || !latest.batteryStatus.isNullOrBlank()) {
+                Text(
+                    "Battery: ${latest.batteryVoltageValue?.let { "$it ${latest.batteryVoltageUnit.orEmpty()}" } ?: "?"}" +
+                        (latest.batteryStatus?.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: ""),
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
             latestLeads?.forEach { l ->
                 val bits = listOfNotNull(

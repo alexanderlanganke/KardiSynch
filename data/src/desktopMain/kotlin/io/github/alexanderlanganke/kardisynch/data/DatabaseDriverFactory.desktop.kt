@@ -19,7 +19,7 @@ import java.io.File
  * constant (to a value distinct from every previous one) whenever a `.sq`
  * file's schema changes.
  */
-private const val LOCAL_SCHEMA_VERSION = 3L // v3: Reports.batteryVoltageValue/batteryVoltageUnit (issue #198)
+private const val LOCAL_SCHEMA_VERSION = 4L // v4: Reports.batteryStatus/afBurdenValue/afBurdenUnit/vtEpisodes (issue #198)
 
 /**
  * `~/.kardisynch/database.db` — a simple, cross-OS-enough local app-data

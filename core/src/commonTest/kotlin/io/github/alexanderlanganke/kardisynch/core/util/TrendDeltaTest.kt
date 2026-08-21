@@ -2,7 +2,9 @@ package io.github.alexanderlanganke.kardisynch.core.util
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class TrendDeltaTest {
     @Test
@@ -24,5 +26,27 @@ class TrendDeltaTest {
     @Test
     fun `an unchanged value shows a zero delta with no sign`() {
         assertEquals("Impedance: 500 -> 500 Ω (0)", formatDelta(500.0, 500.0, "Ω", "Impedance"))
+    }
+}
+
+class IsCriticalBatteryStatusTest {
+    @Test
+    fun `flags ERI, EOS, and EOL case-insensitively`() {
+        assertTrue(isCriticalBatteryStatus("ERI - Replace Now"))
+        assertTrue(isCriticalBatteryStatus("eos"))
+        assertTrue(isCriticalBatteryStatus("Approaching EOL"))
+    }
+
+    @Test
+    fun `normal status is not critical`() {
+        assertFalse(isCriticalBatteryStatus("Normal"))
+        assertFalse(isCriticalBatteryStatus("OK"))
+    }
+
+    @Test
+    fun `null or blank status is not critical`() {
+        assertFalse(isCriticalBatteryStatus(null))
+        assertFalse(isCriticalBatteryStatus(""))
+        assertFalse(isCriticalBatteryStatus("   "))
     }
 }

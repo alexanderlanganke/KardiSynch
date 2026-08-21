@@ -18,3 +18,17 @@ fun formatDelta(current: Double?, previous: Double?, unit: String, label: String
 
 /** Drops a redundant ".0" so whole numbers print as "500" rather than "500.0", matching the TS original's implicit JS number-to-string coercion. */
 private fun Double.trimTrailingZero(): String = if (this == kotlin.math.floor(this) && !this.isInfinite()) toLong().toString() else toString()
+
+/**
+ * Whether a battery status string names an end-of-life condition worth a
+ * red highlight — ported verbatim from `FormattedReport.tsx`'s inline
+ * `isCriticalBattery` check: ERI (Elective Replacement Indicator), EOS
+ * (End of Service), or EOL (End of Life), matched case-insensitively as a
+ * substring since manufacturers embed these in longer status strings
+ * (e.g. "ERI - Replace Now").
+ */
+fun isCriticalBatteryStatus(status: String?): Boolean {
+    if (status.isNullOrBlank()) return false
+    val lower = status.lowercase()
+    return lower.contains("eri") || lower.contains("eos") || lower.contains("eol")
+}
