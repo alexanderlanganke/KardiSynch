@@ -35,6 +35,29 @@ jobs:
       - name: Build Windows app image
         run: .\gradlew.bat :apps:desktopApp:createReleaseDistributable
 
+      # jlink's runtime image drops the loose VC++ runtime DLLs
+      # (msvcp140.dll etc.) that the full JDK ships in its own bin\ —
+      # it only carries over module-specific natives. The app-image
+      # still launches on this runner because windows-latest has the
+      # VC++ redistributable installed system-wide, masking the gap.
+      # A target machine without that redistributable (and without
+      # admin rights to install it) hits "Java virtual machine failed
+      # to launch". Fix: copy the DLLs in app-local, next to jvm.dll —
+      # Microsoft's documented no-installer redistribution method.
+      - name: Bundle VC++ runtime DLLs app-local
+        shell: pwsh
+        run: |
+          $runtimeBin = "apps/desktopApp/build/compose/binaries/main-release/app/kardisynch/runtime/bin"
+          $jdkBin = Join-Path $env:JAVA_HOME "bin"
+          foreach ($dll in @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")) {
+            $src = Join-Path $jdkBin $dll
+            if (Test-Path $src) {
+              Copy-Item $src $runtimeBin -Force
+            } else {
+              Write-Warning "Expected VC++ runtime DLL not found in JDK bin: $dll"
+            }
+          }
+
       - name: Zip app image
         shell: bash
         run: |
