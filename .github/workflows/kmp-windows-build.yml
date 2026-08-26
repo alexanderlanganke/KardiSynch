@@ -78,15 +78,12 @@ jobs:
             }
           }
 
-      - name: Zip app image
-        shell: bash
-        run: |
-          cd apps/desktopApp/build/compose/binaries/main-release/app
-          7z a -tzip kardisynch-windows.zip kardisynch
-
+      # actions/upload-artifact zips whatever `path` points to for the
+      # download itself — pre-zipping the folder here would nest a zip
+      # inside the downloaded zip. Point it at the directory directly.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: kardisynch-windows
-          path: apps/desktopApp/build/compose/binaries/main-release/app/kardisynch-windows.zip
+          path: apps/desktopApp/build/compose/binaries/main-release/app/kardisynch
           retention-days: 14
