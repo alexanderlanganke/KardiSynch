@@ -42,19 +42,39 @@ jobs:
       # VC++ redistributable installed system-wide, masking the gap.
       # A target machine without that redistributable (and without
       # admin rights to install it) hits "Java virtual machine failed
-      # to launch". Fix: copy the DLLs in app-local, next to jvm.dll —
-      # Microsoft's documented no-installer redistribution method.
+      # to launch". Fix: copy the DLLs app-local — Microsoft's
+      # documented no-installer redistribution method.
+      #
+      # Where "app-local" means matters: Windows resolves an implicitly
+      # loaded DLL's own dependencies relative to the directory
+      # containing *that* DLL, not the main .exe's directory. jvm.dll
+      # (the HotSpot binary that actually links against the VC++ CRT)
+      # lives in runtime\bin\server\, not runtime\bin\ itself, so a
+      # copy into bin\ alone never lands next to the file that needs
+      # it. Copy next to every jvm.dll found under the runtime image
+      # (covers both the server and, if ever present, client VM), plus
+      # bin\ itself since java.dll/jli.dll sit there directly.
       - name: Bundle VC++ runtime DLLs app-local
         shell: pwsh
         run: |
-          $runtimeBin = "apps/desktopApp/build/compose/binaries/main-release/app/kardisynch/runtime/bin"
+          $runtimeRoot = "apps/desktopApp/build/compose/binaries/main-release/app/kardisynch/runtime"
+          $runtimeBin = Join-Path $runtimeRoot "bin"
           $jdkBin = Join-Path $env:JAVA_HOME "bin"
-          foreach ($dll in @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")) {
+          $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+
+          $targetDirs = @($runtimeBin)
+          $targetDirs += Get-ChildItem -Path $runtimeRoot -Recurse -Filter "jvm.dll" |
+            ForEach-Object { $_.DirectoryName } |
+            Sort-Object -Unique
+
+          foreach ($dll in $dlls) {
             $src = Join-Path $jdkBin $dll
-            if (Test-Path $src) {
-              Copy-Item $src $runtimeBin -Force
-            } else {
+            if (-not (Test-Path $src)) {
               Write-Warning "Expected VC++ runtime DLL not found in JDK bin: $dll"
+              continue
+            }
+            foreach ($dir in $targetDirs) {
+              Copy-Item $src $dir -Force
             }
           }
 
