@@ -1,0 +1,73 @@
+CREATE TABLE Reports (
+    id TEXT NOT NULL PRIMARY KEY,
+    patientId TEXT NOT NULL,
+    manufacturer TEXT,
+    interrogationDate TEXT NOT NULL,
+    hospitalVisitId TEXT,
+    deviceType TEXT,
+    deviceModel TEXT,
+    deviceSerialNumber TEXT,
+    rawText TEXT,
+    data TEXT,
+    -- Battery/arrhythmia fields promoted from visit.xml into the queryable
+    -- index (issue #198's trend chart, critical-battery highlight, and
+    -- arrhythmia-summary card) — everything else about a report still
+    -- requires re-reading visit.xml.
+    batteryVoltageValue REAL,
+    batteryVoltageUnit TEXT,
+    batteryStatus TEXT,
+    afBurdenValue REAL,
+    afBurdenUnit TEXT,
+    vtEpisodes INTEGER,
+    FOREIGN KEY (patientId) REFERENCES Patients(id)
+);
+
+CREATE INDEX idx_reports_patient_id ON Reports(patientId);
+CREATE INDEX idx_reports_interrogation_date ON Reports(interrogationDate);
+
+insertReport:
+INSERT OR REPLACE INTO Reports(id, patientId, manufacturer, interrogationDate, hospitalVisitId, deviceType, deviceModel, deviceSerialNumber, rawText, data, batteryVoltageValue, batteryVoltageUnit, batteryStatus, afBurdenValue, afBurdenUnit, vtEpisodes)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectReportsByPatientId:
+SELECT * FROM Reports WHERE patientId = ? ORDER BY interrogationDate DESC;
+
+-- The Dashboard's per-row QR export button (issue #197) only needs the
+-- most recent report, not the full history selectReportsByPatientId loads.
+selectLatestReportForPatient:
+SELECT * FROM Reports WHERE patientId = ? ORDER BY interrogationDate DESC LIMIT 1;
+
+-- Late companions (a PDF that finishes exporting after its data file) find
+-- their visit by device serial and time, not by an in-memory file-name map.
+selectReportsByDeviceSerial:
+SELECT * FROM Reports WHERE deviceSerialNumber = ? COLLATE NOCASE ORDER BY interrogationDate DESC;
+
+selectReportById:
+SELECT * FROM Reports WHERE id = ?;
+
+selectReportsByDatePrefix:
+SELECT * FROM Reports WHERE patientId = ? AND interrogationDate LIKE ? || '%';
+
+-- Groups of >1 report for the same patient on the same day — the raw input
+-- to report-level dedup (distinct from patient-level duplicate detection in
+-- PatientDuplicateDetection.kt). Same-day multi-visit groups aren't
+-- necessarily true duplicates (e.g. an ICD and a separate ICM interrogated
+-- the same day) — device-serial sub-grouping to tell those apart happens in
+-- Kotlin, see KardiSynchRepository.dedupReports.
+selectDuplicateReportDateGroups:
+SELECT patientId, interrogationDate, GROUP_CONCAT(id) AS reportIds
+FROM Reports
+GROUP BY patientId, interrogationDate
+HAVING COUNT(*) > 1;
+
+updateReportPatientId:
+UPDATE Reports SET patientId = ? WHERE id = ?;
+
+deleteReport:
+DELETE FROM Reports WHERE id = ?;
+
+deleteReportsForPatient:
+DELETE FROM Reports WHERE patientId = ?;
+
+deleteAllReports:
+DELETE FROM Reports;

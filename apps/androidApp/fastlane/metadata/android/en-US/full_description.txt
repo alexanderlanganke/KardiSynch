@@ -1,0 +1,20 @@
+Essentials KardiSynch shows the follow-up data of cardiac implantable devices (pacemakers, ICDs, CRT devices) from a KardiSynch data folder: patients, visits, lead and battery trends, and the manufacturers' PDF reports.
+
+KardiSynch keeps everything in a plain folder you own. The desktop version imports the interrogation files of Medtronic, Biotronik, Boston Scientific, Abbott and MicroPort into that folder; this app reads the same folder on your phone or tablet. Sync it yourself with whatever you already use (Syncthing, Nextcloud, a network share).
+
+What it does:
+• Patient list with the manufacturer, device and last visit, and a clear flag when a battery is at ERI, a manufacturer advisory is posted, or a follow-up is overdue
+• One page per patient: battery voltage, impedance, pacing threshold (with its pulse width) and sensing as trends, a lead table, and every visit with the files it holds
+• A visit shows the parsed values, the raw file and the PDF report, with the PDF scrolling through all pages
+• Two visits side by side, with the PDFs scrolling together
+• Scan a follow-up QR code created by the desktop app to bring a patient's latest visit onto the phone
+• Device news: public recall notices and news about cardiac implants, loaded on request
+• German and English, light and dark
+
+What it doesn't do:
+• No cloud, no account, no sign-in, no analytics, no trackers
+• The only network use is the Device news screen, which loads public recall and news feeds with fixed search terms. No patient data, no file names and no device identifiers are ever sent; patient data stays on your device unless you sync the folder yourself
+• The camera is used only to scan a QR code and nothing is stored from it
+• KardiSynch is a documentation and overview aid. It is not a medical device and does not diagnose, treat or recommend treatment. Clinical decisions stay with the treating clinician and the manufacturer's own system.
+
+Essentials KardiSynch is part of the Essentials suite: small, native apps that do one thing well and respect your storage the way you left it.

@@ -1,0 +1,13 @@
+CREATE TABLE Settings (
+    key TEXT NOT NULL PRIMARY KEY,
+    value TEXT
+);
+
+setSetting:
+INSERT OR REPLACE INTO Settings(key, value) VALUES (?, ?);
+
+getSetting:
+SELECT value FROM Settings WHERE key = ?;
+
+selectAllSettings:
+SELECT * FROM Settings;

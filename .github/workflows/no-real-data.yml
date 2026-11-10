@@ -1,0 +1,21 @@
+name: No real data
+
+# Fails when a tracked file contains something that looks like real patient data or a secret: a birth date, a patient
+# name, a device serial, an email, a private IP or a home path that is not on the allowlist of INVENTED values.
+# Runs on every push and pull request (no path filter). The cross-check against the real sample exports
+# (scripts/check-no-real-data.py --corpus <dir>) only works locally, where the samples are.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Allowlist check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for real patient data and secrets
+        run: python3 scripts/check-no-real-data.py

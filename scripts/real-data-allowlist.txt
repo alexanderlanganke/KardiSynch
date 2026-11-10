@@ -1,0 +1,101 @@
+# Invented values that are allowed to appear in the repository. Everything else that looks like a birth date, a
+# patient name, a device serial, an email, a private IP or a home path fails scripts/check-no-real-data.py.
+# Add a value here ONLY if it is made up. Never add something copied from a real file, and run the checker with
+# --corpus <real sample dir> before adding.
+
+# names (one token per line; "Last, First" pairs pass when both tokens are listed)
+name: mustermann
+name: muster
+name: musterfrau
+name: erika
+name: max
+name: doe
+name: john
+name: jane
+name: roe
+name: smith
+name: müller
+name: mueller
+name: hans
+name: anna
+name: beispiel
+name: testpatient
+name: fictional
+
+# placeholder / sentinel dates (parser defaults, epoch, "unknown" markers)
+date: 1900-01-01
+date: 1970-01-01
+date: 1980-01-01
+date: 2000-01-01
+
+# nothing else is allowed by default: paths, emails and IPs are added below only when invented
+path: /home/clinic
+
+# identifiers that also occur in the real samples but are NOT patient data: the samples' own anonymisation markers and
+# public device model numbers / encoded measurement examples
+ident: anondev00001
+ident: anonrv00001
+ident: 737342
+ident: 737400
+ident: 737450
+ident: 737480
+ident: 2088tc
+
+# invented serials used by tests
+serial: 777777
+serial: pkgpatient
+
+# invented Boston export folder names (tests)
+filename: von_muster_anna_17mãr1949_g347_593026
+filename: muster_erika_07aug1953_l211_604137
+filename: mustermann_max_15sep1950_l111_482915
+
+# "Last, First"-shaped text that is not a name (UI labels, code, docs)
+pair: Last, First
+pair: A-B, B-C
+pair: Name, Klinik-ID
+pair: PKGPATIENT, MAX
+pair: Report, Device
+pair: Reports, List
+pair: String, String
+pair: Word, Word
+pair: PatientLeadAModelNum, MOCK-LEAD-A
+pair: PatientLeadASerialNum, MOCKLEADSER-A
+
+path: /home/a
+email: user@example.org
+
+# invented dates used by tests and demo data (patterned, or freshly made up; none occurs in the real samples)
+date: 1938-09-13
+date: 1940-01-01
+date: 1944-08-29
+date: 1948-06-11
+date: 1949-03-17
+date: 1950-01-01
+date: 1950-03-15
+date: 1950-09-15
+date: 1950-10-15
+date: 1951-09-04
+date: 1953-08-07
+date: 1955-05-05
+date: 1957-08-07
+date: 1960-01-01
+date: 1962-02-17
+date: 1970-01-03
+date: 1970-02-02
+date: 1970-03-15
+date: 1970-03-16
+date: 1970-15-03
+date: 1971-02-02
+date: 1971-06-07
+date: 1975-05-05
+date: 1975-06-06
+date: 1980-05-05
+date: 1983-09-09
+date: 1990-01-01
+date: 1990-06-15
+date: 1999-09-09
+date: 2005-09-25
+date: 2015-03-01
+date: 2019-02-14
+date: 2019-05-14

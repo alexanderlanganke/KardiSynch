@@ -1,0 +1,113 @@
+name: KMP Release
+
+# Publishes a native KardiSynch release when a tag `v3.*` is pushed:
+#   KardiSynch-Setup-<version>.exe   Windows installer (also replaces the Electron version)
+#   KardiSynch-<version>-windows-x64.zip   portable folder
+#   SHA256SUMS.txt                   what the in-app updater verifies the installer against
+#   latest.yml                       what the Electron (v2.x) app's electron-updater reads, so
+#                                    existing installations are moved over automatically
+#
+# The version in gradle.properties (kardisynch.version) must equal the tag; the build is the same
+# verified build as kmp-windows-build.yml (headless self-test + real GUI start-up).
+#
+# To release:   edit kardisynch.version, commit, then   git tag v3.0.1 && git push origin v3.0.1
+# Pre-release:  a tag with a suffix (v3.1.0-beta.1) is published as a pre-release.
+on:
+  push:
+    tags: [ "v3.*" ]
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    name: Tag matches gradle.properties
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare
+        run: |
+          want="${GITHUB_REF_NAME#v}"
+          have="$(grep -E '^kardisynch\.version=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')"
+          echo "tag=$want gradle.properties=$have"
+          [ "$want" = "$have" ] || { echo "::error::Tag $GITHUB_REF_NAME does not match kardisynch.version=$have in gradle.properties"; exit 1; }
+
+  build:
+    needs: check-version
+    uses: ./.github/workflows/kmp-windows-build.yml
+
+  publish:
+    name: Installer + GitHub release
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download the verified app image
+        uses: actions/download-artifact@v4
+        with:
+          name: KardiSynch-windows-x64
+          path: appimage
+
+      - name: Install NSIS
+        shell: pwsh
+        run: |
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) { choco install nsis -y --no-progress }
+          $nsis = "C:\Program Files (x86)\NSIS"
+          if (Test-Path $nsis) { "$nsis" >> $env:GITHUB_PATH }
+
+      - name: Build installer, zip, checksums, latest.yml
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $app = (Resolve-Path "appimage").Path
+          if (-not (Test-Path (Join-Path $app "kardisynch.exe"))) { throw "kardisynch.exe not found in the app image" }
+
+          $setup = Join-Path (Resolve-Path dist).Path "KardiSynch-Setup-$version.exe"
+          & makensis /V2 "/DVERSION=$version" "/DNUMVERSION=$($version.Split('-')[0])" "/DAPPDIR=$app" "/DOUTFILE=$setup" packaging/windows/installer.nsi
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path $setup)) { throw "makensis failed" }
+
+          Compress-Archive -Path "$app\*" -DestinationPath "dist/KardiSynch-$version-windows-x64.zip"
+
+          # sha256sum format, which the in-app updater parses.
+          $lines = Get-ChildItem dist -File | Where-Object { $_.Extension -in ".exe", ".zip" } | ForEach-Object {
+            "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+          }
+          Set-Content -Path dist/SHA256SUMS.txt -Value $lines -Encoding ascii
+
+          # electron-updater's manifest (sha512 as base64), so v2.x installations update to this installer.
+          $hex = (Get-FileHash $setup -Algorithm SHA512).Hash
+          $bytes = [byte[]]::new($hex.Length / 2)
+          for ($i = 0; $i -lt $bytes.Length; $i++) { $bytes[$i] = [Convert]::ToByte($hex.Substring(2 * $i, 2), 16) }
+          $sha512 = [Convert]::ToBase64String($bytes)
+          $size = (Get-Item $setup).Length
+          $name = "KardiSynch-Setup-$version.exe"
+          $date = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ")
+          $yml = @(
+            "version: $version",
+            "files:",
+            "  - url: $name",
+            "    sha512: $sha512",
+            "    size: $size",
+            "path: $name",
+            "sha512: $sha512",
+            "releaseDate: '$date'"
+          ) -join "`n"
+          Set-Content -Path dist/latest.yml -Value $yml -Encoding ascii -NoNewline
+          Get-ChildItem dist | Format-Table Name, Length
+
+      # Optional code signing: set the secrets WINDOWS_CERT_PFX_BASE64 and WINDOWS_CERT_PASSWORD and the
+      # installer is signed (SmartScreen stops warning once the certificate has reputation). Without them the
+      # installer is unsigned. NOTE: signing must happen before the checksums/latest.yml step if enabled;
+      # see docs/RELEASING.md.
+
+      - name: Publish the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $pre = if ($tag -match '-') { "--prerelease" } else { "" }
+          gh release create $tag dist/* --title "KardiSynch $($tag.TrimStart('v'))" --generate-notes $pre --verify-tag

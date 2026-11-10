@@ -1,0 +1,36 @@
+package io.github.alexanderlanganke.kardisynch.core.util
+
+/**
+ * "Label: prev -> curr unit (+Δ)" — ported verbatim from `trendDelta.ts`'s
+ * `formatDelta` (parity plan Phase 11's "Formatted" view). Returns just
+ * "Label: curr unit" when there's no previous value to compare against
+ * (first visit, or the field wasn't recorded that time), and null when
+ * there's no current value at all — nothing to show either way.
+ */
+fun formatDelta(current: Double?, previous: Double?, unit: String, label: String): String? {
+    if (current == null) return null
+    if (previous == null) return "$label: ${current.trimTrailingZero().localDecimal()} $unit"
+    val diff = current - previous
+    val sign = if (diff > 0) "+" else ""
+    val roundedDiff = kotlin.math.round(diff * 10) / 10
+    return "$label: ${previous.trimTrailingZero().localDecimal()} -> ${current.trimTrailingZero().localDecimal()} $unit ($sign${roundedDiff.trimTrailingZero().localDecimal()})"
+}
+
+/** Drops a redundant ".0" so whole numbers print as "500" rather than "500.0", matching the TS original's implicit JS number-to-string coercion. */
+private fun String.localDecimal(): String = replace('.', io.github.alexanderlanganke.kardisynch.core.i18n.decimalSeparator())
+
+private fun Double.trimTrailingZero(): String = if (this == kotlin.math.floor(this) && !this.isInfinite()) toLong().toString() else toString()
+
+/**
+ * Whether a battery status string names an end-of-life condition worth a
+ * red highlight — ported verbatim from `FormattedReport.tsx`'s inline
+ * `isCriticalBattery` check: ERI (Elective Replacement Indicator), EOS
+ * (End of Service), or EOL (End of Life), matched case-insensitively as a
+ * substring since manufacturers embed these in longer status strings
+ * (e.g. "ERI - Replace Now").
+ */
+fun isCriticalBatteryStatus(status: String?): Boolean {
+    if (status.isNullOrBlank()) return false
+    val lower = status.lowercase()
+    return lower.contains("eri") || lower.contains("eos") || lower.contains("eol")
+}

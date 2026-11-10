@@ -1,0 +1,20 @@
+Essentials KardiSynch zeigt die Nachsorgedaten von Herzschrittmachern, ICDs und CRT-Geräten aus einem KardiSynch-Datenordner: Patienten, Kontrollen, Sonden- und Batterieverläufe und die PDF-Berichte der Hersteller.
+
+KardiSynch hält alles in einem einfachen Ordner, der Ihnen gehört. Die Desktop-Version importiert die Abfragedateien von Medtronic, Biotronik, Boston Scientific, Abbott und MicroPort in diesen Ordner; diese App liest denselben Ordner auf Smartphone oder Tablet. Den Abgleich übernehmen Sie selbst, mit dem, was Sie ohnehin nutzen (Syncthing, Nextcloud, Netzwerkfreigabe).
+
+Was die App kann:
+• Patientenliste mit Hersteller, Gerät und letzter Kontrolle, mit deutlichem Hinweis, wenn eine Batterie bei ERI ist, ein Sicherheitshinweis des Herstellers vorliegt oder eine Nachsorge überfällig ist
+• Eine Seite pro Patient: Batteriespannung, Impedanz, Reizschwelle (mit Impulsdauer) und Wahrnehmung als Verlauf, eine Sondentabelle und jede Kontrolle mit ihren Dateien
+• Eine Kontrolle zeigt die ausgelesenen Werte, die Rohdatei und den PDF-Bericht, das PDF läuft durch alle Seiten
+• Zwei Kontrollen nebeneinander, die PDFs scrollen gemeinsam
+• Einen Nachsorge-QR-Code der Desktop-App scannen, um die letzte Kontrolle eines Patienten aufs Smartphone zu bringen
+• Geräte-News: öffentliche Rückrufmeldungen und Nachrichten zu Herzimplantaten, bei Bedarf geladen
+• Deutsch und Englisch, helles und dunkles Design
+
+Was die App nicht tut:
+• Keine Cloud, kein Konto, keine Anmeldung, keine Analyse, keine Tracker
+• Netzwerk nutzt nur die Geräte-News-Ansicht, die öffentliche Rückruf- und Nachrichtenfeeds mit festen Suchbegriffen lädt. Es werden nie Patientendaten, Dateinamen oder Geräte-Kennungen gesendet; Patientendaten bleiben auf Ihrem Gerät, außer Sie gleichen den Ordner selbst ab
+• Die Kamera dient nur zum Scannen eines QR-Codes, es wird nichts davon gespeichert
+• KardiSynch ist eine Dokumentations- und Übersichtshilfe. Es ist kein Medizinprodukt und stellt keine Diagnose und gibt keine Behandlungsempfehlung. Klinische Entscheidungen bleiben beim behandelnden Arzt und im System des Herstellers.
+
+Essentials KardiSynch gehört zur Essentials-Suite: kleine, native Apps, die eine Sache gut machen und Ihren Speicher so lassen, wie Sie ihn eingerichtet haben.

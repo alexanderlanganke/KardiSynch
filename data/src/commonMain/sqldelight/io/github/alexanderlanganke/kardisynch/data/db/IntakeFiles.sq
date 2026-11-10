@@ -1,0 +1,67 @@
+-- The intake ledger: one row for every file the importer has looked at, whatever
+-- became of it. Nothing sits invisibly in a folder (the old `_unmatched` had no
+-- row, so the UI never showed it) and a file seen twice is recognised by its
+-- hash. state: committed | attached | pending | unrecognised | duplicate | error.
+CREATE TABLE IntakeFiles (
+    id TEXT NOT NULL PRIMARY KEY,
+    sha256 TEXT NOT NULL,
+    fileName TEXT NOT NULL,
+    originalPath TEXT NOT NULL,
+    storedPath TEXT,
+    sourceLabel TEXT,
+    sizeBytes INTEGER NOT NULL,
+    seenAt TEXT NOT NULL,
+    state TEXT NOT NULL,
+    fileKind TEXT,
+    manufacturer TEXT,
+    confidence INTEGER,
+    evidence TEXT,
+    bundleId TEXT,
+    patientId TEXT,
+    reportId TEXT,
+    message TEXT
+);
+
+CREATE INDEX idx_intake_files_sha ON IntakeFiles(sha256);
+CREATE INDEX idx_intake_files_state ON IntakeFiles(state);
+
+insertIntakeFile:
+INSERT OR REPLACE INTO IntakeFiles(id, sha256, fileName, originalPath, storedPath, sourceLabel, sizeBytes, seenAt, state, fileKind, manufacturer, confidence, evidence, bundleId, patientId, reportId, message)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectIntakeFilesByState:
+SELECT * FROM IntakeFiles WHERE state = ? ORDER BY seenAt DESC;
+
+selectIntakeFileById:
+SELECT * FROM IntakeFiles WHERE id = ?;
+
+-- A committed or attached copy of the same content means a re-seen file is a duplicate.
+selectHandledIntakeFileBySha:
+SELECT * FROM IntakeFiles WHERE sha256 = ? AND state IN ('committed', 'attached') ORDER BY seenAt DESC LIMIT 1;
+
+-- Identical content already waiting in the Inbox must not be queued a second time.
+selectPendingIntakeFileBySha:
+SELECT * FROM IntakeFiles WHERE sha256 = ? AND state = 'pending' ORDER BY seenAt DESC LIMIT 1;
+
+selectRecentIntakeFiles:
+SELECT * FROM IntakeFiles ORDER BY seenAt DESC LIMIT ?;
+
+countIntakeFilesByState:
+SELECT state, COUNT(*) AS n FROM IntakeFiles GROUP BY state;
+
+updateIntakeFileState:
+UPDATE IntakeFiles SET state = ?, message = ?, storedPath = ?, patientId = ?, reportId = ? WHERE id = ?;
+
+deleteIntakeFile:
+DELETE FROM IntakeFiles WHERE id = ?;
+
+deleteAllIntakeFiles:
+DELETE FROM IntakeFiles;
+
+-- A re-seen file replaces its stale "didn't work out" rows instead of piling up beside them.
+deleteUnhandledIntakeFilesBySha:
+DELETE FROM IntakeFiles WHERE sha256 = ? AND state IN ('unrecognised', 'error', 'pending');
+
+-- A queued file's ledger row is closed when its task is resolved or dismissed.
+resolvePendingIntakeByStoredPath:
+UPDATE IntakeFiles SET state = ?, message = ?, patientId = ?, reportId = ? WHERE storedPath = ? AND state = 'pending';

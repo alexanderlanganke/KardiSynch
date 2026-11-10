@@ -1,0 +1,46 @@
+-- Manual-sort queue (issue #172/#173): one row per file the import-identity
+-- ladder couldn't confidently attach to a patient. Rows that arrived as one
+-- interrogation share a bundleId; the Inbox shows and resolves them as one
+-- bundle. kind/confidence/evidence record how the file was identified so the
+-- review screen can show why (evidence lines are prefixed '+' strong, '~' weak,
+-- '-' against).
+CREATE TABLE PendingSortTasks (
+    id TEXT NOT NULL PRIMARY KEY,
+    createdAt TEXT NOT NULL,
+    sessionId TEXT,
+    stagedFilePath TEXT NOT NULL,
+    originalFileName TEXT NOT NULL,
+    suggestedPatientId TEXT,
+    suggestedPatientName TEXT,
+    note TEXT NOT NULL,
+    manufacturer TEXT,
+    deviceModel TEXT,
+    deviceSerial TEXT,
+    interrogationDate TEXT,
+    bundleId TEXT,
+    fileKind TEXT,
+    confidence INTEGER,
+    evidence TEXT,
+    patientLastName TEXT,
+    patientFirstName TEXT,
+    patientDob TEXT
+);
+
+insertPendingSortTask:
+INSERT INTO PendingSortTasks(id, createdAt, sessionId, stagedFilePath, originalFileName, suggestedPatientId, suggestedPatientName, note, manufacturer, deviceModel, deviceSerial, interrogationDate, bundleId, fileKind, confidence, evidence, patientLastName, patientFirstName, patientDob)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectPendingSortTasks:
+SELECT * FROM PendingSortTasks ORDER BY createdAt DESC;
+
+selectPendingSortTaskById:
+SELECT * FROM PendingSortTasks WHERE id = ?;
+
+deletePendingSortTask:
+DELETE FROM PendingSortTasks WHERE id = ?;
+
+deleteAllPendingSortTasks:
+DELETE FROM PendingSortTasks;
+
+selectPendingSortTasksByBundle:
+SELECT * FROM PendingSortTasks WHERE bundleId = ? ORDER BY createdAt ASC;

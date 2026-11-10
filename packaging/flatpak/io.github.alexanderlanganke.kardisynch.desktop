@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KardiSynch
+GenericName=Cardiac device report manager
+Comment=Import, organise and review cardiac implantable device interrogation reports
+Exec=kardisynch
+Icon=io.github.alexanderlanganke.kardisynch
+Terminal=false
+Categories=Office;MedicalSoftware;

@@ -1,0 +1,141 @@
+package io.github.alexanderlanganke.kardisynch.core.datastore
+
+import io.github.alexanderlanganke.kardisynch.core.model.BatteryData
+import io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo
+import io.github.alexanderlanganke.kardisynch.core.model.LeadData
+import io.github.alexanderlanganke.kardisynch.core.model.Measurement
+import io.github.alexanderlanganke.kardisynch.core.model.PatientInfo
+import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
+import io.github.alexanderlanganke.kardisynch.core.xml.XmlNode
+import io.github.alexanderlanganke.kardisynch.core.xml.XmlParser
+
+/**
+ * Readers for the `_DATA/Reports/{PatientID}/{VisitID}/patient.xml` and
+ * `visit.xml` files Electron's `storage.ts` writes (`generatePatientXML`/
+ * `generateVisitXML`). This is the byte-for-byte compatibility contract the
+ * KMP migration plan requires — schema confirmed against the real writer,
+ * not guessed.
+ *
+ * `patient.xml` also carries a curated devices/leads *history* list. Per the
+ * migration plan's Decision 3, this port doesn't try to replicate that
+ * separately-maintained aggregate; "current devices/leads" for a patient is
+ * a query against their most recent report's rows (built from `visit.xml`,
+ * which this file also reads) instead. But Decision 3 not *reading* it is
+ * different from a read-merge-write *destroying* it: [IndexedPatient]
+ * captures the `<devices>`/`<leads>` elements as opaque [XmlNode] subtrees
+ * (unparsed — this port has no model for their fields) purely so
+ * [generatePatientXml] can splice them back in unchanged. Without this, a
+ * KMP client sharing `_DATA` with Electron would silently delete a
+ * patient's device/lead history — including explanted-device tracking —
+ * the moment it edited that patient's name/DOB/hospital ID.
+ */
+
+/**
+ * [mriStatus]/[manufacturerWarningStatus] are opaque JSON blobs (raw XML
+ * text, not further decoded here) — Electron's own `generatePatientXML`/
+ * `refreshVisitMetadata` (issue #175) only ever pass these through
+ * verbatim too; nothing in the original app actually *computes* an MRI
+ * status (its "MRI check" UI is just a link to the manufacturer's own web
+ * tool, see [io.github.alexanderlanganke.kardisynch.core.mri.mriCheckUrl])
+ * or a live manufacturer-warning lookup. Kept here purely so a KMP client
+ * editing a patient Electron already cached one of these for doesn't
+ * silently wipe it out — see
+ * [io.github.alexanderlanganke.kardisynch.core.mri.parseManufacturerWarningStatus]
+ * for the one field ([manufacturerWarningStatus]) that has a real UI consumer.
+ */
+data class IndexedPatient(
+    val id: String,
+    val firstName: String,
+    val lastName: String,
+    val dob: String,
+    val hospitalPatientId: String?,
+    val mriStatus: String? = null,
+    val mriDataHash: String? = null,
+    val manufacturerWarningStatus: String? = null,
+    val manufacturerWarningHash: String? = null,
+    /** The `<devices>`/`<leads>` history blocks, unparsed — see this file's doc comment. Pass straight through to [generatePatientXml] on any read-merge-write. */
+    val devicesXml: XmlNode? = null,
+    val leadsXml: XmlNode? = null,
+)
+
+data class IndexedReport(
+    val id: String,
+    val patientId: String,
+    val report: UnifiedReport,
+)
+
+/** Parses `patient.xml`. Returns null if the root element isn't `<patient>` or has no `<id>`. */
+fun parsePatientXml(xml: String): IndexedPatient? {
+    val root = XmlParser.parse(xml)
+    if (root.name != "patient") return null
+    val id = root.child("id")?.text?.takeIf { it.isNotEmpty() } ?: return null
+    return IndexedPatient(
+        id = id,
+        firstName = root.child("first_name")?.text ?: "",
+        lastName = root.child("last_name")?.text ?: "",
+        dob = root.child("dob")?.text ?: "",
+        hospitalPatientId = root.child("hospitalPatientId")?.text?.takeIf { it.isNotEmpty() },
+        mriStatus = root.child("mri_status")?.text?.takeIf { it.isNotEmpty() },
+        mriDataHash = root.child("mri_data_hash")?.text?.takeIf { it.isNotEmpty() },
+        manufacturerWarningStatus = root.child("manufacturer_warning_status")?.text?.takeIf { it.isNotEmpty() },
+        manufacturerWarningHash = root.child("manufacturer_warning_hash")?.text?.takeIf { it.isNotEmpty() },
+        devicesXml = root.child("devices"),
+        leadsXml = root.child("leads"),
+    )
+}
+
+/** Parses `visit.xml`. Returns null if the root element isn't `<visit>` or has no `<report_id>`. */
+fun parseVisitXml(xml: String, patientId: String): IndexedReport? {
+    val root = XmlParser.parse(xml)
+    if (root.name != "visit") return null
+    val reportId = root.child("report_id")?.text?.takeIf { it.isNotEmpty() } ?: return null
+
+    val battery = root.child("battery")?.let { b ->
+        BatteryData(
+            voltage = b.child("voltage")?.toMeasurement(),
+            lastChargeTime = b.child("last_charge_time")?.toMeasurement(),
+            status = b.child("status")?.text?.takeIf { it.isNotEmpty() },
+        )
+    } ?: BatteryData()
+
+    val leads = root.child("leads")?.childrenNamed("lead")?.map { l ->
+        LeadData(
+            name = l.child("name")?.text ?: "",
+            model = l.child("model")?.text?.takeIf { it.isNotEmpty() },
+            serial = l.child("serial")?.text?.takeIf { it.isNotEmpty() },
+            anatomicLocation = l.child("anatomic_location")?.text?.takeIf { it.isNotEmpty() },
+            implantDate = l.child("implant_date")?.text?.takeIf { it.isNotEmpty() },
+            impedance = l.child("impedance")?.toMeasurement(),
+            sensing = l.child("sensing")?.toMeasurement(),
+            pacingThreshold = l.child("pacing_threshold")?.toMeasurement(),
+            pacingAmplitude = l.child("pacing_amplitude")?.toMeasurement(),
+            shockImpedance = l.child("shock_impedance")?.toMeasurement(),
+        )
+    } ?: emptyList()
+
+    val additionalFields = root.child("additional_fields")?.childrenNamed("field")
+        ?.associate { (it.attributes["name"] ?: "") to it.text }
+        ?.filterKeys { it.isNotEmpty() }
+        ?: emptyMap()
+
+    val report = UnifiedReport(
+        manufacturer = root.child("manufacturer")?.text?.takeIf { it.isNotEmpty() } ?: "Unknown",
+        interrogationDate = root.child("interrogation_date")?.text ?: "",
+        patient = PatientInfo(firstName = "", lastName = "", dob = ""), // filled in from patient.xml by the caller
+        device = DeviceInfo(
+            type = root.child("device_type")?.text?.takeIf { it.isNotEmpty() } ?: "Unknown",
+            model = root.child("device_model")?.text ?: "",
+            serialNumber = root.child("device_serial")?.text ?: "",
+        ),
+        battery = battery,
+        leads = leads,
+        additionalFields = additionalFields,
+    )
+    return IndexedReport(id = reportId, patientId = patientId, report = report)
+}
+
+private fun XmlNode.toMeasurement(): Measurement? {
+    val value = attributes["value"]?.toDoubleOrNull() ?: return null
+    val unit = attributes["unit"] ?: ""
+    return Measurement(value, unit)
+}

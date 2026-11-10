@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.alexanderlanganke.kardisynch</id>
+  <name>KardiSynch</name>
+  <summary>Cardiac device interrogation reports, organised per patient</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>LicenseRef-proprietary</project_license>
+  <description>
+    <p>Imports interrogation reports of cardiac implantable electronic devices (Medtronic, Biotronik, Boston Scientific, Abbott, MicroPort) from USB drives, network shares and an import folder, groups the files of one interrogation, and keeps a local patient database.</p>
+  </description>
+  <launchable type="desktop-id">io.github.alexanderlanganke.kardisynch.desktop</launchable>
+  <releases>
+    <release version="3.0.0" date="2026-11-09"/>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

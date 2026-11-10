@@ -1,0 +1,1 @@
+Erster interner Testbuild: Patientenliste, Verläufe je Patient, Kontrollen mit Rohdatei und PDF (nebeneinander, gemeinsam scrollend), Nachsorge-QR scannen, Deutsch und Englisch.

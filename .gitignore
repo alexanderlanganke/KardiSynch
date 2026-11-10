@@ -1,0 +1,124 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production Build
+dist/
+dist-electron/
+release/
+build/
+
+# Gradle / Kotlin Multiplatform (core/, data/, ui/, apps/ — the KMP port)
+.gradle/
+.kotlin/
+local.properties
+
+# Android release-signing secrets (issue #182) — never commit a real keystore
+# or its credentials; apps/androidApp/build.gradle.kts falls back to an
+# unsigned release build when this file/keystore is absent.
+apps/androidApp/keystore.properties
+*.jks
+*.keystore
+
+# Testing
+coverage/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache
+test_output.txt
+vitest_output.txt
+tsc_output.txt
+*_output.txt
+test_result_v2.log
+.nyc_output
+
+# Local Configuration & Data
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+_DATA/
+_IMPORT/
+_UNMATCHED/
+mock_import_dir/
+mock_usb_target/
+mock_usb_source/
+
+# Debugging & Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+debug_paths.txt
+debug_*.txt
+debug_*.json
+*.log
+debug_data/
+
+# Real (anonymized) sample exports used to validate the parsers — never
+# commit real patient/device exports, even anonymized ones. No trailing
+# slash: the KMP port's worktree links these in as symlinks (the real dirs
+# live only in the main checkout, since worktrees only carry tracked
+# files), and a slash-terminated pattern doesn't match a symlink.
+test/abbott_logfiles
+test/boston bnk
+test/microport xml
+test/medtronic pdd files
+test/Biotronik xml
+test/medtronic pkg
+
+# Same policy for the KMP port's fixture-validation test data: these JSON
+# files are derived from (and contain extracted fields/raw text out of) the
+# real sample exports above — device serials, printable-string dumps, etc.
+# Regenerate locally via the scripts in core/scripts/ before running the
+# fixture-cross-validation tests.
+core/src/desktopTest/resources/*.json
+test/medtronic pkg/
+
+# IDE & System
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+.devcontainer/
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+CLAUDE.md
+
+# Temporary & Generated Files
+*.pkg
+app-update.yml
+latest.yml
+debug_marker.js
+debug_pdf.js
+debug_pdf.mjs
+debug_pdf_content.txt
+analyze_*.js
+analyze_*.mjs
+analyze_*.ts
+standalone_*.js
+standalone_*.ts
+standalone_result.log
+test_pdd_parser.ts
+reproduce_*.ts
+test_regex.js
+test_microport.ts
+test_filename_repro.ts
+test_import_logic.ts
+test_parsing_refinement.ts
+test_regex_mixedcase.ts
+microport_sample.txt
+usb_target_manifest.json
+usbwatcher.ps1
+scripts/extract_*.ts
+scripts/extract_*.js
+scripts/verify_*.ts
+scripts/verify_*.js
+
+# Flatpak build artefacts
+packaging/flatpak/.flatpak-builder/
+packaging/flatpak/.build-*/

@@ -1,0 +1,171 @@
+name: KMP Windows Desktop Build
+
+# Produces a self-contained, portable Windows build: a folder with
+# KardiSynch.exe, a bundled complete JDK runtime and the Microsoft VC++
+# runtime DLLs. Nothing needs to be installed on the target machine (no Java,
+# no Visual C++ redistributable, no admin rights).
+#
+# The build is VERIFIED before it is published: the packaged exe is launched
+# under a stripped-down environment (no JAVA_HOME, JDK not on PATH) and must
+# pass a headless self-test and survive a real GUI start-up. If either fails
+# the workflow fails instead of handing out a broken download.
+# The download is a single zip (made by GitHub) that extracts to the app folder.
+#
+# Windows can only be packaged on Windows (jpackage doesn't cross-compile).
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [ "main", "worktree-kmp-port" ]
+    tags: [ "kmp-v*" ]
+    paths:
+      - 'core/**'
+      - 'data/**'
+      - 'ui/**'
+      - 'apps/desktopApp/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - '.github/workflows/kmp-windows-build.yml'
+
+jobs:
+  build:
+    name: Build + verify Windows app
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # createDistributable, NOT createReleaseDistributable: the release
+      # variant runs ProGuard, which shrinks/renames classes and strips
+      # service-loaded ones (JDBC driver, ktor engines, PDFBox providers).
+      # That breaks at runtime in ways that are invisible until a user starts
+      # the app. Skipping it costs some MB and buys a build that behaves
+      # exactly like the one tested. The runtime image contains ALL JDK
+      # modules (includeAllModules in apps/desktopApp/build.gradle.kts).
+      #
+      # The build log is captured and, on failure, the decisive lines are
+      # republished as one annotation, so a failed run says why without needing
+      # access to the raw job log.
+      - name: Build app image
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Continue"
+          # Retried only when the log shows a network problem (a dependency or the Gradle distribution
+          # failed to download); a real compile error fails on the first attempt.
+          $netPattern = 'Could not GET|Could not download|timeout|Gateway|services\.gradle\.org|Connection (reset|refused)|Received status code 5'
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            & .\gradlew.bat :apps:desktopApp:createDistributable --no-daemon --console=plain --stacktrace 2>&1 | Tee-Object -FilePath build.log
+            if ($LASTEXITCODE -eq 0) { break }
+            if (-not (Select-String -Path build.log -Pattern $netPattern -Quiet)) { break }
+            Write-Output "Network problem on attempt $attempt, retrying in 20s"
+            Start-Sleep -Seconds 20
+          }
+          if ($LASTEXITCODE -ne 0) {
+            $key = Select-String -Path build.log -Pattern '^e: |What went wrong|Caused by|OutOfMemory|Execution failed|FAILURE|Could not' | Select-Object -First 14 | ForEach-Object { $_.Line.Trim() }
+            $tail = Get-Content build.log -Tail 18
+            $msg = (($key + "---" + $tail) -join "%0A")
+            if ($msg.Length -gt 3500) { $msg = $msg.Substring(0, 3500) }
+            Write-Output "::error title=Gradle build failed::$msg"
+            exit 1
+          }
+
+      # Locate the app folder rather than hard-coding the product name.
+      - name: Locate app image
+        id: locate
+        shell: pwsh
+        run: |
+          $root = "apps/desktopApp/build/compose/binaries/main/app"
+          $app = Get-ChildItem $root -Directory | Select-Object -First 1
+          if (-not $app) { throw "No app image found under $root" }
+          Write-Host "App image: $($app.FullName)"
+          "dir=$($app.FullName)" >> $env:GITHUB_OUTPUT
+          "name=$($app.Name)" >> $env:GITHUB_OUTPUT
+
+      # jlink drops the loose VC++ runtime DLLs the JDK ships in its own
+      # bin\. Windows resolves an implicitly loaded DLL's dependencies
+      # relative to the directory of *that* DLL, so the copies must sit next
+      # to jvm.dll (runtime\bin\server\) as well as in runtime\bin\ and next
+      # to the launcher exe. Missing DLLs are a hard error, not a warning.
+      - name: Bundle VC++ runtime DLLs app-local
+        shell: pwsh
+        run: |
+          $appDir = "${{ steps.locate.outputs.dir }}"
+          $runtimeRoot = Join-Path $appDir "runtime"
+          $jdkBin = Join-Path $env:JAVA_HOME "bin"
+          $dlls = @("msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll")
+
+          $targetDirs = @($appDir, (Join-Path $runtimeRoot "bin"))
+          $targetDirs += Get-ChildItem -Path $runtimeRoot -Recurse -Filter "jvm.dll" |
+            ForEach-Object { $_.DirectoryName }
+          $targetDirs = $targetDirs | Sort-Object -Unique
+          if (-not (Get-ChildItem -Path $runtimeRoot -Recurse -Filter "jvm.dll")) {
+            throw "jvm.dll not found in runtime image - jlink output is broken"
+          }
+
+          foreach ($dll in $dlls) {
+            $src = Join-Path $jdkBin $dll
+            if (-not (Test-Path $src)) { $src = Join-Path $env:SystemRoot "System32\$dll" }
+            if (-not (Test-Path $src)) { throw "VC++ runtime DLL not found anywhere: $dll" }
+            foreach ($dir in $targetDirs) {
+              Copy-Item $src $dir -Force
+              if (-not (Test-Path (Join-Path $dir $dll))) { throw "Failed to place $dll in $dir" }
+            }
+          }
+          Write-Host "Bundled $($dlls -join ', ') into: $($targetDirs -join '; ')"
+
+      # Headless check of the packaged runtime: JDBC/SQLite native, Skia
+      # native, PDFBox, ktor, Swing. The environment is deliberately
+      # stripped so the app can't fall back on the runner's installed JDK.
+      - name: Smoke test - headless self-test
+        shell: cmd
+        run: |
+          set JAVA_HOME=
+          set JDK_HOME=
+          set CLASSPATH=
+          set PATH=%SystemRoot%\System32;%SystemRoot%
+          set EXE=${{ steps.locate.outputs.dir }}\${{ steps.locate.outputs.name }}.exe
+          set OUT=%RUNNER_TEMP%\selftest.txt
+          if exist "%OUT%" del "%OUT%"
+          "%EXE%" --selftest "%OUT%"
+          set RC=%ERRORLEVEL%
+          if exist "%OUT%" type "%OUT%"
+          if not "%RC%"=="0" exit /b 1
+          findstr /C:"SELFTEST PASSED" "%OUT%" || exit /b 1
+
+      # Real start-up: launch the GUI exe and require that it is still alive
+      # after 20 seconds (a JVM launch failure exits within a second or two).
+      - name: Smoke test - GUI launch
+        shell: pwsh
+        run: |
+          $exe = Join-Path "${{ steps.locate.outputs.dir }}" "${{ steps.locate.outputs.name }}.exe"
+          $env:JAVA_HOME = $null
+          $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
+          $p = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 20
+          if ($p.HasExited) {
+            throw "App exited during start-up with code $($p.ExitCode)"
+          }
+          Write-Host "App is running after 20s (pid $($p.Id)) - OK"
+          Stop-Process -Id $p.Id -Force
+
+      # Upload the folder itself: actions/upload-artifact already zips it
+      # for download, so pre-zipping here would nest a zip inside a zip.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KardiSynch-windows-x64
+          path: ${{ steps.locate.outputs.dir }}
+          retention-days: 30
+          if-no-files-found: error

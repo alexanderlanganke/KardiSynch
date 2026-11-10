@@ -1,0 +1,79 @@
+CREATE TABLE Patients (
+    id TEXT NOT NULL PRIMARY KEY,
+    firstName TEXT,
+    lastName TEXT NOT NULL,
+    lastNameKey TEXT,
+    dob TEXT NOT NULL,
+    hospitalPatientId TEXT,
+    mriStatus TEXT,
+    mriDataHash TEXT,
+    manufacturerWarningStatus TEXT,
+    manufacturerWarningHash TEXT,
+    lastIndexedMtime INTEGER
+);
+
+CREATE INDEX idx_patients_last_name_dob ON Patients(lastName, dob);
+CREATE INDEX idx_patients_last_name_key_dob ON Patients(lastNameKey, dob);
+
+insertPatient:
+INSERT OR REPLACE INTO Patients(id, firstName, lastName, lastNameKey, dob, hospitalPatientId, mriStatus, mriDataHash, manufacturerWarningStatus, manufacturerWarningHash, lastIndexedMtime)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+selectPatientById:
+SELECT * FROM Patients WHERE id = ?;
+
+selectAllPatients:
+SELECT * FROM Patients ORDER BY lastName, firstName;
+
+-- Every patient plus their report count, last visit date, and the distinct
+-- device serials seen across their reports — used by the duplicate-patient
+-- detection service (issue #187). GROUP_CONCAT(DISTINCT ...) is decoded
+-- client-side (comma-split, trimmed, "Unknown"/blank filtered).
+selectPatientsWithSerials:
+SELECT
+  p.id AS id,
+  p.firstName AS firstName,
+  p.lastName AS lastName,
+  p.lastNameKey AS lastNameKey,
+  p.dob AS dob,
+  p.hospitalPatientId AS hospitalPatientId,
+  COUNT(r.id) AS reportCount,
+  MAX(r.interrogationDate) AS lastReportDate,
+  GROUP_CONCAT(DISTINCT r.deviceSerialNumber) AS serials
+FROM Patients p
+LEFT JOIN Reports r ON p.id = r.patientId
+GROUP BY p.id;
+
+-- Each patient's most recent report's manufacturer/model (issue #197's
+-- dashboard manufacturer filter and sortable Manufacturer/Model columns) —
+-- a correlated subquery rather than a MAX()-per-group join, since we need
+-- the *paired* manufacturer+model of the single latest report, not the
+-- independently-latest value of each column.
+selectPatientsWithLatestDevice:
+SELECT
+  p.id AS id,
+  (SELECT r.manufacturer FROM Reports r WHERE r.patientId = p.id ORDER BY r.interrogationDate DESC LIMIT 1) AS manufacturer,
+  (SELECT r.deviceModel FROM Reports r WHERE r.patientId = p.id ORDER BY r.interrogationDate DESC LIMIT 1) AS deviceModel,
+  (SELECT r.batteryStatus FROM Reports r WHERE r.patientId = p.id ORDER BY r.interrogationDate DESC LIMIT 1) AS batteryStatus
+FROM Patients p;
+
+-- Most recent patient associated with a device serial number (issue #173's
+-- import-identity ladder). Serial numbers are only unique per manufacturer,
+-- so the caller scopes by manufacturer when it's known — pass NULL to
+-- search across every manufacturer.
+selectPatientBySerial:
+SELECT p.* FROM Patients p
+JOIN Reports r ON p.id = r.patientId
+WHERE r.deviceSerialNumber = :serial
+  AND (:manufacturer IS NULL OR r.manufacturer = :manufacturer)
+ORDER BY r.interrogationDate DESC
+LIMIT 1;
+
+updatePatientInfo:
+UPDATE Patients SET firstName = ?, lastName = ?, lastNameKey = ?, dob = ?, hospitalPatientId = ? WHERE id = ?;
+
+deletePatient:
+DELETE FROM Patients WHERE id = ?;
+
+deleteAllPatients:
+DELETE FROM Patients;

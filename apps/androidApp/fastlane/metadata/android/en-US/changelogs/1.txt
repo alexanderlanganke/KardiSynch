@@ -1,0 +1,1 @@
+First internal test build: patient list, per-patient trends, visits with raw file and PDF (side by side, scrolling together), follow-up QR scan, German and English.

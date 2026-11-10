@@ -1,0 +1,101 @@
+name: KMP Test
+
+on:
+  push:
+    branches: [ "main", "worktree-kmp-port", "kmp-*", "worktree-kmp-*" ]
+    paths:
+      - 'core/**'
+      - 'data/**'
+      - 'ui/**'
+      - 'apps/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - '.github/workflows/kmp-ci.yml'
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ "main", "worktree-kmp-port", "kmp-*", "worktree-kmp-*" ]
+    paths:
+      - 'core/**'
+      - 'data/**'
+      - 'ui/**'
+      - 'apps/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle.properties'
+      - 'gradlew'
+      - '.github/workflows/kmp-ci.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit + integration tests (JVM)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # Real, portable coverage — core.testing's mock export fixtures mean
+      # these no longer depend on the gitignored test/ fixture directories,
+      # which only exist in the original checkout, not a fresh clone.
+      - name: Run core/data/apps:desktopApp tests
+        # Retried only when the log shows a network problem (the Gradle distribution or a dependency
+        # failed to download); a real compile or test failure fails on the first attempt.
+        shell: bash
+        run: |
+          for attempt in 1 2 3; do
+            ./gradlew :core:desktopTest :data:desktopTest :apps:desktopApp:desktopTest --continue 2>&1 | tee gradle.log
+            status=${PIPESTATUS[0]}
+            [ "$status" -eq 0 ] && exit 0
+            grep -qiE "Could not GET|Could not download|timeout|Gateway|services.gradle.org|Connection (reset|refused)|Received status code 5" gradle.log || exit "$status"
+            echo "Network problem on attempt $attempt, retrying in 20s"; sleep 20
+          done
+          exit 1
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            core/build/reports/tests
+            data/build/reports/tests
+            apps/desktopApp/build/reports/tests
+          retention-days: 14
+
+  android-compile:
+    name: Android compile check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # GitHub-hosted ubuntu runners ship the Android SDK preinstalled with
+      # ANDROID_HOME set — Gradle's Android plugin picks it up without a
+      # local.properties file (which is gitignored and per-machine).
+      - name: Compile core/data/ui/apps:androidApp for Android
+        run: ./gradlew :data:compileDebugKotlinAndroid :ui:compileDebugKotlinAndroid :apps:androidApp:compileDebugKotlinAndroid
