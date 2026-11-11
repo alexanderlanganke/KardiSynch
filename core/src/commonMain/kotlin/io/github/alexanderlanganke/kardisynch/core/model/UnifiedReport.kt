@@ -22,6 +22,11 @@ data class LeadData(
     val implantDate: String? = null,
     val pacingThreshold: Measurement? = null,
     val pacingAmplitude: Measurement? = null,
+    /**
+     * "Wahrnehmung": the MEASURED intrinsic signal amplitude (P/R wave, mV) the device sensed at the follow-up. Never
+     * the programmed sensing threshold / sensitivity ("Wahrnehmungsschwelle"), which is a setting and belongs in
+     * [UnifiedReport.additionalFields] (e.g. `rv_sensing_threshold`) so the two are never shown as one value.
+     */
     val sensing: Measurement? = null,
     val impedance: Measurement? = null,
     val shockImpedance: Measurement? = null,

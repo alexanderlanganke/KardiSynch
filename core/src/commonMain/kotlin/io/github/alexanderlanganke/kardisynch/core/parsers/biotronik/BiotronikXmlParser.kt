@@ -133,6 +133,12 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
         if (positional != null) channels = positional
     }
 
+    // Shock lead impedance ("Schockimpedanz"), kept in a table of its own; ICD / CRT-D exports only.
+    val shockImpedance = safe(
+        { findEntry(findTableByAttribute(xml, "Schockimpedanz"), "Schockimpedanz")?.toDoubleOrNull()?.let { Measurement(it, "Ohms") } },
+        null,
+    )
+
     // Dynamic lead construction: iterate 'Kanäle' as the installed slots,
     // assuming manufacturers/models/serials start at the same index.
     val leadsFromSettings = safe({
@@ -154,8 +160,11 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
                     else -> ""
                 }
                 if (prefix.isNotEmpty()) {
-                    findEntry(summaryTable, "${prefix}_IMPED")?.toDoubleOrNull()?.let { impedance = Measurement(it, "Ohms") }
-                    findEntry(summaryTable, "${prefix}_SENSING")?.toDoubleOrNull()?.let { sensing = Measurement(it, "mV") }
+                    // Two naming schemes exist for the same follow-up values: FU_RV_IMPED and IMPEDANCE_RV
+                    // (SENSING_RV, THRESHOLD_RV, THRESHTIME_RV likewise). Both name the channel, so either is safe.
+                    val short = prefix.removePrefix("FU_")
+                    findEntryMultilang(summaryTable, "${prefix}_IMPED", "IMPEDANCE_$short")?.toDoubleOrNull()?.let { impedance = Measurement(it, "Ohms") }
+                    findEntryMultilang(summaryTable, "${prefix}_SENSING", "SENSING_$short")?.toDoubleOrNull()?.let { sensing = Measurement(it, "mV") }
 
                     val pacingPrefix = when (channel) {
                         "RA" -> "A"
@@ -173,8 +182,8 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
 
                     // The measured threshold is the follow-up test result FU_{RA,RV,LV}_THRESHOLD1,
                     // with its pulse width in FU_..._THRESHTIME1 when the test recorded one.
-                    val thr = findEntry(summaryTable, "${prefix}_THRESHOLD1")?.toDoubleOrNull()
-                    val thrTime = findEntry(summaryTable, "${prefix}_THRESHTIME1")
+                    val thr = findEntryMultilang(summaryTable, "${prefix}_THRESHOLD1", "THRESHOLD_$short")?.toDoubleOrNull()
+                    val thrTime = findEntryMultilang(summaryTable, "${prefix}_THRESHTIME1", "THRESHTIME_$short")
                     if (thr != null) pacingThreshold = Measurement(thr, if (thrTime != null) "V @ ${thrTime}ms" else "V")
                 }
 
@@ -187,6 +196,7 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
                     sensing = sensing,
                     pacingThreshold = pacingThreshold,
                     pacingAmplitude = pacingAmplitude,
+                    shockImpedance = if (channel == "RV") shockImpedance else null,
                 )
             }, LeadData(name = "$channel-Lead"))
 
@@ -250,6 +260,7 @@ fun parseBiotronikXML(xmlData: String): UnifiedReport {
                             impedance = impedance,
                             sensing = sensing,
                             pacingThreshold = pacingThreshold,
+                            shockImpedance = if (location.equals("RV", ignoreCase = true)) shockImpedance else null,
                         )
                     }, LeadData(name = "$location-Lead"))
 

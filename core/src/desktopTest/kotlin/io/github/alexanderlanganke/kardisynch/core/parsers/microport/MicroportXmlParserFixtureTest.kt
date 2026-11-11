@@ -54,6 +54,9 @@ private fun JsonElement?.asLeadingDouble(): Double? {
     return Regex("""-?\d+(\.\d+)?""").find(prim.content)?.value?.toDoubleOrNull()
 }
 
+/** The reference parser read only the bipolar impedance; the unipolar fallback is an improvement. */
+private fun closeOrEnriched(expected: Double?, actual: Double?): Boolean = expected == null || closeEnough(expected, actual)
+
 private fun closeEnough(a: Double?, b: Double?): Boolean = when {
     a == null && b == null -> true
     a != null && b != null -> kotlin.math.abs(a - b) < EPSILON
@@ -139,7 +142,7 @@ class MicroportXmlParserFixtureTest {
                 )
                 check(
                     "leads[$i].impedance",
-                    closeEnough(expectedLead.impedance?.value.asLeadingDouble(), actualLead.impedance?.value),
+                    closeOrEnriched(expectedLead.impedance?.value.asLeadingDouble(), actualLead.impedance?.value),
                     "expected ${expectedLead.impedance?.value}, got ${actualLead.impedance?.value}",
                 )
             }

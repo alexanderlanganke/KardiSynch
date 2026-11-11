@@ -39,4 +39,17 @@ class I18nTest {
         assertEquals(Lang.DE, defaultLangFor("de-DE"))
         assertEquals(Lang.EN, defaultLangFor("fr"))
     }
+
+    @Test fun `wahrnehmung and wahrnehmungsschwelle are never used as synonyms`() {
+        // "Wahrnehmung" = the measured sensing amplitude; "Wahrnehmungsschwelle" = the programmed sensitivity (a setting).
+        for ((en, de) in DE_STRINGS) {
+            val measured = en.contains("sensing", ignoreCase = true) && !en.contains("threshold", ignoreCase = true)
+            val setting = en.contains("sensing threshold", ignoreCase = true)
+            if (measured) assertTrue(!de.contains("schwelle", ignoreCase = true), "the measured sensing must not be called a threshold: '$en' -> '$de'")
+            if (setting) assertTrue(de.contains("Wahrnehmungsschwelle"), "the sensing threshold setting must be called Wahrnehmungsschwelle: '$en' -> '$de'")
+        }
+        I18n.lang = Lang.DE
+        assertEquals("Wahrnehmung", tr("Sensing"))
+        assertEquals("Reizschwelle", tr("Threshold"))
+    }
 }

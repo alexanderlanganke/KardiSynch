@@ -60,6 +60,9 @@ private fun leadingDouble(s: String?): Double? {
     return Regex("""-?\d+(\.\d+)?""").find(s)?.value?.toDoubleOrNull()
 }
 
+/** The reference parser read only the FU_ naming scheme; values found under the other (IMPEDANCE_/SENSING_) scheme are an improvement. */
+private fun closeOrEnriched(expected: Double?, actual: Double?): Boolean = expected == null || closeEnough(expected, actual)
+
 private fun closeEnough(a: Double?, b: Double?): Boolean = when {
     a == null && b == null -> true
     a != null && b != null -> kotlin.math.abs(a - b) < EPSILON
@@ -155,12 +158,12 @@ class BiotronikXmlParserFixtureTest {
                 check("leads[$i].serial", actualLead.serial == expectedLead.serial, "expected '${expectedLead.serial}', got '${actualLead.serial}'")
                 check(
                     "leads[$i].impedance",
-                    closeEnough(leadingDouble(expectedLead.impedance?.value), actualLead.impedance?.value),
+                    closeOrEnriched(leadingDouble(expectedLead.impedance?.value), actualLead.impedance?.value),
                     "expected '${expectedLead.impedance?.value}', got ${actualLead.impedance?.value}",
                 )
                 check(
                     "leads[$i].sensing",
-                    closeEnough(leadingDouble(expectedLead.sensing?.value), actualLead.sensing?.value),
+                    closeOrEnriched(leadingDouble(expectedLead.sensing?.value), actualLead.sensing?.value),
                     "expected '${expectedLead.sensing?.value}', got ${actualLead.sensing?.value}",
                 )
                 // pacingThreshold is deliberately NOT compared: the reference TypeScript parser stored the

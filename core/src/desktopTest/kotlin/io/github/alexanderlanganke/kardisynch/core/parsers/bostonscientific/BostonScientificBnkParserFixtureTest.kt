@@ -54,6 +54,13 @@ private fun JsonElement?.asLeadingDouble(): Double? {
     return Regex("""-?\d+(\.\d+)?""").find(prim.content)?.value?.toDoubleOrNull()
 }
 
+/**
+ * The reference parser read only the `Patient*` summary keys, which real exports leave at "K.A". The Kotlin parser also reads
+ * the result keys, so a value the reference missed (expected none, actual present) is an improvement, not a mismatch.
+ * A value the reference did produce must still match.
+ */
+private fun closeOrEnriched(expected: Double?, actual: Double?): Boolean = expected == null || closeEnough(expected, actual)
+
 private fun closeEnough(a: Double?, b: Double?): Boolean = when {
     a == null && b == null -> true
     a != null && b != null -> kotlin.math.abs(a - b) < EPSILON
@@ -125,17 +132,17 @@ class BostonScientificBnkParserFixtureTest {
                 check("leads[$i].implantDate", actualLead.implantDate == expectedLead.implant_date, "expected '${expectedLead.implant_date}', got '${actualLead.implantDate}'")
                 check(
                     "leads[$i].impedance",
-                    closeEnough(expectedLead.impedance?.value.asLeadingDouble(), actualLead.impedance?.value),
+                    closeOrEnriched(expectedLead.impedance?.value.asLeadingDouble(), actualLead.impedance?.value),
                     "expected ${expectedLead.impedance?.value}, got ${actualLead.impedance?.value}",
                 )
                 check(
                     "leads[$i].pacingThreshold",
-                    closeEnough(expectedLead.pacing_threshold?.value.asLeadingDouble(), actualLead.pacingThreshold?.value),
+                    closeOrEnriched(expectedLead.pacing_threshold?.value.asLeadingDouble(), actualLead.pacingThreshold?.value),
                     "expected ${expectedLead.pacing_threshold?.value}, got ${actualLead.pacingThreshold?.value}",
                 )
                 check(
                     "leads[$i].shockImpedance",
-                    closeEnough(expectedLead.shock_impedance?.value.asLeadingDouble(), actualLead.shockImpedance?.value),
+                    closeOrEnriched(expectedLead.shock_impedance?.value.asLeadingDouble(), actualLead.shockImpedance?.value),
                     "expected ${expectedLead.shock_impedance?.value}, got ${actualLead.shockImpedance?.value}",
                 )
             }

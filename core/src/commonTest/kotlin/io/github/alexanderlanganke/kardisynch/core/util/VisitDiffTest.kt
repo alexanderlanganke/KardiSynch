@@ -32,4 +32,15 @@ class VisitDiffTest {
         val changes = diffVisits(VisitSnapshot(batteryStatus = "OK"), VisitSnapshot(batteryStatus = "ERI"))
         assertEquals("Battery status OK → ERI", changes.single().text)
     }
+
+    @Test
+    fun `a difference that shows as the same number is not reported as a change`() {
+        // 3.1751 and 3.1849 are 0.0098 apart, but both are shown as 3.18: "Battery 3.18 -> 3.18 V" would be noise.
+        assertTrue(diffVisits(VisitSnapshot(3.1751), VisitSnapshot(3.1849)).isEmpty())
+    }
+
+    @Test
+    fun `a difference that shows as different numbers is still reported`() {
+        assertEquals("Battery 3.17 → 3.18 V", diffVisits(VisitSnapshot(3.1699), VisitSnapshot(3.1801)).single().text)
+    }
 }

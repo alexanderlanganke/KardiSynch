@@ -112,7 +112,9 @@ fun parseMicroportXML(xmlContent: String): UnifiedReport? {
                 pacingThreshold = Measurement(captureAmp, if (captureDur != null) "V @ ${captureDur}ms" else "V")
             }
 
-            findByChamber(telemetry, "Lead", measureChamber)?.field("BipolarImpedance_ohms")?.toDoubleOrNull()?.let {
+            // Bipolar when the lead was measured bipolar, otherwise the unipolar measurement (many exports carry only that one).
+            val leadTelemetry = findByChamber(telemetry, "Lead", measureChamber)
+            (leadTelemetry?.field("BipolarImpedance_ohms")?.toDoubleOrNull() ?: leadTelemetry?.field("UnipolarImpedance_ohms")?.toDoubleOrNull())?.let {
                 impedance = Measurement(it, "Ohm")
             }
         }

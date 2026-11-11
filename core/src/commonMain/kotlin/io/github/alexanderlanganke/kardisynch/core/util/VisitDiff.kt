@@ -36,6 +36,8 @@ private fun fmt(v: Double): String {
 fun diffVisits(from: VisitSnapshot, to: VisitSnapshot): List<VisitChange> = buildList {
     fun num(label: String, a: Double?, b: Double?, unit: String, tolerance: Double) {
         if (a == null || b == null || kotlin.math.abs(a - b) < tolerance) return
+        // Judge what is shown: 3.1751 and 3.1849 are both "3.18", and "3.18 -> 3.18 V" is not a change.
+        if (fmt(a) == fmt(b)) return
         add(VisitChange(label, fmt(a), "${fmt(b)} $unit"))
     }
     num(tr("Battery"), from.batteryVoltage, to.batteryVoltage, "V", 0.005)

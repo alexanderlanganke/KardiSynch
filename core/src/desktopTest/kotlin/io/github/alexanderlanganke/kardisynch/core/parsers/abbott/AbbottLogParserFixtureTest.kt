@@ -53,6 +53,9 @@ private fun JsonElement?.asLeadingDouble(): Double? {
     return Regex("""-?\d+(\.\d+)?""").find(prim.content)?.value?.toDoubleOrNull()
 }
 
+/** The reference parser read only the plain Capture Test; thresholds from other tests (decrement, AutoCapture) are an improvement. */
+private fun closeOrEnriched(expected: Double?, actual: Double?): Boolean = expected == null || closeEnough(expected, actual)
+
 private fun closeEnough(a: Double?, b: Double?): Boolean = when {
     a == null && b == null -> true
     a != null && b != null -> kotlin.math.abs(a - b) < EPSILON
@@ -138,7 +141,7 @@ class AbbottLogParserFixtureTest {
                 )
                 check(
                     "leads[$i].pacingThreshold",
-                    closeEnough(expectedLead.pacing_threshold?.value.asLeadingDouble(), actualLead.pacingThreshold?.value),
+                    closeOrEnriched(expectedLead.pacing_threshold?.value.asLeadingDouble(), actualLead.pacingThreshold?.value),
                     "expected ${expectedLead.pacing_threshold?.value}, got ${actualLead.pacingThreshold?.value}",
                 )
             }

@@ -69,6 +69,7 @@ import io.github.alexanderlanganke.kardisynch.data.db.Reports
 import io.github.alexanderlanganke.kardisynch.ui.format.displayDate
 import io.github.alexanderlanganke.kardisynch.ui.format.displayNumber
 import io.github.alexanderlanganke.kardisynch.ui.format.displayUnit
+import io.github.alexanderlanganke.kardisynch.ui.format.roundedForDisplay
 import io.github.alexanderlanganke.kardisynch.ui.theme.Status
 import io.github.alexanderlanganke.kardisynch.ui.theme.ManufacturerWordmark
 import io.github.alexanderlanganke.kardisynch.ui.theme.manufacturerDot
@@ -87,15 +88,25 @@ internal class TrendTile(val label: String, val unit: String, val points: List<T
         get() {
             val recent = points.takeLast(8)
             if (recent.size < 2) return tr("One reading")
-            val change = recent.last().value - recent.first().value
-            val span = (recent.maxOf { it.value } - recent.minOf { it.value })
+            // Rank the readings as they are SHOWN (two decimals): 3.1704 and 3.1731 are both "3.17", and calling that
+            // "rising" while printing "3.17 to 3.17" contradicts the number on the screen.
+            val shown = recent.map { roundedForDisplay(it.value) }
+            val first = shown.first()
+            val last = shown.last()
+            val change = last - first
+            val span = shown.max() - shown.min()
             val word = when {
                 span <= 0.0 -> tr("Stable")
                 kotlin.math.abs(change) < span * 0.25 -> tr("Stable")
                 change < 0 -> tr("Falling")
                 else -> tr("Rising")
             }
-            return tr("{word}, {a} to {b} {unit}", "word" to word, "a" to formatNumber(recent.minOf { it.value }), "b" to formatNumber(recent.maxOf { it.value }), "unit" to unit).trim()
+            // From the first to the latest reading, so the words and the numbers tell the same story.
+            return if (first == last) {
+                tr("{word}, {a} {unit}", "word" to word, "a" to formatNumber(first), "unit" to unit).trim()
+            } else {
+                tr("{word}, {a} to {b} {unit}", "word" to word, "a" to formatNumber(first), "b" to formatNumber(last), "unit" to unit).trim()
+            }
         }
 }
 
@@ -419,7 +430,8 @@ private fun delta(name: String, now: Double?, before: Double?, unit: String?, be
     val pwBefore = io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(beforeUnit).pulseWidthMs
     if (pw != null && pwBefore != null && pw != pwBefore) return null
     val d = now - before
-    if (kotlin.math.abs(d) < 1e-9) return null
+    // A difference that rounds to nothing at the shown precision is no change ("+0 V" would be noise).
+    if (roundedForDisplay(kotlin.math.abs(d)) == 0.0) return null
     return "$name ${if (d > 0) "+" else "−"}${formatNumber(kotlin.math.abs(d))}${io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(unit).unit.let { if (it.isEmpty()) "" else " $it" }}"
 }
 

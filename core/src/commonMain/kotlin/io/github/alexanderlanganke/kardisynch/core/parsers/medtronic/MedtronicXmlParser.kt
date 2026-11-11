@@ -39,6 +39,9 @@ fun parseMedtronicXml(xmlData: String): UnifiedReport? {
         val savedDate = findFieldValue(topFields, "SavedDateTime")
 
         var params: List<XmlNode> = emptyList()
+        // What was measured during the session (lead impedances) is kept in its own "SessionSettings" context, apart
+        // from the programmed settings in "NoPendingSettings".
+        var sessionParams: List<XmlNode> = emptyList()
         var contextVariant = "context=unmatched"
 
         try {
@@ -70,6 +73,8 @@ fun parseMedtronicXml(xmlData: String): UnifiedReport? {
                 params = contextResult.value
                 contextVariant = contextResult.variant
             }
+            sessionParams = contexts.firstOrNull { c -> textOf(findInComposite(c, "Name")?.child("String")) == "SessionSettings" }
+                ?.let(::paramsFromContext).orEmpty()
         } catch (e: Exception) {
             collector.error("context", "Error traversing XML structure: ${e.message}")
         }
@@ -90,6 +95,52 @@ fun parseMedtronicXml(xmlData: String): UnifiedReport? {
             val v = findValueInComposite(current, subField) as? String ?: return null
             return v.toDoubleOrNull()?.let { Measurement(it, unit) }
         }
+
+        /**
+         * Lead impedance (ohms) per `LeadMeasurementUse` ("RVPacingTherapy", "APacingTherapy", "LVPacingTherapy",
+         * "LVPacingTherapyPathwayA", "ShockTherapy", ...), from `SessionPathwayStatus`: one `ImpedanceStatus`
+         * (timestamp + value) per measured pathway. A use can be measured more than once in a session; the latest
+         * wins. Index-only entries in the same array are not measurements and are skipped.
+         */
+        fun pathwayImpedances(): Map<String, Measurement> {
+            val status = (sessionParams + params).firstOrNull { p -> textOf(findInComposite(p, "Name")?.child("String")) == "SessionPathwayStatus" }
+                ?: return emptyMap()
+            val current = findValueInComposite(status, "Current") as? XmlNode ?: return emptyMap()
+            val collection = current.childrenNamed("Field").firstOrNull { it.attributes["name"] == "PathwayStatusCollection" }?.child("Array")
+                ?: return emptyMap()
+            val latest = mutableMapOf<String, Pair<String, Double>>()
+            for (element in collection.childrenNamed("Composite")) {
+                val use = findValueInComposite(element, "LeadMeasurementUse") as? String ?: continue
+                val impedance = findInComposite(element, "ImpedanceStatus") ?: continue
+                val ohms = (findValueInComposite(impedance, "ImpedanceValue") as? String)?.toDoubleOrNull() ?: continue
+                val at = (findValueInComposite(impedance, "DateTime") as? String).orEmpty()
+                val previous = latest[use]
+                if (previous == null || at >= previous.first) latest[use] = at to ohms
+            }
+            return latest.mapValues { Measurement(it.value.second, "Ohm") }
+        }
+        val impedances = pathwayImpedances()
+
+        /**
+         * The MEASURED sensing amplitude (Wahrnehmung, mV) per `SensingMeasurementUse` from `SEventAmplitudeStatus`:
+         * "RVSensingAmplitude" / "ASensingAmplitude" (a sensing test in the session) and the device's own
+         * "RecentAutoRVDailyMedian" / "RecentAutoAtrialDailyMedian". Not to be confused with the programmed sensing
+         * threshold (a setting). The parameter's `Current` is an array that also holds index-only entries, which are skipped.
+         */
+        fun sensedAmplitudes(): Map<String, Measurement> {
+            val param = findParam("SEventAmplitudeStatus") ?: return emptyMap()
+            val array = param.childrenNamed("Field").firstOrNull { it.attributes["name"] == "Current" }?.child("Array") ?: return emptyMap()
+            val out = mutableMapOf<String, Measurement>()
+            for (element in array.childrenNamed("Composite")) {
+                val use = findValueInComposite(element, "SensingMeasurementUse") as? String ?: continue
+                val amplitude = (findValueInComposite(findInComposite(element, "Status"), "AmplitudeValue") as? String)?.toDoubleOrNull() ?: continue
+                out[use] = Measurement(amplitude, "mV")
+            }
+            return out
+        }
+        val sensed = sensedAmplitudes()
+        val sensedRv = sensed["RVSensingAmplitude"] ?: sensed["RecentAutoRVDailyMedian"]
+        val sensedRa = sensed["ASensingAmplitude"] ?: sensed["RecentAutoAtrialDailyMedian"]
 
         // --- Device ---
         val deviceModelParam = findParam("DeviceModelName")
@@ -223,21 +274,33 @@ fun parseMedtronicXml(xmlData: String): UnifiedReport? {
                     implantDate = leadImplantDate,
                 )
 
+                // Which channel the lead is on. Locations come as "RV", "RA", "Atrial", "LV", "CS", "RV/SVC", ... — match on
+                // the words, LV first so that nothing containing "V" is mistaken for the right ventricle.
                 val loc = leadLocation.uppercase()
-                lead = when {
-                    loc == "RV" || loc.contains("RIGHT VENTRICLE") -> lead.copy(
-                        sensing = getNumericParam("VSEventDetectionRVSensingThreshold", "mV") ?: lead.sensing,
+                val channel = when {
+                    loc == "LV" || loc.contains("LEFT VENTRICLE") || loc == "CS" || loc.contains("CORONARY") -> "LV"
+                    loc.contains("RV") || loc.contains("RIGHT VENTRICLE") -> "RV"
+                    loc == "RA" || loc == "A" || loc.contains("ATRIUM") || loc.contains("ATRIAL") -> "RA"
+                    else -> null
+                }
+                lead = when (channel) {
+                    "RV" -> lead.copy(
+                        sensing = sensedRv ?: lead.sensing,
                         pacingAmplitude = getNumericParam("VPacingTherapyRVPacingAmplitude", "V") ?: lead.pacingAmplitude,
                         pacingThreshold = getStatusParamField("VPacingTherapyAdaptRVPacingAmplitudeStatus", "PacingThreshold", "V") ?: lead.pacingThreshold,
+                        impedance = impedances["RVPacingTherapy"] ?: lead.impedance,
+                        shockImpedance = (impedances["ShockTherapy"] ?: impedances["AlternateShockTherapyPathway"]) ?: lead.shockImpedance,
                     )
-                    loc == "RA" || loc == "A" || loc.contains("ATRIUM") -> lead.copy(
-                        sensing = getNumericParam("ASEventDetectionRASensingThreshold", "mV") ?: lead.sensing,
+                    "RA" -> lead.copy(
+                        sensing = sensedRa ?: lead.sensing,
                         pacingAmplitude = getNumericParam("APacingTherapyRAPacingAmplitude", "V") ?: lead.pacingAmplitude,
                         pacingThreshold = getStatusParamField("APacingTherapyAdaptRAPacingAmplitudeStatus", "PacingThreshold", "V") ?: lead.pacingThreshold,
+                        impedance = impedances["APacingTherapy"] ?: lead.impedance,
                     )
-                    loc == "LV" || loc.contains("LEFT VENTRICLE") -> lead.copy(
+                    "LV" -> lead.copy(
                         pacingAmplitude = getNumericParam("VPacingTherapyLVPacingPathwayAAmplitude", "V") ?: lead.pacingAmplitude,
                         pacingThreshold = getStatusParamField("VPacingTherapyAdaptLVPacingAmplitudeStatus", "PacingThreshold", "V") ?: lead.pacingThreshold,
+                        impedance = (impedances["LVPacingTherapy"] ?: impedances["LVPacingTherapyPathwayA"]) ?: lead.impedance,
                     )
                     else -> lead
                 }
@@ -248,16 +311,27 @@ fun parseMedtronicXml(xmlData: String): UnifiedReport? {
 
         // A leadless pacemaker (Micra) has no Lead1-4 params at all, but it
         // still paces/senses a single RV channel via the same RV parameter
-        // IDs a transvenous RV lead would use.
+        // IDs a transvenous RV lead would use. It is an RV lead for every
+        // purpose (named like one, so its trends join those of RV leads).
         if (leads.isEmpty() && (deviceType == "Leadless Pacemaker" || deviceModel.contains("MICRA", ignoreCase = true))) {
             val virtualLead = LeadData(
-                name = "Leadless Pacing/Sensing Channel",
+                name = "RV Lead",
                 anatomicLocation = "RV",
-                sensing = getNumericParam("VSEventDetectionRVSensingThreshold", "mV"),
+                sensing = sensedRv,
                 pacingAmplitude = getNumericParam("VPacingTherapyRVPacingAmplitude", "V"),
                 pacingThreshold = getStatusParamField("VPacingTherapyAdaptRVPacingAmplitudeStatus", "PacingThreshold", "V"),
+                impedance = impedances["RVPacingTherapy"],
             )
             if (hasLeadData(virtualLead)) leads.add(virtualLead)
+        }
+
+        // The programmed sensing THRESHOLD ("Wahrnehmungsschwelle": how sensitive the device is set to be) is a setting of the
+        // channel. It is NOT the sensed signal amplitude ("Wahrnehmung": the measured P/R wave), so it is kept out of
+        // LeadData.sensing and stored as its own, clearly named value.
+        val sensingThresholds = buildMap {
+            fun mv(v: Double) = "${v.toString().removeSuffix(".0")} mV"
+            getNumericParam("VSEventDetectionRVSensingThreshold", "mV")?.let { put("rv_sensing_threshold", mv(it.value)) }
+            getNumericParam("ASEventDetectionRASensingThreshold", "mV")?.let { put("ra_sensing_threshold", mv(it.value)) }
         }
 
         UnifiedReport(
@@ -267,6 +341,7 @@ fun parseMedtronicXml(xmlData: String): UnifiedReport? {
             device = DeviceInfo(type = deviceType, model = deviceModel, serialNumber = deviceSerial, implantDate = implantDate),
             battery = BatteryData(voltage = batteryVoltage?.let { Measurement(it, "V") }, remainingLongevity = remainingLongevity),
             leads = leads,
+            additionalFields = sensingThresholds,
             rawText = xmlData,
             formatVariant = "medtronic-xml:$contextVariant",
             parseStatus = deriveParseStatus(collector, lastName.isNotEmpty() || dob.isNotEmpty(), deviceModel.isNotEmpty() || deviceSerial.isNotEmpty()),

@@ -28,9 +28,12 @@ fun displayValueWithUnit(value: Double, unit: String?): String {
     return (displayNumber(value) + " " + u.unit).trim() + (if (pw != null) "\n@ ${displayNumber(pw)} ms" else "")
 }
 
+/** [v] rounded to the two decimals [displayNumber] shows. Compare and rank values with this, never with the raw numbers behind them. */
+fun roundedForDisplay(v: Double): Double = kotlin.math.round(v * 100.0) / 100.0
+
 /** A number with at most two decimals, always with a point, without trailing zeros: 512, 0.75, 2.81. */
 fun displayNumber(v: Double): String {
-    val rounded = kotlin.math.round(v * 100.0) / 100.0
+    val rounded = roundedForDisplay(v)
     val text = rounded.toString()
     val clean = if (text.contains('E') || text.contains('e')) "%.2f".format(rounded).replace(',', '.') else text
     return clean.trimEnd('0').trimEnd('.').ifEmpty { "0" }.replace('.', io.github.alexanderlanganke.kardisynch.core.i18n.decimalSeparator())

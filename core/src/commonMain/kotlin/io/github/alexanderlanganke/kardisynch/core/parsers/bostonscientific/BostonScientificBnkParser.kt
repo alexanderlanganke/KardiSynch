@@ -127,6 +127,55 @@ private fun buildPacingThreshold(amplitudeMv: Double?, pulseWidthMs: Double?): M
     return Measurement(amplitudeV, if (pulseWidthMs != null) "V @ ${pulseWidthMs}ms" else "V")
 }
 
+/** The first of [keys] that carries a value ("K.A" and empty count as none). */
+private fun firstValue(dataMap: Map<String, String>, vararg keys: String): String? = keys.firstNotNullOfOrNull { dataMap[it]?.takeIf(::hasValue) }
+
+/**
+ * The measurements of one lead. Real exports leave the `Patient*` summary keys at "K.A" and carry the actual
+ * results under other names, so each value is read from the summary key first and from the result key after it:
+ *  - impedance: `ManualLeadImpedData.{RA,RV,LV}Msmt.Msmt`
+ *  - capture threshold: `InterPaceThreshResult.{RA,RV,LV}Msmt.Amplitude` (mV) with its `.PulseWidth` (ms)
+ *  - intrinsic amplitude (sensing): `ManualIntrinsicResult.{RA,RV,LV}Msmt.Msmt` (a non-numeric result such as
+ *    "no intrinsic rhythm" yields none)
+ *  - programmed pacing output: `BdyNorm{A,V,LV}Amplitude` (V) with `BdyNorm{A,V,LV}PulseWidth` (ms)
+ */
+private class BnkLeadMeasurements(
+    val impedance: Measurement?,
+    val pacingThreshold: Measurement?,
+    val sensing: Measurement?,
+    val pacingAmplitude: Measurement?,
+)
+
+private fun readLeadMeasurements(
+    dataMap: Map<String, String>,
+    chamber: String, // "RA" | "RV" | "LV"
+    summaryImpedance: String?,
+    summaryThresholdAmplitude: String?,
+    summaryThresholdPulseWidth: String?,
+    summarySensing: String?,
+    bodyNormPrefix: String, // "BdyNormA" | "BdyNormV" | "BdyNormLV"
+): BnkLeadMeasurements {
+    val impedance = extractBnkNumeric(firstValue(dataMap, *listOfNotNull(summaryImpedance, "ManualLeadImpedData.${chamber}Msmt.Msmt").toTypedArray()))
+        ?.let { Measurement(it, "Ohms") }
+
+    val summaryThreshold = extractBnkNumeric(summaryThresholdAmplitude?.let { dataMap[it] })
+    val thresholdAmplitudeMv = summaryThreshold ?: extractBnkNumeric(dataMap["InterPaceThreshResult.${chamber}Msmt.Amplitude"])
+    val thresholdPulseWidth = if (summaryThreshold != null) {
+        extractBnkNumeric(summaryThresholdPulseWidth?.let { dataMap[it] })
+    } else {
+        extractBnkNumeric(dataMap["InterPaceThreshResult.${chamber}Msmt.PulseWidth"])
+    }
+
+    val sensing = extractBnkNumeric(firstValue(dataMap, *listOfNotNull(summarySensing, "ManualIntrinsicResult.${chamber}Msmt.Msmt").toTypedArray()))
+        ?.let { Measurement(it, "mV") }
+
+    val outputV = extractBnkNumeric(dataMap["${bodyNormPrefix}Amplitude"])
+    val outputPw = extractBnkNumeric(dataMap["${bodyNormPrefix}PulseWidth"])
+    val pacingAmplitude = outputV?.let { Measurement(it, if (outputPw != null) "V @ ${outputPw}ms" else "V") }
+
+    return BnkLeadMeasurements(impedance, buildPacingThreshold(thresholdAmplitudeMv, thresholdPulseWidth), sensing, pacingAmplitude)
+}
+
 fun parseBostonScientificBnk(bnkData: String): UnifiedReport {
     val dataMap = mutableMapOf<String, String>()
     for (line in bnkData.split(Regex("""\r?\n"""))) {
@@ -151,9 +200,7 @@ fun parseBostonScientificBnk(bnkData: String): UnifiedReport {
     val leads = mutableListOf<LeadData>()
 
     readLeadSlot(dataMap, "A")?.let { slot ->
-        val impedance = extractBnkNumeric(dataMap["PatientAtrialImped"])
-        val threshAmpl = extractBnkNumeric(dataMap["PatientAtrialThreshAmpl"])
-        val threshPw = extractBnkNumeric(dataMap["PatientAtrialThreshPW"])
+        val m = readLeadMeasurements(dataMap, "RA", "PatientAtrialImped", "PatientAtrialThreshAmpl", "PatientAtrialThreshPW", "PatientIntrinsicAAmplitude", "BdyNormA")
         val lead = LeadData(
             name = chamberFromPosition(slot.position) ?: "Atrium",
             manufacturer = slot.manufacturer,
@@ -161,8 +208,10 @@ fun parseBostonScientificBnk(bnkData: String): UnifiedReport {
             serial = slot.serial,
             anatomicLocation = slot.position,
             implantDate = buildPartsDate(dataMap, null, "PatientData.LeadA.ImplantMonth", "PatientData.LeadA.ImplantYear").ifEmpty { null },
-            impedance = impedance?.let { Measurement(it, "Ohms") },
-            pacingThreshold = buildPacingThreshold(threshAmpl, threshPw),
+            impedance = m.impedance,
+            pacingThreshold = m.pacingThreshold,
+            pacingAmplitude = m.pacingAmplitude,
+            sensing = m.sensing,
         )
         if (hasLeadData(lead)) leads.add(lead)
     }
@@ -175,24 +224,19 @@ fun parseBostonScientificBnk(bnkData: String): UnifiedReport {
         val chamber = chamberFromPosition(slot.position) ?: "RV"
         val isLV = chamber == "LV"
 
-        var impedance: Measurement? = null
-        var pacingThreshold: Measurement? = null
+        var measurements: BnkLeadMeasurements? = null
         var shockImpedance: Measurement? = null
 
         if (isLV) {
-            impedance = extractBnkNumeric(dataMap["PatientData.LVMsmts.LeadImped"])?.let { Measurement(it, "Ohms") }
-            pacingThreshold = buildPacingThreshold(
-                extractBnkNumeric(dataMap["PatientData.LVMsmts.PaceThreshAmpl"]),
-                extractBnkNumeric(dataMap["PatientData.LVMsmts.PaceThreshPW"]),
+            measurements = readLeadMeasurements(
+                dataMap, "LV", "PatientData.LVMsmts.LeadImped", "PatientData.LVMsmts.PaceThreshAmpl", "PatientData.LVMsmts.PaceThreshPW",
+                "PatientData.LVMsmts.IntrinsicAmp", "BdyNormLV",
             )
         } else if (!attachedGenericV) {
             attachedGenericV = true
-            impedance = extractBnkNumeric(dataMap["PatientVImped"])?.let { Measurement(it, "Ohms") }
-            pacingThreshold = buildPacingThreshold(
-                extractBnkNumeric(dataMap["PatientVThreshAmpl"]),
-                extractBnkNumeric(dataMap["PatientVThreshPW"]),
-            )
-            shockImpedance = extractBnkNumeric(dataMap["PatientShockImped"])?.let { Measurement(it, "Ohms") }
+            measurements = readLeadMeasurements(dataMap, "RV", "PatientVImped", "PatientVThreshAmpl", "PatientVThreshPW", "PatientIntrinsicVAmplitude", "BdyNormV")
+            // The shock lead's impedance: the summary key first, then the last measured value.
+            shockImpedance = extractBnkNumeric(firstValue(dataMap, "PatientShockImped", "ShockLastImpedance", "ShockImpedanceLastMeas0"))?.let { Measurement(it, "Ohms") }
         }
 
         val lead = LeadData(
@@ -202,8 +246,10 @@ fun parseBostonScientificBnk(bnkData: String): UnifiedReport {
             serial = slot.serial,
             anatomicLocation = slot.position,
             implantDate = buildPartsDate(dataMap, null, "PatientData.Lead$i.ImplantMonth", "PatientData.Lead$i.ImplantYear").ifEmpty { null },
-            impedance = impedance,
-            pacingThreshold = pacingThreshold,
+            impedance = measurements?.impedance,
+            pacingThreshold = measurements?.pacingThreshold,
+            pacingAmplitude = measurements?.pacingAmplitude,
+            sensing = measurements?.sensing,
             shockImpedance = shockImpedance,
         )
         if (hasLeadData(lead)) leads.add(lead)

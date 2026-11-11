@@ -77,7 +77,9 @@ class MedtronicXmlParserTest {
         assertEquals("RV", lead.anatomicLocation)
         assertEquals("Model1", lead.model)
         assertEquals("LEAD-SER-1", lead.serial)
-        assertEquals(8.0, lead.sensing?.value)
+        // The programmed sensing threshold (Wahrnehmungsschwelle) is a setting, not the measured sensing amplitude (Wahrnehmung).
+        assertNull(lead.sensing, "a programmed sensitivity must not appear as measured sensing")
+        assertEquals("8 mV", report.additionalFields["rv_sensing_threshold"])
         assertEquals(2.5, lead.pacingAmplitude?.value)
         assertEquals("medtronic-xml:context=NoPendingSettings", report.formatVariant)
         assertEquals(ParseStatus.OK, report.parseStatus)
@@ -110,7 +112,7 @@ class MedtronicXmlParserTest {
     }
 
     @Test
-    fun `a Micra with no Lead params gets a synthetic RV pacing-sensing channel`() {
+    fun `a Micra with no Lead params gets one RV lead for its pacing-sensing channel`() {
         val params = listOf(
             param("DeviceModelName", """<Composite><Field name="Name"><String>MICRA MC1VR01</String></Field></Composite>"""),
             param("VSEventDetectionRVSensingThreshold", "<Real>6.5</Real>"),
@@ -118,8 +120,10 @@ class MedtronicXmlParserTest {
         ).joinToString("\n")
         val report = parseMedtronicXml(xmlDoc("NoPendingSettings", params))
         assertEquals(1, report?.leads?.size)
-        assertEquals("Leadless Pacing/Sensing Channel", report?.leads?.get(0)?.name)
-        assertEquals(6.5, report?.leads?.get(0)?.sensing?.value)
+        assertEquals("RV Lead", report?.leads?.get(0)?.name)
+        assertEquals("RV", report?.leads?.get(0)?.anatomicLocation)
+        assertNull(report?.leads?.get(0)?.sensing)
+        assertEquals("6.5 mV", report?.additionalFields?.get("rv_sensing_threshold"))
     }
 
     @Test

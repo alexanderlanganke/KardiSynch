@@ -50,10 +50,24 @@ internal fun AdditionalDataCard(patientId: String, onGetMergedAdditionalFields: 
         Column(modifier = Modifier.padding(16.dp)) {
             Text(tr("Additional data"), style = MaterialTheme.typography.titleSmall)
             current.entries.sortedBy { it.key }.forEach { (key, field) ->
-                Text(tr("{key}: {value} (as of {date})", "key" to key, "value" to field.value, "date" to displayDate(field.lastSeenDate)), style = MaterialTheme.typography.bodySmall)
+                Text(tr("{key}: {value} (as of {date})", "key" to additionalFieldLabel(key), "value" to field.value, "date" to displayDate(field.lastSeenDate)), style = MaterialTheme.typography.bodySmall)
             }
         }
     }
+}
+
+/**
+ * A readable, translated name for the known additional fields; an unknown key is shown as it is. The two sensing
+ * values are different things and are named so: the programmed threshold is a SETTING ("Wahrnehmungsschwelle"), the
+ * measured signal amplitude is "Wahrnehmung" (see LeadData.sensing).
+ */
+internal fun additionalFieldLabel(key: String): String = when (key) {
+    "rv_sensing_threshold" -> tr("RV sensing threshold (programmed)")
+    "ra_sensing_threshold" -> tr("RA sensing threshold (programmed)")
+    "ejection_fraction" -> tr("Ejection fraction")
+    "nyha_class" -> tr("NYHA class")
+    "indications_for_implant" -> tr("Indications for implant")
+    else -> key
 }
 
 /**

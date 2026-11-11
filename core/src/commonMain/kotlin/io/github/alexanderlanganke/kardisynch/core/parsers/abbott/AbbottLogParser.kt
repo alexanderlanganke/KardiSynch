@@ -49,6 +49,16 @@ private val ABBOTT_CODES = mapOf(
     "2464" to "LVLeadManufacturer", "2465" to "LVLeadModel",
     "2467" to "LVLeadImplantDate", "2471" to "LVLeadSerial",
     "2720" to "LVLeadImpedance", "1616" to "LVCaptureThreshold", "1617" to "LVCapturePulseWidth",
+    // HV (shock) lead impedance.
+    "2730" to "HVLeadImpedance",
+    // Programmed pacing output (amplitude + pulse width), not a measurement.
+    "306" to "RVPulseAmplitude", "305" to "RVPulseWidth", "312" to "AtrialPulseAmplitude", "311" to "AtrialPulseWidth",
+    "2002" to "LVPulseAmplitude", "2003" to "LVPulseWidth",
+    // Capture thresholds found by other tests, used when no plain "Capture Test" was run: the pulse-amplitude
+    // decrement test and AutoCapture.
+    "2604" to "RVDecrementThreshold", "2605" to "RVDecrementPulseWidth", "1620" to "RVAutoCaptureThreshold", "3008" to "RVAutoCapturePulseWidth",
+    "2600" to "AtrialDecrementThreshold", "2601" to "AtrialDecrementPulseWidth", "849" to "AtrialAutoCaptureThreshold", "3011" to "AtrialAutoCapturePulseWidth",
+    "2608" to "LVDecrementThreshold", "2609" to "LVDecrementPulseWidth",
 )
 
 private val CODE_LABEL_PREFIXES = mapOf(
@@ -69,6 +79,14 @@ private val CODE_LABEL_PREFIXES = mapOf(
     "2464" to "Manufacturer: LV Lead", "2465" to "Model Number: SJM LV Lead",
     "2467" to "Implant Date: LV Lead", "2471" to "LV Lead Serial Number",
     "2720" to "LV Pacing Lead Impedance", "1616" to "LV. Capture Test Threshold Amplitude", "1617" to "LV. Capture Test Pulse Width",
+    "2730" to "HV Lead Impedance",
+    "306" to "RV Pulse Amplitude", "305" to "RV Pulse Width", "312" to "Atrial Pulse Amplitude", "311" to "Atrial Pulse Width",
+    "2002" to "LV Pulse Amplitude", "2003" to "LV Pulse Width",
+    "2604" to "V. Pulse Amp Decrement Capture Test: Capture Threshold (Pulse Amp)", "2605" to "V. Pulse Amp Decrement Capture Test: Test Pulse Width",
+    "1620" to "RV. AutoCapture Capture Test Pulse Amplitude (threshold)", "3008" to "RV. AutoCapture Capture Test Pulse Width",
+    "2600" to "A. Pulse Amp Decrement Capture Test: Capture Threshold (Pulse Amp)", "2601" to "A. Pulse Amp Decrement Capture Test: Test Pulse Width",
+    "849" to "A. AutoCapture Capture Test Pulse Amplitude (threshold)", "3011" to "A. AutoCapture Capture Test Pulse Width",
+    "2608" to "LV. Pulse Amp Decrement Capture Test: Capture Threshold (Pulse Amp)", "2609" to "LV. Pulse Amp Decrement Capture Test: Test Pulse Width",
 )
 
 /** Coded logs have most lines starting with a numeric code — either the real 0x1C-delimited variant or the plain concatenated variant. */
@@ -160,6 +178,12 @@ private fun pacingThreshold(amplitude: Double?, pulseWidth: Double?): Measuremen
     return Measurement(amplitude, if (pulseWidth != null) "V @ ${pulseWidth}ms" else "V")
 }
 
+/** The first (amplitude field, pulse-width field) pair that has an amplitude, as a "V @ Xms" measurement. */
+private fun firstVoltage(fields: Map<String, String>, vararg pairs: Pair<String, String>): Measurement? =
+    pairs.firstNotNullOfOrNull { (amplitude, pulseWidth) ->
+        pacingThreshold(extractNumeric(fields[amplitude] ?: ""), extractNumeric(fields[pulseWidth] ?: ""))
+    }
+
 /** Session ID from the filename's trailing digits before ".log". */
 private fun sessionIdFromFilename(fileName: String): String? =
     Regex("""_?(\d+)\.log$""", RegexOption.IGNORE_CASE).find(fileName)?.groupValues?.get(1)
@@ -204,7 +228,11 @@ private fun buildReportFromCodedLog(fields: Map<String, String>, fileName: Strin
         implantDate = parseAbbottDate(fields["RVLeadImplantDate"] ?: "").ifEmpty { null },
         impedance = extractNumeric(fields["RVLeadImpedance"] ?: "")?.let { Measurement(it, "Ohm") },
         sensing = extractNumeric(fields["VentricularSignalAmplitude"] ?: "")?.let { Measurement(it, "mV") },
-        pacingThreshold = pacingThreshold(extractNumeric(fields["RVCaptureThreshold"] ?: ""), extractNumeric(fields["RVCapturePulseWidth"] ?: "")),
+        pacingThreshold = firstVoltage(
+            fields, "RVCaptureThreshold" to "RVCapturePulseWidth", "RVDecrementThreshold" to "RVDecrementPulseWidth", "RVAutoCaptureThreshold" to "RVAutoCapturePulseWidth",
+        ),
+        pacingAmplitude = firstVoltage(fields, "RVPulseAmplitude" to "RVPulseWidth"),
+        shockImpedance = extractNumeric(fields["HVLeadImpedance"] ?: "")?.let { Measurement(it, "Ohm") },
     )
     if (hasLeadData(rvLead)) leads.add(rvLead)
 
@@ -216,7 +244,11 @@ private fun buildReportFromCodedLog(fields: Map<String, String>, fileName: Strin
         implantDate = parseAbbottDate(fields["AtrialLeadImplantDate"] ?: "").ifEmpty { null },
         impedance = extractNumeric(fields["AtrialLeadImpedance"] ?: "")?.let { Measurement(it, "Ohm") },
         sensing = extractNumeric(fields["AtrialSignalAmplitude"] ?: "")?.let { Measurement(it, "mV") },
-        pacingThreshold = pacingThreshold(extractNumeric(fields["AtrialCaptureThreshold"] ?: ""), extractNumeric(fields["AtrialCapturePulseWidth"] ?: "")),
+        pacingThreshold = firstVoltage(
+            fields, "AtrialCaptureThreshold" to "AtrialCapturePulseWidth", "AtrialDecrementThreshold" to "AtrialDecrementPulseWidth",
+            "AtrialAutoCaptureThreshold" to "AtrialAutoCapturePulseWidth",
+        ),
+        pacingAmplitude = firstVoltage(fields, "AtrialPulseAmplitude" to "AtrialPulseWidth"),
     )
     if (hasLeadData(atrialLead)) leads.add(atrialLead)
 
@@ -228,7 +260,8 @@ private fun buildReportFromCodedLog(fields: Map<String, String>, fileName: Strin
         manufacturer = fields["LVLeadManufacturer"]?.takeIf { it.isNotEmpty() },
         implantDate = parseAbbottDate(fields["LVLeadImplantDate"] ?: "").ifEmpty { null },
         impedance = extractNumeric(fields["LVLeadImpedance"] ?: "")?.let { Measurement(it, "Ohm") },
-        pacingThreshold = pacingThreshold(extractNumeric(fields["LVCaptureThreshold"] ?: ""), extractNumeric(fields["LVCapturePulseWidth"] ?: "")),
+        pacingThreshold = firstVoltage(fields, "LVCaptureThreshold" to "LVCapturePulseWidth", "LVDecrementThreshold" to "LVDecrementPulseWidth"),
+        pacingAmplitude = firstVoltage(fields, "LVPulseAmplitude" to "LVPulseWidth"),
     )
     if (hasLeadData(lvLead)) leads.add(lvLead)
 
