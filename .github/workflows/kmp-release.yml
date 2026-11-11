@@ -109,5 +109,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $pre = if ($tag -match '-') { "--prerelease" } else { "" }
-          gh release create $tag dist/* --title "KardiSynch $($tag.TrimStart('v'))" --generate-notes $pre --verify-tag
+          # An array, not a string: an empty string would reach gh as an extra empty argument on a stable tag.
+          $flags = @()
+          if ($tag -match '-') { $flags += "--prerelease" }
+          gh release create $tag dist/* --title "KardiSynch $($tag.TrimStart('v'))" --generate-notes --verify-tag @flags
