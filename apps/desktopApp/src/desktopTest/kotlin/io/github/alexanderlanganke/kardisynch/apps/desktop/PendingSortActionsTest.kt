@@ -220,4 +220,34 @@ class PendingSortActionsTest {
         assertTrue(repository.observeReportsForPatient(newPatient.id).first().isNotEmpty())
         assertEquals(1, repository.observeReportsForPatient(existing.patientId).first().size, "the existing patient is untouched")
     }
+
+    @Test
+    fun `a PDF with nothing readable in it can still be assigned to an existing patient`() = runBlocking {
+        val existing = repository.importReport(
+            reader, writer, reportsRoot,
+            io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport(
+                manufacturer = "Abbott", interrogationDate = "2026-06-01",
+                patient = io.github.alexanderlanganke.kardisynch.core.model.PatientInfo("Erika", "Mustermann", "1950-09-15"),
+                device = io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo("Pacemaker", "Assurity MRI", "ABT-OLD"),
+            ),
+        ).getOrThrow()
+
+        // A scan or an unfamiliar layout: the text holds no name, serial or date the heuristics can use.
+        val pendingDir = File(importDir, "_pending_sort").apply { mkdirs() }
+        val staged = File(pendingDir, "task_report.pdf")
+        staged.writeBytes(io.github.alexanderlanganke.kardisynch.core.testing.mockDummyPdf(listOf("Seite 1 von 1")))
+        val taskId = repository.createPendingSortTask(
+            createdAt = "2026-07-21T10:00:00Z", sessionId = null, stagedFilePath = staged.absolutePath, originalFileName = "report.pdf",
+            suggestedPatientId = null, suggestedPatientName = null,
+            note = "No patient or device details could be read from this PDF (a scanned image?). Assign it manually.",
+            manufacturer = "Abbott", deviceModel = null, deviceSerial = null, interrogationDate = null, fileKind = "DEVICE_PDF",
+        )
+
+        resolvePendingSortTask(repository, reader, writer, reportsRoot, taskId, existing.patientId, NoOpDirectoryLock).getOrThrow()
+
+        assertTrue(repository.getPendingSortTasks().isEmpty(), "the task is resolved")
+        assertFalse(staged.exists(), "the PDF is moved into the patient's visit")
+        assertEquals(2, repository.observeReportsForPatient(existing.patientId).first().size, "a visit was created for the PDF under the chosen patient")
+        assertEquals(1, repository.observePatients().first().size, "no second patient")
+    }
 }

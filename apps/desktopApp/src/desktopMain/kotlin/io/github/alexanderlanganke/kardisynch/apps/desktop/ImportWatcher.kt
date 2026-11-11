@@ -17,6 +17,7 @@ import io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootReader
 import io.github.alexanderlanganke.kardisynch.data.DesktopDataRootWriter
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
+import io.github.alexanderlanganke.kardisynch.data.db.PendingSortTasks
 import io.github.alexanderlanganke.kardisynch.data.storeIncomingFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -649,6 +650,26 @@ private fun dispatchParseFileIncludingPkg(fileName: String, bytes: ByteArray): U
     parseForIntake(fileName, bytes).report
 
 /**
+ * The report to store for a queued file. Normally what the parsers read. A PDF with nothing readable in it (a scan,
+ * or a layout the text heuristics do not know) used to fail here with "no longer parses", so it could be queued but
+ * never assigned. For such a PDF the person has already chosen the patient, so a bare visit is built from what the
+ * queue recorded about the file (manufacturer, model, serial, date), falling back to the day the file was written.
+ */
+internal fun reportForStagedFile(task: PendingSortTasks, stagedFile: File, bytes: ByteArray): UnifiedReport? {
+    dispatchParseFileIncludingPkg(task.originalFileName, bytes)?.let { return it }
+    if (!bytes.decodeToString(0, minOf(bytes.size, 5)).startsWith("%PDF")) return null
+    val written = Instant.ofEpochMilli(minOf(stagedFile.lastModified(), System.currentTimeMillis())).toString().take(10)
+    val day = task.interrogationDate?.take(10)?.takeIf { it.length == 10 } ?: written
+    return UnifiedReport(
+        manufacturer = task.manufacturer?.takeIf { it.isNotBlank() } ?: "Unknown",
+        interrogationDate = day,
+        patient = PatientInfo("Unknown", "Unknown", "", null),
+        device = DeviceInfo(type = "Unknown", model = task.deviceModel?.takeIf { it.isNotBlank() } ?: "Unknown", serialNumber = task.deviceSerial?.takeIf { it.isNotBlank() } ?: "Unknown"),
+        parseStatus = io.github.alexanderlanganke.kardisynch.core.model.ParseStatus.PARTIAL,
+    )
+}
+
+/**
  * Approves a pending-sort task (issue #172/#173): re-parses its staged
  * file, overwrites the parsed patient identity with [targetPatientId]'s
  * actual on-file identity (the parsed report's own patient fields may be
@@ -669,8 +690,8 @@ suspend fun resolvePendingSortTask(
     val stagedFile = File(task.stagedFilePath)
     if (!stagedFile.isFile) return Result.failure(IllegalStateException("Staged file for task $taskId is missing: ${task.stagedFilePath}"))
 
-    val parsed = dispatchParseFileIncludingPkg(task.originalFileName, stagedFile.readBytes())
-        ?: return Result.failure(IllegalStateException("Staged file for task $taskId no longer parses"))
+    val parsed = reportForStagedFile(task, stagedFile, stagedFile.readBytes())
+        ?: return Result.failure(IllegalStateException("${task.originalFileName} could not be read as a device file, so it cannot be filed automatically. Use \"Manual entry\" in the file sorter to type in the device details."))
     val patient = repository.getPatientById(targetPatientId)
         ?: return Result.failure(IllegalStateException("Target patient $targetPatientId not found"))
 
@@ -718,8 +739,8 @@ suspend fun resolvePendingSortTaskAsNewPatient(
     val stagedFile = File(task.stagedFilePath)
     if (!stagedFile.isFile) return Result.failure(IllegalStateException("Staged file for task $taskId is missing: ${task.stagedFilePath}"))
 
-    val parsed = dispatchParseFileIncludingPkg(task.originalFileName, stagedFile.readBytes())
-        ?: return Result.failure(IllegalStateException("Staged file for task $taskId no longer parses"))
+    val parsed = reportForStagedFile(task, stagedFile, stagedFile.readBytes())
+        ?: return Result.failure(IllegalStateException("${task.originalFileName} could not be read as a device file, so it cannot be filed automatically. Use \"Manual entry\" in the file sorter to type in the device details."))
     val report = parsed.copy(patient = PatientInfo(firstName, lastName, dob, hospitalPatientId))
 
     return repository.importReport(reader, writer, reportsRootHandle, report, lock = lock).fold(

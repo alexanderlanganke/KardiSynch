@@ -622,7 +622,8 @@ private fun startApp() = application {
                 onIncludePrereleasesChange = { v -> updateIncludePre = v; scope.launch { repository.setSetting(SETTING_UPDATE_PRERELEASE, v.toString()) } },
             ),
             notificationMessage = lastReindexSummary,
-            notificationKey = lastReindexSummary,
+            // The message alone is not a key: the same failure twice in a row must still show again.
+            notificationKey = "$lastReindexSummary#$pendingSortRefreshTrigger",
             deviceNewsService = deviceNewsService,
             showOnboarding = showOnboarding,
             onOnboardingFinish = {
