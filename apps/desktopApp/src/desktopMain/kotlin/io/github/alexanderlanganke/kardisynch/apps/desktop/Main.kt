@@ -539,6 +539,20 @@ private fun startApp() = application {
                     pendingSortRefreshTrigger++
                 }
             },
+            onResolveFilesAsNewPatient = { taskIds, otherAssignments, firstName, lastName, dob, hospitalPatientId ->
+                val root = dataRoot
+                scope.launch {
+                    val reportsRoot = root?.let { resolveReportsRootHandle(reader, it) }
+                    lastReindexSummary = if (reportsRoot == null) {
+                        "No \"Reports\" folder found — nothing to attach this to."
+                    } else {
+                        val failures = resolvePendingFilesAsNewPatient(repository, reader, writer, reportsRoot, taskIds, firstName, lastName, dob, hospitalPatientId, lock) +
+                            if (otherAssignments.isEmpty()) emptyList() else resolvePendingFiles(repository, reader, writer, reportsRoot, otherAssignments, lock)
+                        if (failures.isEmpty()) "Created $lastName, $firstName and imported ${taskIds.size + otherAssignments.size} ${if (taskIds.size + otherAssignments.size == 1) "file" else "files"}." else "Some files failed: ${failures.first().message}"
+                    }
+                    pendingSortRefreshTrigger++
+                }
+            },
             onDismissBundle = { bundleId ->
                 scope.launch {
                     val failures = dismissPendingBundle(repository, File(importDirPath), bundleId)

@@ -137,6 +137,64 @@ class ImportPipelineMockTest {
     }
 
     @Test
+    fun `a same-surname patient with a different first name and DOB is imported as a new patient, not queued`() = runBlocking {
+        val erika = MockPatient("Erika", "Mustermann", "1950-09-15")
+        val max = MockPatient("Max", "Mustermann", "1962-03-02")
+        dropFile("BIOSTD_erika.xml", mockBiotronikXml(erika, MockDevice(model = "Amvia Sky DR-T", serial = "BIO-ERIKA-1")))
+        runBatch(minEvents = 1)
+        assertTrue(events.any { it.startsWith("Imported") }, "first patient imported, got: $events")
+
+        events.clear()
+        dropFile("BIOSTD_max.xml", mockBiotronikXml(max, MockDevice(model = "Amvia Sky DR-T", serial = "BIO-MAX-1"), interrogationDate = "22.07.2026", dob = "02.03.1962"))
+        runBatch(minEvents = 1)
+
+        assertTrue(events.any { it.startsWith("Imported") }, "expected an automatic import, got: $events")
+        assertTrue(events.none { it.contains("Similar patient") || it.startsWith("Queued") }, "must not be queued for a merge decision, got: $events")
+        assertEquals(2, withTimeout(5000) { waitForPatients(2) }.size, "two distinct patients")
+        assertTrue(repository.getPendingSortTasks().isEmpty())
+    }
+
+    @Test
+    fun `an Abbott log and its PDF in a subfolder are imported even when their modified time is in the future`() = runBlocking {
+        // A programmer (or a USB stick) with a wrong clock or time zone leaves files stamped hours ahead.
+        val abbott = MockPatient("Erika", "Mustermann", "1950-09-15")
+        val device = MockDevice(model = "Assurity MRI", serial = "ABT-SER-777")
+        val log = File(importDir, "12345.log").apply { writeBytes(mockAbbottLog(abbott, device)) }
+        val pdfDir = File(importDir, "PDF").apply { mkdirs() }
+        val pdf = File(pdfDir, "12345.pdf").apply {
+            writeBytes(mockDummyPdf(listOf("Abbott Merlin PCS Report", "Patient: Mustermann, Erika", "DOB: 1950-09-15", "Device: Assurity MRI", "Serial: ABT-SER-777", "Interrogation Date: 2026-07-21")))
+        }
+        val threeHoursAhead = System.currentTimeMillis() + 3 * 3_600_000L
+        log.setLastModified(threeHoursAhead)
+        pdf.setLastModified(threeHoursAhead)
+
+        // The PDF may be handled before or after the log (then it waits and is adopted); either way it must end up attached.
+        val watcher = ImportWatcher(importDir, reportsRoot, repository, reader, writer, scope, NoOpDirectoryLock) { events.add(it) }
+        watcher.start()
+        try {
+            withTimeout(20_000) { while (events.none { it.startsWith("Attached 12345.pdf") }) delay(100) }
+        } finally {
+            watcher.stop()
+        }
+
+        assertTrue(events.any { it.startsWith("Imported 12345.log") }, "the log must be imported, got: $events")
+        assertTrue(repository.getPendingSortTasks().isEmpty(), "nothing is left waiting in the inbox, got: $events")
+    }
+
+    @Test
+    fun `a file that is held back is announced with the reason instead of being ignored silently`() = runBlocking {
+        File(importDir, "empty.log").writeBytes(ByteArray(0))
+        val watcher = ImportWatcher(importDir, reportsRoot, repository, reader, writer, scope, NoOpDirectoryLock, announceWaitingAfterMs = 0) { events.add(it) }
+        watcher.start()
+        try {
+            withTimeout(10_000) { while (events.none { it.startsWith("Waiting for empty.log") }) delay(100) }
+        } finally {
+            watcher.stop()
+        }
+        assertTrue(events.any { it.contains("empty (0 bytes)") }, "the reason is stated, got: $events")
+    }
+
+    @Test
     fun `reimporting the identical file is recognised as a duplicate and does not create a second visit`() = runBlocking {
         val device = MockDevice(model = "Assurity MRI", serial = "ABT-SER-002")
         dropFile("first.log", mockAbbottLog(patient, device))

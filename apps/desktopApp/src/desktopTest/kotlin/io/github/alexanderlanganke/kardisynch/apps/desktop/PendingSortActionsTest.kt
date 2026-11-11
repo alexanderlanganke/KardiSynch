@@ -183,4 +183,41 @@ class PendingSortActionsTest {
         assertEquals("Manual Model", manual.deviceModel)
         assertEquals("MANUAL-S1", manual.deviceSerialNumber)
     }
+
+    @Test
+    fun `resolvePendingFilesAsNewPatient files the whole bundle under one new patient next to a same-surname patient`() = runBlocking {
+        val existing = repository.importReport(
+            reader, writer, reportsRoot,
+            io.github.alexanderlanganke.kardisynch.core.model.UnifiedReport(
+                manufacturer = "Biotronik", interrogationDate = "2026-06-01",
+                patient = io.github.alexanderlanganke.kardisynch.core.model.PatientInfo("Erika", "Mustermann", "1950-09-15"),
+                device = io.github.alexanderlanganke.kardisynch.core.model.DeviceInfo("Pacemaker", "Amvia Sky DR-T", "BIO-OLD"),
+            ),
+        ).getOrThrow()
+
+        val pendingDir = File(importDir, "_pending_sort").apply { mkdirs() }
+        val max = MockPatient("Max", "Mustermann", "1962-03-02")
+        val device = MockDevice(model = "Amvia Sky DR-T", serial = "BIO-NEW")
+        val xml = File(pendingDir, "task_max.xml").apply { writeText(mockBiotronikXml(max, device, interrogationDate = "21.07.2026", dob = "02.03.1962")) }
+        val pdf = File(pendingDir, "task_max.pdf").apply { writeBytes(io.github.alexanderlanganke.kardisynch.core.testing.mockDummyPdf(max, device, "2026-07-21")) }
+        val ids = listOf(pdf to "DEVICE_PDF", xml to "BIOTRONIK_XML").map { (f, kind) ->
+            repository.createPendingSortTask(
+                createdAt = "2026-07-21T10:00:00Z", sessionId = null, stagedFilePath = f.absolutePath, originalFileName = f.name.removePrefix("task_"),
+                suggestedPatientId = null, suggestedPatientName = null, note = "queued", manufacturer = "Biotronik", deviceModel = device.model,
+                deviceSerial = device.serial, interrogationDate = "2026-07-21", fileKind = kind,
+            )
+        }
+
+        val failures = resolvePendingFilesAsNewPatient(repository, reader, writer, reportsRoot, ids, "Max", "Mustermann", "1962-03-02", null, NoOpDirectoryLock)
+
+        assertTrue(failures.isEmpty(), "no failures, got: ${failures.map { it.message }}")
+        assertTrue(repository.getPendingSortTasks().isEmpty(), "every queued file of the bundle is resolved")
+        assertFalse(xml.exists() || pdf.exists(), "staged files moved out of _pending_sort")
+        val patients = repository.observePatients().first()
+        assertEquals(2, patients.size, "a new patient next to the existing same-surname one")
+        val newPatient = patients.single { it.firstName == "Max" }
+        assertEquals("1962-03-02", newPatient.dob)
+        assertTrue(repository.observeReportsForPatient(newPatient.id).first().isNotEmpty())
+        assertEquals(1, repository.observeReportsForPatient(existing.patientId).first().size, "the existing patient is untouched")
+    }
 }

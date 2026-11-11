@@ -39,4 +39,39 @@ class NearMatchPatientsTest {
         val result = findNearMatchPatients(candidates, lastName = "DOE", dob = "1970-01-01")
         assertEquals(listOf("p1"), result.map { it.id })
     }
+
+    private fun named(id: String, first: String, last: String, dob: String) = PatientIdentity(id, first, last, dob)
+
+    @Test
+    fun `same last name but a clearly different first name and DOB is another person, not a near match`() {
+        val candidates = listOf(named("p1", "Erika", "Mustermann", "1950-09-15"))
+        assertTrue(findNearMatchPatients(candidates, lastName = "Mustermann", dob = "1962-03-02", firstName = "Max").isEmpty())
+    }
+
+    @Test
+    fun `same DOB but a clearly different first and last name is another person`() {
+        val candidates = listOf(named("p1", "Erika", "Mustermann", "1950-09-15"))
+        assertTrue(findNearMatchPatients(candidates, lastName = "Beispiel", dob = "1950-09-15", firstName = "Max").isEmpty())
+    }
+
+    @Test
+    fun `same last name and same first name with a different DOB still asks (possible DOB typo)`() {
+        val candidates = listOf(named("p1", "Erika", "Mustermann", "1950-09-15"))
+        assertEquals(listOf("p1"), findNearMatchPatients(candidates, lastName = "Mustermann", dob = "1950-09-51", firstName = "Erika").map { it.id })
+    }
+
+    @Test
+    fun `first name variants still ask`() {
+        val candidates = listOf(named("p1", "Hans-Peter", "Muster", "1950-09-15"), named("p2", "Katharina", "Muster", "1950-09-15"))
+        assertEquals(listOf("p1"), findNearMatchPatients(candidates, "Muster", "1961-01-01", "Hans").map { it.id })
+        assertEquals(listOf("p2"), findNearMatchPatients(candidates, "Muster", "1961-01-01", "Catharina").map { it.id })
+        assertEquals(listOf("p1"), findNearMatchPatients(candidates, "Muster", "1961-01-01", "H.").map { it.id })
+    }
+
+    @Test
+    fun `a missing first name on either side keeps the near match (cannot tell)`() {
+        val candidates = listOf(named("p1", "", "Mustermann", "1950-09-15"))
+        assertEquals(listOf("p1"), findNearMatchPatients(candidates, "Mustermann", "1962-03-02", "Max").map { it.id })
+        assertEquals(listOf("p1"), findNearMatchPatients(listOf(named("p2", "Erika", "Mustermann", "1950-09-15")).map { it.copy(id = "p1") }, "Mustermann", "1962-03-02", null).map { it.id })
+    }
 }

@@ -1,6 +1,7 @@
 package io.github.alexanderlanganke.kardisynch.ui.pendingsort
 
 import io.github.alexanderlanganke.kardisynch.ui.nav.BackNavigationIcon
+import io.github.alexanderlanganke.kardisynch.core.i18n.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -105,12 +106,14 @@ fun PendingSortScreen(
     }
 
     newPatientForTaskId?.let { taskId ->
+        // Pre-filled with what the file says about the patient, so a clean file needs one click, not retyping.
+        val facts = tasks?.firstOrNull { it.id == taskId }
         PatientInfoEditDialog(
-            initialFirstName = "",
-            initialLastName = "",
-            initialDob = "",
+            initialFirstName = facts?.patientFirstName.orEmpty(),
+            initialLastName = facts?.patientLastName.orEmpty(),
+            initialDob = facts?.patientDob.orEmpty(),
             initialHospitalPatientId = null,
-            title = "New patient",
+            title = tr("New patient"),
             onDismiss = { newPatientForTaskId = null },
             onSave = { firstName, lastName, dob, hospitalPatientId ->
                 newPatientForTaskId = null

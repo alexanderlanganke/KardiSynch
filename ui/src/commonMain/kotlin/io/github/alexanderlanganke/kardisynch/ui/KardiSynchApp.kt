@@ -225,6 +225,7 @@ fun KardiSynchApp(
     onResolveBundle: ((bundleId: String, patientId: String) -> Unit)? = null,
     onDismissBundle: ((bundleId: String) -> Unit)? = null,
     onResolveFiles: ((assignments: List<Pair<String, String>>) -> Unit)? = null,
+    onResolveFilesAsNewPatient: ((taskIds: List<String>, otherAssignments: List<Pair<String, String>>, firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)? = null,
 ) {
     var screen by remember { mutableStateOf<Screen>(Screen.Dashboard) }
     var dashboardFilterState by remember { mutableStateOf(DashboardFilterState()) }
@@ -339,7 +340,7 @@ fun KardiSynchApp(
                             onGetMergedAdditionalFields = onGetMergedAdditionalFields,
                             dashboardFilterState = dashboardFilterState, onDashboardFilterStateChange = { dashboardFilterState = it },
                             notificationCenterState = notificationCenterState, activityTasks = activityTasks,
-                            intakeSources = intakeSources, onResolveBundle = onResolveBundle, onDismissBundle = onDismissBundle, onResolveFiles = onResolveFiles,
+                            intakeSources = intakeSources, onResolveBundle = onResolveBundle, onDismissBundle = onDismissBundle, onResolveFiles = onResolveFiles, onResolveFilesAsNewPatient = onResolveFilesAsNewPatient,
                             sortingAvailable = sortingAvailable,
                         )
                     }
@@ -462,6 +463,7 @@ private fun ScreenContent(
     onResolveBundle: ((bundleId: String, patientId: String) -> Unit)?,
     onDismissBundle: ((bundleId: String) -> Unit)?,
     onResolveFiles: ((assignments: List<Pair<String, String>>) -> Unit)?,
+    onResolveFilesAsNewPatient: ((taskIds: List<String>, otherAssignments: List<Pair<String, String>>, firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit)?,
     sortingAvailable: Boolean,
 ) {
     @Composable
@@ -562,6 +564,12 @@ private fun ScreenContent(
                     else -> assignments.forEach { (taskId, patientId) -> onApprovePendingSort?.invoke(taskId, patientId) }
                 }
                 setScreen(Screen.Inbox)
+            },
+            onAssignAsNewPatient = onResolveFilesAsNewPatient?.let { create ->
+                { newIds, others, draft ->
+                    create(newIds, others, draft.firstName, draft.lastName, draft.dob, draft.hospitalPatientId)
+                    setScreen(Screen.Inbox)
+                }
             },
             onDismiss = { bundleId, taskIds ->
                 if (bundleId != null && onDismissBundle != null) onDismissBundle(bundleId) else taskIds.forEach { onDismissPendingSort?.invoke(it) }

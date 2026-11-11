@@ -73,6 +73,8 @@ class ImportWatcher(
     private val pdfText: PdfTextExtractor = PdfBoxTextExtractor,
     /** A file must be at least this old (by modified time) before it is picked up. */
     private val minFileAgeMs: Long = 1500L,
+    /** A held-back file (empty, locked, still changing) is announced once after this long. */
+    private val announceWaitingAfterMs: Long = 30_000L,
     private val onEvent: (String) -> Unit,
 ) {
     private val unmatchedDir = File(importDir, "_unmatched")
@@ -136,13 +138,44 @@ class ImportWatcher(
     }
 
     private fun isOldAndReadable(file: File): Boolean {
-        if (System.currentTimeMillis() - file.lastModified() < minFileAgeMs) return false
+        // Only a file modified a moment AGO is held back. A modified time in the FUTURE (a programmer or USB stick with
+        // a wrong clock or time zone) must not block the file forever: the size/time did not change across the checks
+        // in waitForStable, which is what says the writer has finished.
+        val age = System.currentTimeMillis() - file.lastModified()
+        if (age in 0 until minFileAgeMs) return false
         return try {
             file.inputStream().use { it.read() }
             true
         } catch (e: Exception) {
             false // locked by the writer, or the share dropped
         }
+    }
+
+    /** When each currently held-back file (path + size + time) was first seen waiting; the value is -1 once announced. */
+    private val waitingSince = mutableMapOf<String, Long>()
+
+    /**
+     * A file that is not picked up must never be invisible. A fresh copy settles within a couple of seconds and
+     * needs no comment; one still held back after [announceWaitingAfterMs] (empty, locked by another program, kept
+     * changing) is announced once with the reason, instead of being ignored silently.
+     */
+    private fun announceWaitingFiles(waiting: List<File>, nowMs: Long = System.currentTimeMillis()) {
+        val keys = HashSet<String>()
+        for (file in waiting) {
+            if (!file.exists()) continue
+            val key = "${file.absolutePath}|${file.length()}|${file.lastModified()}"
+            keys += key
+            val since = waitingSince.getOrPut(key) { nowMs }
+            if (since < 0 || nowMs - since < announceWaitingAfterMs) continue
+            waitingSince[key] = -1
+            val reason = when {
+                file.length() == 0L -> "it is empty (0 bytes)"
+                !runCatching { file.inputStream().use { it.read() } }.isSuccess -> "it cannot be read (locked by another program, or no permission)"
+                else -> "it is still being written or keeps changing"
+            }
+            onEvent("Waiting for ${file.name}: $reason. It will be imported as soon as that clears.")
+        }
+        waitingSince.keys.retainAll(keys) // files that were imported, changed or removed are forgotten
     }
 
     private class Tally {
@@ -164,7 +197,9 @@ class ImportWatcher(
     }
 
     private suspend fun processStableFiles() {
-        val stableFiles = scanFiles().filter { waitForStable(it) }
+        val scanned = scanFiles()
+        val stableFiles = scanned.filter { waitForStable(it) }
+        announceWaitingFiles(scanned.filter { it !in stableFiles })
         if (stableFiles.isEmpty()) return
 
         val sessionId = repository.createImportSession(nowIso())
@@ -479,16 +514,23 @@ class ImportWatcher(
     }
 
     private suspend fun stage(sessionId: String, p: Prepared, note: String, suggestedId: String?, suggestedName: String?, bundleId: String, tally: Tally) {
-        if (stageOutcome(sessionId, p, note, suggestedId, suggestedName, bundleId) == FileOutcome.PendingSort) tally.pendingSort++ else tally.errors++
+        when (stageOutcome(sessionId, p, note, suggestedId, suggestedName, bundleId)) {
+            FileOutcome.PendingSort -> tally.pendingSort++
+            FileOutcome.Skipped -> Unit // already handled by an earlier pass: nothing new, and not an error
+            else -> tally.errors++
+        }
     }
 
     /** Moves the file into `_pending_sort` and queues it with its bundle and evidence instead of importing it. */
     private suspend fun stageOutcome(sessionId: String, p: Prepared, note: String, suggestedId: String?, suggestedName: String?, bundleId: String): FileOutcome {
         val file = p.file
         val facts = p.parsed.facts
+        var stagedFile: File? = null
         return try {
-            val stagedFile = File(pendingSortDir, "${UUID.randomUUID()}_${file.name}")
-            Files.move(file.toPath(), stagedFile.toPath())
+            pendingSortDir.mkdirs()
+            val target = File(pendingSortDir, "${UUID.randomUUID()}_${file.name}")
+            moveFileReliably(file, target)
+            stagedFile = target
             repository.createPendingSortTask(
                 createdAt = nowIso(), sessionId = sessionId, stagedFilePath = stagedFile.absolutePath, originalFileName = file.name,
                 suggestedPatientId = suggestedId, suggestedPatientName = suggestedName, note = note,
@@ -504,8 +546,21 @@ class ImportWatcher(
             onEvent(message)
             FileOutcome.PendingSort
         } catch (e: Exception) {
-            val moved = moveUnique(file, unmatchedDir)
-            val message = "Failed to queue ${file.name} for manual sort: ${e.message}"
+            // The file is gone from the import folder and something else already has its content: an earlier pass
+            // (or a second watcher) queued or imported it between our scan and this move. Nothing is lost.
+            if (stagedFile == null && !file.exists()) {
+                val waiting = repository.findPendingIntakeFileBySha(p.sha) != null
+                if (waiting || repository.findHandledIntakeFileBySha(p.sha) != null) {
+                    onEvent("${file.name} was already handled by an earlier pass.")
+                    return if (waiting) FileOutcome.PendingSort else FileOutcome.Skipped
+                }
+            }
+            // The move worked but recording the task did not: put the file back, so it is not stranded in
+            // _pending_sort with no Inbox row, and the next pass can try again.
+            val staged = stagedFile
+            if (staged != null && staged.exists() && !file.exists()) runCatching { moveFileReliably(staged, file) }
+            val moved = if (file.exists()) moveUnique(file, unmatchedDir) else null
+            val message = "Failed to queue ${file.name} for manual sort: ${e.javaClass.simpleName}: ${e.message}"
             onEvent(message)
             repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
             record(file, p.bytes.size, p.sha, "error", message, moved?.absolutePath, p.parsed, bundleId)
@@ -539,7 +594,7 @@ class ImportWatcher(
     private fun moveUnique(file: File, dir: File): File? = try {
         dir.mkdirs()
         val dest = collisionFreeName(dir, file.name)
-        Files.move(file.toPath(), dest.toPath())
+        moveFileReliably(file, dest)
         dest
     } catch (e: Exception) {
         onEvent("Failed to move ${file.name} to ${dir.name}: ${e.message}")
@@ -548,6 +603,39 @@ class ImportWatcher(
 }
 
 private fun nowIso(): String = Instant.now().toString()
+
+/**
+ * Moves [src] to [dest] and survives the short-lived failures of a busy file system: on Windows another process
+ * (antivirus, a sync client, the programmer software still finishing its export, a share that blips) can hold the
+ * file for a moment, which made a plain move fail now and then. Retries with a growing pause, then falls back to
+ * copy + delete. A source that has vanished is rethrown at once (nothing to retry). Never leaves two copies behind.
+ */
+internal fun moveFileReliably(src: File, dest: File, attempts: Int = 4, pauseMs: Long = 200) {
+    var last: Exception? = null
+    for (attempt in 1..attempts) {
+        try {
+            Files.move(src.toPath(), dest.toPath())
+            return
+        } catch (e: java.nio.file.NoSuchFileException) {
+            throw e
+        } catch (e: Exception) {
+            last = e
+            if (attempt < attempts) Thread.sleep(pauseMs * attempt)
+        }
+    }
+    try {
+        Files.copy(src.toPath(), dest.toPath())
+        try {
+            Files.delete(src.toPath())
+        } catch (e: Exception) {
+            Files.deleteIfExists(dest.toPath()) // still locked: do not leave a second copy behind
+            throw e
+        }
+    } catch (e: Exception) {
+        if (last != null && last !== e) e.addSuppressed(last)
+        throw e
+    }
+}
 
 /**
  * [dispatchParse] can't handle `.pkg` itself (it needs `java.util.zip`,
@@ -748,6 +836,31 @@ suspend fun resolvePendingFiles(
     val kinds = repository.getPendingSortTasks().associate { it.id to it.fileKind }
     return assignments.sortedBy { (taskId, _) -> kinds[taskId] == FileKind.DEVICE_PDF.name }.mapNotNull { (taskId, patientId) ->
         resolvePendingSortTask(repository, reader, writer, reportsRootHandle, taskId, patientId, lock).exceptionOrNull()
+    }
+}
+
+/**
+ * Files the chosen queued files under ONE brand-new patient built from [firstName]/[lastName]/[dob]
+ * (the form is pre-filled from what the files say). Structured files go first so a PDF merges into the
+ * visit of the file it belongs with; every file uses the same identity, so the first one creates the
+ * patient and the others find it. Returns the failures (empty on full success); files that did work
+ * stay resolved even if a sibling fails.
+ */
+suspend fun resolvePendingFilesAsNewPatient(
+    repository: KardiSynchRepository,
+    reader: DesktopDataRootReader,
+    writer: DesktopDataRootWriter,
+    reportsRootHandle: String,
+    taskIds: List<String>,
+    firstName: String,
+    lastName: String,
+    dob: String,
+    hospitalPatientId: String?,
+    lock: DirectoryLock = NoOpDirectoryLock,
+): List<Throwable> {
+    val kinds = repository.getPendingSortTasks().associate { it.id to it.fileKind }
+    return taskIds.sortedBy { kinds[it] == FileKind.DEVICE_PDF.name }.mapNotNull { taskId ->
+        resolvePendingSortTaskAsNewPatient(repository, reader, writer, reportsRootHandle, taskId, firstName, lastName, dob, hospitalPatientId, lock).exceptionOrNull()
     }
 }
 

@@ -1139,7 +1139,9 @@ class KardiSynchRepository(
      *      patient's stored identity (lets re-import succeed silently once a
      *      generator-change spelling variant was sorted manually the first time).
      *   4. A serial match that shares NEITHER -> conflicting; suggest for review.
-     *   5. Any near-match (same DOB or same last name, not both) -> suggest for review.
+     *   5. Any near-match (same DOB or same last name, not both) -> suggest for review,
+     *      unless both first names are present and clearly differ: then it is another
+     *      person who merely shares a last name or birth date, and falls through to 6.
      *   6. Nothing similar at all -> [NoMatch], genuinely new.
      */
     suspend fun resolvePatientIdentity(patient: PatientInfo, deviceSerial: String?, manufacturer: String?): IdentityResolution = withContext(ioDispatcher) {
@@ -1180,7 +1182,7 @@ class KardiSynchRepository(
 
         val allPatients = db.patientsQueries.selectAllPatients().executeAsList()
             .map { PatientIdentity(it.id, it.firstName.orEmpty(), it.lastName, it.dob, it.hospitalPatientId) }
-        val near = findNearMatchPatients(allPatients, patient.lastName, patient.dob).firstOrNull()
+        val near = findNearMatchPatients(allPatients, patient.lastName, patient.dob, patient.firstName).firstOrNull()
         if (near != null) {
             return@withContext IdentityResolution.PendingReview(
                 near.id, "${near.lastName}, ${near.firstName}",

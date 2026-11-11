@@ -17,14 +17,36 @@ data class PatientIdentity(
  * name/DOB spelling variant from the new programmer, and silently creating
  * a new patient next to such a near-match produces duplicates.
  *
+ * When the report AND the candidate both carry a first name and the two
+ * [firstNamesClearlyDiffer], it is a different person who merely shares a last
+ * name (or a birth date): such a candidate is not a near-match, so the caller can
+ * create the new patient instead of asking the user to merge two strangers.
+ * A missing first name on either side keeps the candidate (not enough to tell).
+ *
  * An exact match on both components is deliberately excluded (that's a
  * direct, non-fuzzy lookup the caller does separately, before falling back
  * to this).
  */
-fun findNearMatchPatients(candidates: List<PatientIdentity>, lastName: String, dob: String): List<PatientIdentity> {
+fun findNearMatchPatients(candidates: List<PatientIdentity>, lastName: String, dob: String, firstName: String? = null): List<PatientIdentity> {
     val key = normalizeNameKey(lastName)
     return candidates.filter { c ->
         val cKey = normalizeNameKey(c.lastName)
-        (c.dob == dob && cKey != key) || (cKey == key && c.dob != dob)
+        val sharesOneComponent = (c.dob == dob && cKey != key) || (cKey == key && c.dob != dob)
+        sharesOneComponent && !firstNamesClearlyDiffer(firstName, c.firstName)
     }
+}
+
+/**
+ * True only when both first names are present and cannot be the same person's
+ * name: not equal, not one a prefix of the other ("Hans" / "Hans-Peter", "H." /
+ * "Hans"), and not a single-character typo apart ("Katharina" / "Catharina").
+ * Every doubt (a blank side, a near-spelling) answers false, which keeps the
+ * conservative "ask the user" behaviour.
+ */
+fun firstNamesClearlyDiffer(a: String?, b: String?): Boolean {
+    val x = normalizeNameKey(a).trimEnd('.').trim()
+    val y = normalizeNameKey(b).trimEnd('.').trim()
+    if (x.isEmpty() || y.isEmpty()) return false
+    if (x == y || x.startsWith(y) || y.startsWith(x)) return false
+    return nameDistance(x, y) > 1
 }

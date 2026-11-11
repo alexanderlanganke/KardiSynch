@@ -14,6 +14,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.github.alexanderlanganke.kardisynch.core.i18n.tr
+import io.github.alexanderlanganke.kardisynch.core.util.normalizeDobInput
 
 /**
  * Patient identity edit form — ported from the "Patient Information"
@@ -23,8 +25,8 @@ import androidx.compose.ui.unit.dp
  * issue #176). Wraps [io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository.updatePatientInfo],
  * already built (issue #177) but never wired to a UI form before this.
  *
- * DOB is a plain `YYYY-MM-DD`-hinted text field, same as the original —
- * neither app validates its format beyond that hint.
+ * DOB accepts `YYYY-MM-DD` as well as the German `TT.MM.JJJJ` and is stored as ISO; a value that is not a
+ * real calendar date disables Save and says why.
  */
 @Composable
 fun PatientInfoEditDialog(
@@ -34,30 +36,33 @@ fun PatientInfoEditDialog(
     initialHospitalPatientId: String?,
     onDismiss: () -> Unit,
     onSave: (firstName: String, lastName: String, dob: String, hospitalPatientId: String?) -> Unit,
-    title: String = "Edit patient information",
+    title: String = tr("Edit patient information"),
 ) {
     var firstName by remember { mutableStateOf(initialFirstName) }
     var lastName by remember { mutableStateOf(initialLastName) }
     var dob by remember { mutableStateOf(initialDob) }
     var hospitalPatientId by remember { mutableStateOf(initialHospitalPatientId.orEmpty()) }
 
+    val normalizedDob = normalizeDobInput(dob)
+    val dobInvalid = dob.isNotBlank() && normalizedDob == null
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
             Column {
-                OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text("First name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text("Last name") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true)
-                OutlinedTextField(value = dob, onValueChange = { dob = it }, label = { Text("DOB (YYYY-MM-DD)") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true)
-                OutlinedTextField(value = hospitalPatientId, onValueChange = { hospitalPatientId = it }, label = { Text("Hospital patient ID") }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true)
+                OutlinedTextField(value = firstName, onValueChange = { firstName = it }, label = { Text(tr("First name")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                OutlinedTextField(value = lastName, onValueChange = { lastName = it }, label = { Text(tr("Last name")) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true)
+                OutlinedTextField(value = dob, onValueChange = { dob = it }, label = { Text(tr("Date of birth (DD.MM.YYYY or YYYY-MM-DD)")) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, isError = dobInvalid, supportingText = { if (dobInvalid) Text(tr("Not a valid date.")) })
+                OutlinedTextField(value = hospitalPatientId, onValueChange = { hospitalPatientId = it }, label = { Text(tr("Hospital patient ID")) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true)
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(firstName, lastName, dob, hospitalPatientId.trim().takeIf { it.isNotEmpty() }) },
-                enabled = lastName.isNotBlank() && dob.isNotBlank(),
-            ) { Text("Save") }
+                onClick = { onSave(firstName.trim(), lastName.trim(), normalizedDob.orEmpty(), hospitalPatientId.trim().takeIf { it.isNotEmpty() }) },
+                enabled = lastName.isNotBlank() && normalizedDob != null,
+            ) { Text(tr("Save")) }
         },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Cancel")) } },
     )
 }

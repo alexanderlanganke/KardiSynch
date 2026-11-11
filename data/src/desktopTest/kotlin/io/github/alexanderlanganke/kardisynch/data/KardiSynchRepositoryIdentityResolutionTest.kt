@@ -102,6 +102,20 @@ class KardiSynchRepositoryIdentityResolutionTest {
     }
 
     @Test
+    fun `same last name but a different first name and DOB is a genuinely new patient, not a suggestion`() = runBlocking {
+        repository.importReport(reader, writer, reportsRoot, report("Mustermann", firstName = "Erika", dob = "1950-09-15", serial = "S1")).getOrThrow()
+        val resolution = repository.resolvePatientIdentity(PatientInfo("Max", "Mustermann", "1962-03-02"), deviceSerial = "S2", manufacturer = "Medtronic")
+        assertEquals(KardiSynchRepository.IdentityResolution.NoMatch, resolution)
+    }
+
+    @Test
+    fun `same last name and first name with a different DOB is still suggested for review`() = runBlocking {
+        val existing = repository.importReport(reader, writer, reportsRoot, report("Mustermann", firstName = "Erika", dob = "1950-09-15", serial = "S1")).getOrThrow()
+        val resolution = repository.resolvePatientIdentity(PatientInfo("Erika", "Mustermann", "1950-09-51"), deviceSerial = "S2", manufacturer = "Medtronic")
+        assertEquals(existing.patientId, assertIs<KardiSynchRepository.IdentityResolution.PendingReview>(resolution).suggestedPatientId)
+    }
+
+    @Test
     fun `missing patient identity entirely with a serial match is a suggestion, never auto-adopted`() = runBlocking {
         val existing = repository.importReport(reader, writer, reportsRoot, report("Doe", serial = "S-EXPLANT")).getOrThrow()
         val resolution = repository.resolvePatientIdentity(PatientInfo("", "Unknown", ""), deviceSerial = "S-EXPLANT", manufacturer = "Medtronic")

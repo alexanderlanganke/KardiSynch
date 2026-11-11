@@ -57,6 +57,7 @@ import io.github.alexanderlanganke.kardisynch.core.intake.parseEvidence
 import io.github.alexanderlanganke.kardisynch.data.KardiSynchRepository
 import io.github.alexanderlanganke.kardisynch.data.db.Patients
 import io.github.alexanderlanganke.kardisynch.data.db.PendingSortTasks
+import io.github.alexanderlanganke.kardisynch.ui.detail.PatientInfoEditDialog
 import io.github.alexanderlanganke.kardisynch.ui.picker.PatientPickerDialog
 import io.github.alexanderlanganke.kardisynch.ui.theme.Status
 import io.github.alexanderlanganke.kardisynch.ui.theme.statusColors
@@ -66,9 +67,16 @@ import io.github.alexanderlanganke.kardisynch.ui.theme.statusColors
  * identified and why, what the files say about the patient next to what is on
  * file, and who to assign the whole bundle to. [onAssign] acts on every file of
  * the bundle at once, structured files first, so a PDF merges into the visit of
- * the file it belongs with. Creating a new patient or typing device details by
- * hand stays in the per-file sorter ([onOpenFileSorter]).
+ * the file it belongs with. When the files name a patient who is not on file, the
+ * bundle can instead create that patient ([onAssignAsNewPatient]) from a form that
+ * is pre-filled with what the files say. Typing device details by hand stays in the
+ * per-file sorter ([onOpenFileSorter]).
  */
+/** The identity of a patient to create from a bundle: pre-filled from the files, editable by the user. */
+data class NewPatientDraft(val firstName: String, val lastName: String, val dob: String, val hospitalPatientId: String?) {
+    val label: String get() = listOf(lastName, firstName).filter { it.isNotBlank() }.joinToString(", ")
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BundleReviewScreen(
@@ -77,6 +85,8 @@ fun BundleReviewScreen(
     refreshKey: Any,
     onBack: () -> Unit,
     onAssign: (bundleId: String?, allTaskIds: List<String>, assignments: List<Pair<String, String>>) -> Unit,
+    /** Creates [draft] as a new patient and files [newPatientTaskIds] under it; [otherAssignments] still go to the patients chosen for them. Null hides the option. */
+    onAssignAsNewPatient: ((newPatientTaskIds: List<String>, otherAssignments: List<Pair<String, String>>, draft: NewPatientDraft) -> Unit)? = null,
     onDismiss: (bundleId: String?, taskIds: List<String>) -> Unit,
     onOpenFileSorter: () -> Unit,
     /** Read a queued (staged) file, so each card can show what is inside it. Null hides the preview. */
@@ -100,6 +110,9 @@ fun BundleReviewScreen(
         chosen = repository.getPatientById(id)
         useChosen = chosen != null
     }
+    var newPatient by remember(bundleKey) { mutableStateOf<NewPatientDraft?>(null) }
+    var useNew by remember(bundleKey) { mutableStateOf(false) }
+    var editingNew by remember { mutableStateOf(false) }
     // Per-file decisions that differ from the bundle's patient: a patient, or LATER (leave queued).
     var overrides by remember(bundleKey) { mutableStateOf<Map<String, FileTarget>>(emptyMap()) }
     var pickingForFile by remember { mutableStateOf<String?>(null) }
@@ -111,6 +124,27 @@ fun BundleReviewScreen(
     LaunchedEffect(list) {
         val id = list?.firstNotNullOfOrNull { it.suggestedPatientId }
         suggested = id?.let { repository.getPatientById(it) }
+    }
+    // What the files say about the patient, ready to become a new patient.
+    val fileFacts = remember(list) {
+        list?.let { l ->
+            NewPatientDraft(
+                firstName = l.mapNotNull { it.patientFirstName }.maxByOrNull { it.length }.orEmpty(),
+                lastName = l.firstNotNullOfOrNull { it.patientLastName }.orEmpty(),
+                dob = l.firstNotNullOfOrNull { it.patientDob }.orEmpty(),
+                hospitalPatientId = null,
+            )
+        }
+    }
+    // Nothing on file looks like this patient: offer creating them as the default, so it is one click.
+    LaunchedEffect(list, suggested) {
+        val facts = fileFacts
+        if (onAssignAsNewPatient != null && list != null && list.isNotEmpty() && suggested == null && newPatient == null &&
+            facts != null && facts.lastName.isNotBlank() && facts.dob.isNotBlank() && !useChosen
+        ) {
+            newPatient = facts
+            useNew = true
+        }
     }
 
     Scaffold(
@@ -130,7 +164,7 @@ fun BundleReviewScreen(
                 }
             }
             else -> {
-                val target = if (useChosen) chosen else suggested
+                val target = if (useNew) null else if (useChosen) chosen else suggested
                 Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
                 Column(
                     Modifier.widthIn(max = 1000.dp).fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -144,7 +178,7 @@ fun BundleReviewScreen(
                         )
                         list.forEachIndexed { index, task ->
                             FileCard(
-                                number = index + 1, task = task, bundlePatient = target, override = overrides[task.id],
+                                number = index + 1, task = task, bundlePatient = target, bundleNewPatient = if (useNew) newPatient else null, override = overrides[task.id],
                                 onChange = { pickingForFile = task.id },
                                 onLater = { overrides = overrides + (task.id to FileTarget.Later) },
                                 onFollowBundle = { overrides = overrides - task.id },
@@ -155,37 +189,79 @@ fun BundleReviewScreen(
                     Section(tr("What the files say about the patient")) { FactsTable(list, suggested) }
                     Section(if (list.size > 1) tr("Default patient for the files") else tr("Assign to")) {
                         PatientOption(
-                            selected = !useChosen && suggested != null, enabled = suggested != null,
+                            selected = !useChosen && !useNew && suggested != null, enabled = suggested != null,
                             title = suggested?.let { "${it.lastName}, ${it.firstName.orEmpty()}" } ?: tr("No suggestion"),
                             subtitle = suggested?.let { tr("Born {date}", "date" to displayDate(it.dob)) + (it.hospitalPatientId?.let { id -> " · " + tr("MRN {id}", "id" to id) } ?: "") } ?: tr("Nothing on file matched well enough."),
-                            onSelect = { useChosen = false },
+                            onSelect = { useChosen = false; useNew = false },
                         )
                         PatientOption(
-                            selected = useChosen && chosen != null, enabled = true,
+                            selected = useChosen && !useNew && chosen != null, enabled = true,
                             title = chosen?.let { "${it.lastName}, ${it.firstName.orEmpty()}" } ?: tr("Choose another patient"),
                             subtitle = chosen?.let { tr("Born {date}", "date" to displayDate(it.dob)) } ?: tr("Search the patients on file"),
                             onSelect = { picking = true },
                         )
+                        if (onAssignAsNewPatient != null) {
+                            PatientOption(
+                                selected = useNew && newPatient != null, enabled = true,
+                                title = newPatient?.let { tr("New patient: {name}", "name" to it.label) } ?: tr("Create a new patient"),
+                                subtitle = newPatient?.let { tr("Born {date}", "date" to displayDate(it.dob)) + " · " + tr("Created from what the files say. Check it before importing.") }
+                                    ?: tr("Enter the details of a patient who is not on file yet"),
+                                onSelect = { if (newPatient == null) editingNew = true else useNew = true },
+                            )
+                            if (useNew && newPatient != null) TextButton(onClick = { editingNew = true }) { Text(tr("Check or edit the new patient…")) }
+                        }
                         Text(
-                            summarise(list, overrides, target),
+                            if (useNew) newPatient?.let { summariseNew(list, overrides, it) } ?: tr("Pick a patient to continue.") else summarise(list, overrides, target),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                         val assignments = resolveAssignments(list, overrides, target)
-                        Button(enabled = assignments.isNotEmpty(), onClick = { onAssign(bundleId, list.map { t -> t.id }, assignments) }) {
-                            Text(if (assignments.size == list.size) (if (list.size == 1) tr("Import file") else tr("Import all {n} files", "n" to list.size)) else tr("Import {a} of {b} files", "a" to assignments.size, "b" to list.size))
+                        val newIds = if (useNew) list.filter { overrides[it.id] == null }.map { it.id } else emptyList()
+                        val others = if (useNew) list.mapNotNull { t -> (overrides[t.id] as? FileTarget.Patient)?.let { t.id to it.patient.id } } else emptyList()
+                        val draft = newPatient
+                        val count = if (useNew) newIds.size + others.size else assignments.size
+                        val canImport = if (useNew) draft != null && newIds.isNotEmpty() else assignments.isNotEmpty()
+                        Button(enabled = canImport, onClick = {
+                            if (useNew && draft != null) onAssignAsNewPatient?.invoke(newIds, others, draft)
+                            else onAssign(bundleId, list.map { t -> t.id }, assignments)
+                        }) {
+                            val all = count == list.size
+                            Text(
+                                when {
+                                    useNew && all && list.size == 1 -> tr("Create patient and import file")
+                                    useNew && all -> tr("Create patient and import all {n} files", "n" to list.size)
+                                    useNew -> tr("Create patient and import {a} of {b} files", "a" to count, "b" to list.size)
+                                    all && list.size == 1 -> tr("Import file")
+                                    all -> tr("Import all {n} files", "n" to list.size)
+                                    else -> tr("Import {a} of {b} files", "a" to count, "b" to list.size)
+                                },
+                            )
                         }
                         OutlinedButton(onClick = onBack) { Text(tr("Skip for now")) }
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        TextButton(onClick = onOpenFileSorter) { Text(tr("Create a new patient or enter details…")) }
+                        TextButton(onClick = onOpenFileSorter) { Text(tr("Sort file by file or enter device details…")) }
                         TextButton(onClick = { onDismiss(bundleId, list.map { t -> t.id }) }) { Text(tr("Dismiss bundle")) }
                     }
                 }
                 }
             }
         }
+    }
+
+    if (editingNew) {
+        val start = newPatient ?: fileFacts ?: NewPatientDraft("", "", "", null)
+        PatientInfoEditDialog(
+            initialFirstName = start.firstName, initialLastName = start.lastName, initialDob = start.dob, initialHospitalPatientId = start.hospitalPatientId,
+            title = tr("New patient"),
+            onDismiss = { editingNew = false },
+            onSave = { first, last, dob, mrn ->
+                editingNew = false
+                newPatient = NewPatientDraft(first, last, dob, mrn)
+                useNew = true
+            },
+        )
     }
 
     pickingForFile?.let { taskId ->
@@ -249,11 +325,22 @@ private fun summarise(tasks: List<PendingSortTasks>, overrides: Map<String, File
     return tr("Imports") + " " + parts.joinToString(", ") + if (later > 0) "; " + tr("{n} left in the inbox.", "n" to later) else "."
 }
 
+private fun summariseNew(tasks: List<PendingSortTasks>, overrides: Map<String, FileTarget>, draft: NewPatientDraft): String {
+    val newCount = tasks.count { overrides[it.id] == null }
+    val others = tasks.count { overrides[it.id] is FileTarget.Patient }
+    val later = tasks.count { overrides[it.id] == FileTarget.Later }
+    if (newCount == 0) return tr("Pick a patient to continue.")
+    val head = trn(newCount, "Creates the new patient {who} and imports {n} file", "Creates the new patient {who} and imports {n} files").replace("{who}", draft.label)
+    return head + (if (others > 0) "; " + trn(others, "{n} file to another patient", "{n} files to other patients") else "") +
+        (if (later > 0) "; " + tr("{n} left in the inbox.", "n" to later) else ".")
+}
+
 @Composable
 private fun FileCard(
     number: Int,
     task: PendingSortTasks,
     bundlePatient: Patients?,
+    bundleNewPatient: NewPatientDraft?,
     override: FileTarget?,
     onChange: () -> Unit,
     onLater: () -> Unit,
@@ -306,7 +393,8 @@ private fun FileCard(
                     val destination = when (override) {
                         is FileTarget.Patient -> tr("Goes to {who} (chosen for this file)", "who" to name(override.patient))
                         FileTarget.Later -> tr("Stays in the inbox for now")
-                        null -> bundlePatient?.let { tr("Goes to {who} (bundle default)", "who" to name(it)) } ?: tr("Goes to: no patient chosen yet")
+                        null -> bundleNewPatient?.let { tr("Goes to the new patient {who} (bundle default)", "who" to it.label) }
+                            ?: bundlePatient?.let { tr("Goes to {who} (bundle default)", "who" to name(it)) } ?: tr("Goes to: no patient chosen yet")
                     }
                     Text(destination, style = MaterialTheme.typography.titleSmall)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
