@@ -373,6 +373,39 @@ class ImportPipelineMockTest {
     }
 
     @Test
+    fun `a PDF without a serial waits, then attaches when a data file of the exact same patient and day arrives`() = runBlocking {
+        val device = MockDevice(model = "Amvia Sky DR-T", serial = "BIO-SER-060")
+        val noSerialPdf = mockDummyPdf(listOf("Patient: ${patient.lastName}, ${patient.firstName}", "DOB: ${patient.dob}", "Interrogation Date: 2026-07-21"))
+        dropFile("no_serial.pdf", noSerialPdf)
+        runBatch(minEvents = 1)
+        assertEquals(1, repository.getPendingSortTasks().size)
+
+        val before = events.size
+        dropFile("BIOSTD_data.xml", mockBiotronikXml(patient, device))
+        runBatch(minEvents = before + 2)
+
+        assertTrue(events.drop(before).any { it.startsWith("Attached no_serial.pdf") }, "events: $events")
+        assertEquals(0, repository.getPendingSortTasks().size)
+    }
+
+    @Test
+    fun `a waiting PDF of another day, another serial or another person is not attached`() = runBlocking {
+        val device = MockDevice(model = "Amvia Sky DR-T", serial = "BIO-SER-061")
+        val other = MockPatient(firstName = "Erika", lastName = "Muster", dob = "1950-09-15")
+        dropFile("other_day.pdf", mockDummyPdf(patient, device, interrogationDate = "2026-07-20"))
+        dropFile("other_serial.pdf", mockDummyPdf(patient, MockDevice(model = "Amvia Sky DR-T", serial = "BIO-SER-999")))
+        dropFile("other_person.pdf", mockDummyPdf(listOf("Patient: ${other.lastName}, ${other.firstName}", "DOB: ${other.dob}", "Interrogation Date: 2026-07-21")))
+        runBatch(minEvents = 3)
+        assertEquals(3, repository.getPendingSortTasks().size)
+
+        val before = events.size
+        dropFile("BIOSTD_data.xml", mockBiotronikXml(patient, device))
+        runBatch(minEvents = before + 1)
+
+        assertEquals(3, repository.getPendingSortTasks().size, "nothing may be attached on a weaker match; events: $events")
+    }
+
+    @Test
     fun `a processed batch is recorded as an import session with a matching event`() = runBlocking {
         val device = MockDevice(model = "Assurity MRI", serial = "ABT-SER-004")
         dropFile("session_log_test.log", mockAbbottLog(patient, device))

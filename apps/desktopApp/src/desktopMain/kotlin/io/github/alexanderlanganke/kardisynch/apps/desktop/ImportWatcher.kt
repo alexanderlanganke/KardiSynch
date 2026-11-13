@@ -198,6 +198,8 @@ class ImportWatcher(
     }
 
     private suspend fun processStableFiles() {
+        // Catches a waiting PDF whose visit appeared by any route (or whose trigger was missed): cheap when nothing waits.
+        try { attachWaitingPdfs(repository, reader, reportsRootHandle, null, onEvent) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { onEvent("Could not re-check waiting PDFs: ${e.message}") }
         val scanned = scanFiles()
         val stableFiles = scanned.filter { waitForStable(it) }
         announceWaitingFiles(scanned.filter { it !in stableFiles })
@@ -376,7 +378,7 @@ class ImportWatcher(
                     record(file, p.bytes.size, p.sha, "committed", message, stored?.absolutePath, p.parsed, bundleId, imported.patientId, imported.reportId)
                     onEvent(message)
                     outcome = FileOutcome.Imported(imported.visitDirHandle, imported.patientId, imported.reportId, file.name)
-                    adoptWaitingCompanions(sessionId, report, imported.visitDirHandle, imported.patientId, imported.reportId, file.name)
+                    attachWaitingPdfs(repository, reader, reportsRootHandle, sessionId, onEvent)
                 },
                 onFailure = { e ->
                     val moved = moveUnique(file, unmatchedDir)
@@ -394,33 +396,6 @@ class ImportWatcher(
             onEvent(message)
             repository.logImportEvent(sessionId, nowIso(), file.absolutePath, "error", message = message)
             return FileOutcome.Failed
-        }
-    }
-
-    /**
-     * A PDF that arrived BEFORE its data file was queued (nothing to match it with yet). When the data file
-     * is imported afterwards, every waiting PDF for the same device and day belongs to that visit: attach it
-     * now instead of leaving it in the Inbox for a person to do the same by hand.
-     */
-    private suspend fun adoptWaitingCompanions(sessionId: String, report: UnifiedReport, visitDirHandle: String, patientId: String, reportId: String, sourceName: String) {
-        val serial = report.device.serialNumber.takeIf { it.isNotBlank() && it != "Unknown" } ?: return
-        val day = report.interrogationDate.take(10).takeIf { it.length == 10 } ?: return
-        val waiting = repository.getPendingSortTasks().filter {
-            it.fileKind == FileKind.DEVICE_PDF.name && it.deviceSerial.equals(serial, ignoreCase = true) && it.interrogationDate?.take(10) == day
-        }
-        for (task in waiting) {
-            val staged = File(task.stagedFilePath)
-            if (!staged.isFile) continue
-            try {
-                storeIncomingFile(staged, File(visitDirHandle))
-                repository.deletePendingSortTask(task.id)
-                repository.resolvePendingIntakeRow(task.stagedFilePath, "attached", "Attached automatically when its data file arrived", patientId, reportId)
-                val message = "Attached ${task.originalFileName} to the visit imported from $sourceName (it had arrived first)."
-                onEvent(message)
-                repository.logImportEvent(sessionId, nowIso(), task.stagedFilePath, "attached", patientId = patientId, reportId = reportId, message = message)
-            } catch (e: Exception) {
-                onEvent("Could not attach the waiting ${task.originalFileName}: ${e.message}")
-            }
         }
     }
 
@@ -707,6 +682,7 @@ suspend fun resolvePendingSortTask(
             storeIncomingFile(stagedFile, File(imported.visitDirHandle))
             repository.deletePendingSortTask(taskId)
             repository.resolvePendingIntakeRow(task.stagedFilePath, "committed", "Assigned manually", imported.patientId, imported.reportId)
+            attachWaitingPdfs(repository, reader, reportsRootHandle, null)
             Result.success(Unit)
         },
         onFailure = { Result.failure(it) },
@@ -748,6 +724,7 @@ suspend fun resolvePendingSortTaskAsNewPatient(
             storeIncomingFile(stagedFile, File(imported.visitDirHandle))
             repository.deletePendingSortTask(taskId)
             repository.resolvePendingIntakeRow(task.stagedFilePath, "committed", "Assigned manually", imported.patientId, imported.reportId)
+            attachWaitingPdfs(repository, reader, reportsRootHandle, null)
             Result.success(Unit)
         },
         onFailure = { Result.failure(it) },
@@ -795,6 +772,7 @@ suspend fun resolvePendingSortTaskManually(
             storeIncomingFile(stagedFile, File(imported.visitDirHandle))
             repository.deletePendingSortTask(taskId)
             repository.resolvePendingIntakeRow(task.stagedFilePath, "committed", "Assigned manually", imported.patientId, imported.reportId)
+            attachWaitingPdfs(repository, reader, reportsRootHandle, null)
             Result.success(Unit)
         },
         onFailure = { Result.failure(it) },
@@ -837,6 +815,8 @@ suspend fun resolvePendingBundle(
     val tasks = repository.getPendingSortTasksForBundle(bundleId)
         .sortedBy { it.fileKind == FileKind.DEVICE_PDF.name }
     return tasks.mapNotNull { task ->
+        // A PDF may already have been attached to its visit when the data file was assigned: nothing left to do.
+        if (repository.getPendingSortTask(task.id) == null) return@mapNotNull null
         resolvePendingSortTask(repository, reader, writer, reportsRootHandle, task.id, targetPatientId, lock).exceptionOrNull()
     }
 }
@@ -856,6 +836,7 @@ suspend fun resolvePendingFiles(
 ): List<Throwable> {
     val kinds = repository.getPendingSortTasks().associate { it.id to it.fileKind }
     return assignments.sortedBy { (taskId, _) -> kinds[taskId] == FileKind.DEVICE_PDF.name }.mapNotNull { (taskId, patientId) ->
+        if (repository.getPendingSortTask(taskId) == null) return@mapNotNull null
         resolvePendingSortTask(repository, reader, writer, reportsRootHandle, taskId, patientId, lock).exceptionOrNull()
     }
 }
@@ -881,6 +862,7 @@ suspend fun resolvePendingFilesAsNewPatient(
 ): List<Throwable> {
     val kinds = repository.getPendingSortTasks().associate { it.id to it.fileKind }
     return taskIds.sortedBy { kinds[it] == FileKind.DEVICE_PDF.name }.mapNotNull { taskId ->
+        if (repository.getPendingSortTask(taskId) == null) return@mapNotNull null
         resolvePendingSortTaskAsNewPatient(repository, reader, writer, reportsRootHandle, taskId, firstName, lastName, dob, hospitalPatientId, lock).exceptionOrNull()
     }
 }
