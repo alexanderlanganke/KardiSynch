@@ -260,6 +260,21 @@ internal fun PatientOverview(
     }
 }
 
+/**
+ * The lead locations in overview order: atrium, right ventricle, left ventricle (coronary sinus), then any other,
+ * each location once. The left ventricle is recognised before the right one, because "Left ventricle" also contains
+ * "ventric".
+ */
+internal fun orderOverviewLeads(locations: List<String>): List<String> {
+    fun rank(l: String): Int = when {
+        Regex("""\bLV\b|left|links|coronary|\bCS\b""", RegexOption.IGNORE_CASE).containsMatchIn(l) -> 2
+        Regex("""\bRA\b|^A$|atri|vorhof""", RegexOption.IGNORE_CASE).containsMatchIn(l) -> 0
+        Regex("""\bRV\b|^V$|ventric|ventrik""", RegexOption.IGNORE_CASE).containsMatchIn(l) -> 1
+        else -> 3
+    }
+    return locations.distinct().sortedBy { rank(it) }
+}
+
 @Composable
 private fun produceTiles(repository: KardiSynchRepository, patientId: String, reports: List<Reports>, reloadKey: Int) =
     androidx.compose.runtime.produceState(emptyList<TrendTile>(), patientId, reports, reloadKey) {
@@ -268,26 +283,19 @@ private fun produceTiles(repository: KardiSynchRepository, patientId: String, re
             .map { TrendPoint(isoDateOnly(it.interrogationDate), it.batteryVoltageValue!!, it.deviceSerialNumber) }
         if (battery.isNotEmpty()) list += TrendTile(tr("Battery voltage"), reports.firstNotNullOfOrNull { it.batteryVoltageUnit } ?: "V", battery, group = DEVICE_GROUP)
 
-        val locations = repository.getLeadLocationsForPatient(patientId)
-        fun pick(vararg hints: String) = locations.firstOrNull { l -> hints.any { l.contains(it, ignoreCase = true) } } ?: locations.firstOrNull()
-        val ventricle = pick("RV", "ventric")
-        val atrium = pick("RA", "atri")
-        suspend fun series(location: String?) = location?.let { repository.getLeadTrendByLocation(patientId, it) }.orEmpty()
-        val rv = series(ventricle)
-        val ra = if (atrium == ventricle) rv else series(atrium)
+        // One group of tiles per lead location the patient has (RA, RV, LV, then anything else), so a CRT's LV lead is
+        // drawn like the others. Each location appears once.
+        val leadLocations = orderOverviewLeads(repository.getLeadLocationsForPatient(patientId))
         fun tile(label: String, loc: String?, pts: List<KardiSynchRepository.LeadTrendPoint>, value: (KardiSynchRepository.LeadTrendPoint) -> Double?, unit: (KardiSynchRepository.LeadTrendPoint) -> String?, stacked: Boolean = false) {
             val points = pts.mapNotNull { p -> value(p)?.let { TrendPoint(isoDateOnly(p.interrogationDate), it, p.deviceSerialNumber, io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(unit(p)).pulseWidthMs, if (stacked) p.pacingAmplitudeValue else null) } }
             if (points.isNotEmpty()) list += TrendTile(listOfNotNull(loc, label).joinToString(" "), io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(pts.firstNotNullOfOrNull(unit)).unit, points, stacked, group = loc ?: "", shortLabel = label.replaceFirstChar { it.uppercase() })
         }
-        // Every lead gets all three measurements; the threshold is the stacked one. With a single lead the atrium and the
-        // ventricle resolve to the same location, so it is listed once.
-        tile(tr("impedance"), ventricle, rv, { it.impedanceValue }, { it.impedanceUnit })
-        tile(tr("sensing"), ventricle, rv, { it.sensingValue }, { it.sensingUnit })
-        tile(tr("threshold"), ventricle, rv, { it.pacingThresholdValue }, { it.pacingThresholdUnit }, stacked = true)
-        if (atrium != ventricle) {
-            tile(tr("impedance"), atrium, ra, { it.impedanceValue }, { it.impedanceUnit })
-            tile(tr("sensing"), atrium, ra, { it.sensingValue }, { it.sensingUnit })
-            tile(tr("threshold"), atrium, ra, { it.pacingThresholdValue }, { it.pacingThresholdUnit }, stacked = true)
+        // Every lead gets all three measurements; the threshold is the stacked one.
+        for (loc in leadLocations) {
+            val pts = repository.getLeadTrendByLocation(patientId, loc)
+            tile(tr("impedance"), loc, pts, { it.impedanceValue }, { it.impedanceUnit })
+            tile(tr("sensing"), loc, pts, { it.sensingValue }, { it.sensingUnit })
+            tile(tr("threshold"), loc, pts, { it.pacingThresholdValue }, { it.pacingThresholdUnit }, stacked = true)
         }
         value = list
     }

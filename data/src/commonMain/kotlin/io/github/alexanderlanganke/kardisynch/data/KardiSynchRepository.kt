@@ -114,7 +114,7 @@ class KardiSynchRepository(
 
     /** Every distinct lead location a patient has had a reading for — drives Patient Detail's per-lead trend chart location picker (issue #198's follow-up, Phase 5). */
     suspend fun getLeadLocationsForPatient(patientId: String): List<String> = withContext(ioDispatcher) {
-        db.leadsQueries.selectDistinctLeadLocationsForPatient(patientId).executeAsList().filterNotNull()
+        db.leadsQueries.selectDistinctLeadLocationsForPatient(patientId).executeAsList().mapNotNull { it.COALESCE }
     }
 
     /** One reading of a lead's impedance/sensing/pacing-threshold at a given visit, for [getLeadTrendByLocation]'s trend chart. */

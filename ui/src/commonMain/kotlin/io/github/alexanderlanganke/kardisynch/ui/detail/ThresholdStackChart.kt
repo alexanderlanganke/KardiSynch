@@ -100,8 +100,8 @@ fun ThresholdStackChart(title: String, unit: String, points: List<TrendPoint>) {
             Canvas(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(totalHeight)
                     .padding(top = 8.dp)
+                    .height(totalHeight)
                     .onSizeChanged { canvasSize = it }
                     .pointerInput(points) {
                         detectTapGestures { tap ->
@@ -237,6 +237,6 @@ fun ThresholdStackChart(title: String, unit: String, points: List<TrendPoint>) {
             append(if (anyBreak) tr("Solid = same device and pulse width · Dashed = generator change or changed pulse width") else tr("{unit} across all visits with a reading", "unit" to unit))
             if (anyUnknown && showPulse) append(" · ").append(tr("Hollow = pulse width unknown"))
         }
-        Text(legend, style = MaterialTheme.typography.labelSmall)
+        Text(legend, style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 4.dp))
     }
 }
