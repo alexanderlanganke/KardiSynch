@@ -76,7 +76,7 @@ class WaitingPdfsTest {
     fun `a serial-less PDF needs the exact full identity and a single visit that day`() = runBlocking {
         importVisit()
         queuePdf("initial.pdf", null, "2026-06-01", "Mustermann", "E.", "1950-09-15")
-        queuePdf("otherdob.pdf", null, "2026-06-01", "Mustermann", "Erika", "1950-09-16")
+        queuePdf("otherdob.pdf", null, "2026-06-01", "Mustermann", "Erika", "2020-09-16")
         queuePdf("full.pdf", null, "2026-06-01", "mustermann", "erika", "1950-09-15")
 
         assertEquals(1, attachWaitingPdfs(repository, reader, reportsRoot, null))
