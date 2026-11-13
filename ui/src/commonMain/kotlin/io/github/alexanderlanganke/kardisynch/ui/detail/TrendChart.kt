@@ -34,14 +34,14 @@ import io.github.alexanderlanganke.kardisynch.core.util.parseIsoEpochDay
 import kotlin.math.roundToInt
 
 /** One reading for [TrendChart] — chronologically ascending order is the caller's responsibility. */
-data class TrendPoint(val date: String, val value: Double, val deviceSerial: String?, val pulseWidthMs: Double? = null)
+data class TrendPoint(val date: String, val value: Double, val deviceSerial: String?, val pulseWidthMs: Double? = null, val outputValue: Double? = null)
 
 /** True when the line between two readings should be dashed: a new generator, or a different pulse width (the values are not comparable). */
 internal fun isBreak(a: TrendPoint, b: TrendPoint): Boolean =
     (a.deviceSerial != null && b.deviceSerial != null && a.deviceSerial != b.deviceSerial) ||
         (a.pulseWidthMs != null && b.pulseWidthMs != null && a.pulseWidthMs != b.pulseWidthMs)
 
-private const val LEFT_PAD = 44f
+internal const val LEFT_PAD = 44f
 private const val BOTTOM_PAD = 20f
 private const val TOP_PAD = 8f
 private const val TAP_HIT_RADIUS = 40f

@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -80,7 +83,15 @@ import kotlinx.coroutines.launch
 private const val OVERDUE_DAYS = 180
 
 /** One measurement shown as a tile: its latest value, a sparkline of the recent readings, and the full series for the chart. */
-internal class TrendTile(val label: String, val unit: String, val points: List<TrendPoint>) {
+internal class TrendTile(
+    val label: String,
+    val unit: String,
+    val points: List<TrendPoint>,
+    val stacked: Boolean = false,
+    /** The group it is shown in on the overview (a lead, or the device), and its label inside that group. */
+    val group: String = "",
+    val shortLabel: String = label,
+) {
     /** The pulse width of the latest reading, for tiles whose value depends on it (thresholds). */
     val latestPulseWidthMs: Double? get() = points.lastOrNull()?.pulseWidthMs
     val latest: Double get() = points.last().value
@@ -168,14 +179,37 @@ internal fun PatientOverview(
             }
             onRescanMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
-            if (tiles.isNotEmpty()) {
-                BoxWithConstraints(Modifier.fillMaxWidth()) {
-                    val columns = if (maxWidth >= 640.dp) minOf(4, tiles.size) else 2
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        tiles.chunked(columns).forEach { rowTiles ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                rowTiles.forEach { t -> Box(Modifier.weight(1f)) { TrendTileCard(t) { openTile = t } } }
-                                repeat(columns - rowTiles.size) { Box(Modifier.weight(1f)) }
+            // Grouped: one framed block per lead (its threshold stack plus impedance and sensing) and one for the device
+            // battery, so the readings of one lead are read together and the groups stay apart. The threshold is stacked
+            // (threshold / pulse width / programmed output); with a single reading there is nothing to stack.
+            val groups = tiles.groupBy { it.group }.toList().sortedBy { (g, _) -> if (g == DEVICE_GROUP) 1 else 0 }
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                val wide = maxWidth >= 840.dp
+                val narrowColumns = if (maxWidth >= 640.dp) 4 else 2
+                Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    groups.forEachIndexed { index, (group, groupTiles) ->
+                        val accent = groupAccent(group, index)
+                        val stacks = groupTiles.filter { it.stacked && it.points.size >= 2 }
+                        val plain = groupTiles.filter { it !in stacks }
+                        TileGroup(if (group == DEVICE_GROUP) tr("Device") else group, accent) {
+                            if (stacks.isNotEmpty() && wide) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+                                    Column(Modifier.weight(2.2f)) { stacks.forEach { ThresholdStackCard(it, Modifier.fillMaxHeight()) } }
+                                    Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        plain.forEach { t -> TrendTileCard(t, Modifier.weight(1f), fill = true) { openTile = t } }
+                                    }
+                                }
+                            } else {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    stacks.forEach { ThresholdStackCard(it) }
+                                    val columns = minOf(narrowColumns, maxOf(1, plain.size))
+                                    plain.chunked(columns).forEach { rowTiles ->
+                                        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                                            rowTiles.forEach { t -> Box(Modifier.weight(1f)) { TrendTileCard(t) { openTile = t } } }
+                                            repeat(columns - rowTiles.size) { Box(Modifier.weight(1f)) }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -218,7 +252,10 @@ internal fun PatientOverview(
             onDismissRequest = { openTile = null },
             confirmButton = { TextButton(onClick = { openTile = null }) { Text(tr("Close")) } },
             title = { Text(tile.label) },
-            text = { TrendChart(tr("{n} readings", "n" to tile.points.size), tile.unit, tile.points) },
+            text = {
+                val title = tr("{n} readings", "n" to tile.points.size)
+                if (tile.stacked) ThresholdStackChart(title, tile.unit, tile.points) else TrendChart(title, tile.unit, tile.points)
+            },
         )
     }
 }
@@ -229,7 +266,7 @@ private fun produceTiles(repository: KardiSynchRepository, patientId: String, re
         val list = mutableListOf<TrendTile>()
         val battery = reports.filter { it.batteryVoltageValue != null }.sortedBy { it.interrogationDate }
             .map { TrendPoint(isoDateOnly(it.interrogationDate), it.batteryVoltageValue!!, it.deviceSerialNumber) }
-        if (battery.isNotEmpty()) list += TrendTile(tr("Battery voltage"), reports.firstNotNullOfOrNull { it.batteryVoltageUnit } ?: "V", battery)
+        if (battery.isNotEmpty()) list += TrendTile(tr("Battery voltage"), reports.firstNotNullOfOrNull { it.batteryVoltageUnit } ?: "V", battery, group = DEVICE_GROUP)
 
         val locations = repository.getLeadLocationsForPatient(patientId)
         fun pick(vararg hints: String) = locations.firstOrNull { l -> hints.any { l.contains(it, ignoreCase = true) } } ?: locations.firstOrNull()
@@ -238,13 +275,20 @@ private fun produceTiles(repository: KardiSynchRepository, patientId: String, re
         suspend fun series(location: String?) = location?.let { repository.getLeadTrendByLocation(patientId, it) }.orEmpty()
         val rv = series(ventricle)
         val ra = if (atrium == ventricle) rv else series(atrium)
-        fun tile(label: String, loc: String?, pts: List<KardiSynchRepository.LeadTrendPoint>, value: (KardiSynchRepository.LeadTrendPoint) -> Double?, unit: (KardiSynchRepository.LeadTrendPoint) -> String?) {
-            val points = pts.mapNotNull { p -> value(p)?.let { TrendPoint(isoDateOnly(p.interrogationDate), it, p.deviceSerialNumber, io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(unit(p)).pulseWidthMs) } }
-            if (points.isNotEmpty()) list += TrendTile(listOfNotNull(loc, label).joinToString(" "), io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(pts.firstNotNullOfOrNull(unit)).unit, points)
+        fun tile(label: String, loc: String?, pts: List<KardiSynchRepository.LeadTrendPoint>, value: (KardiSynchRepository.LeadTrendPoint) -> Double?, unit: (KardiSynchRepository.LeadTrendPoint) -> String?, stacked: Boolean = false) {
+            val points = pts.mapNotNull { p -> value(p)?.let { TrendPoint(isoDateOnly(p.interrogationDate), it, p.deviceSerialNumber, io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(unit(p)).pulseWidthMs, if (stacked) p.pacingAmplitudeValue else null) } }
+            if (points.isNotEmpty()) list += TrendTile(listOfNotNull(loc, label).joinToString(" "), io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(pts.firstNotNullOfOrNull(unit)).unit, points, stacked, group = loc ?: "", shortLabel = label.replaceFirstChar { it.uppercase() })
         }
+        // Every lead gets all three measurements; the threshold is the stacked one. With a single lead the atrium and the
+        // ventricle resolve to the same location, so it is listed once.
         tile(tr("impedance"), ventricle, rv, { it.impedanceValue }, { it.impedanceUnit })
-        tile(tr("threshold"), ventricle, rv, { it.pacingThresholdValue }, { it.pacingThresholdUnit })
-        tile(tr("sensing"), atrium, ra, { it.sensingValue }, { it.sensingUnit })
+        tile(tr("sensing"), ventricle, rv, { it.sensingValue }, { it.sensingUnit })
+        tile(tr("threshold"), ventricle, rv, { it.pacingThresholdValue }, { it.pacingThresholdUnit }, stacked = true)
+        if (atrium != ventricle) {
+            tile(tr("impedance"), atrium, ra, { it.impedanceValue }, { it.impedanceUnit })
+            tile(tr("sensing"), atrium, ra, { it.sensingValue }, { it.sensingUnit })
+            tile(tr("threshold"), atrium, ra, { it.pacingThresholdValue }, { it.pacingThresholdUnit }, stacked = true)
+        }
         value = list
     }
 
@@ -351,16 +395,64 @@ private fun AdvisoryBanner(warning: ManufacturerWarningStatus, onOpenUrl: ((Stri
     }
 }
 
+private const val DEVICE_GROUP = "\u0000device"
+
 @Composable
-private fun TrendTileCard(tile: TrendTile, onClick: () -> Unit) {
-    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().clickable(onClickLabel = "Open the full ${tile.label} chart", onClick = onClick)) {
-        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(tile.label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+private fun groupAccent(group: String, index: Int): Color {
+    val c = MaterialTheme.colorScheme
+    return when {
+        group == DEVICE_GROUP -> c.outline
+        index % 3 == 0 -> c.primary
+        index % 3 == 1 -> c.tertiary
+        else -> c.secondary
+    }
+}
+
+/** A framed block with a coloured title bar that groups the tiles of one lead (or of the device). */
+@Composable
+private fun TileGroup(title: String, accent: Color, content: @Composable () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(1.5.dp, accent.copy(alpha = 0.55f)),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(start = 2.dp)) {
+                Box(Modifier.width(4.dp).height(18.dp).background(accent, RoundedCornerShape(2.dp)))
+                Text(title, style = MaterialTheme.typography.titleSmall, color = accent)
+            }
+            content()
+        }
+    }
+}
+
+/** The full-width threshold card of the overview: latest value and change on top, the three stacked panels below. */
+@Composable
+private fun ThresholdStackCard(tile: TrendTile, modifier: Modifier = Modifier) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 6.dp)) {
+            Text(tile.shortLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(formatNumber(tile.latest), style = MaterialTheme.typography.headlineSmall)
                 Text(tile.unit + (tile.latestPulseWidthMs?.let { " @ ${displayNumber(it)} ms" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
             }
-            Sparkline(tile.points.takeLast(8).map { it.value }, Modifier.fillMaxWidth().height(40.dp).padding(vertical = 4.dp))
+            Text(tile.deltaText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            ThresholdStackChart("", tile.unit, tile.points)
+        }
+    }
+}
+
+@Composable
+private fun TrendTileCard(tile: TrendTile, modifier: Modifier = Modifier, fill: Boolean = false, onClick: () -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = modifier.fillMaxWidth().clickable(onClickLabel = "Open the full ${tile.label} chart", onClick = onClick)) {
+        Column((if (fill) Modifier.fillMaxHeight() else Modifier).padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(tile.shortLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(formatNumber(tile.latest), style = MaterialTheme.typography.headlineSmall)
+                Text(tile.unit + (tile.latestPulseWidthMs?.let { " @ ${displayNumber(it)} ms" } ?: ""), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+            }
+            Sparkline(tile.points.takeLast(8).map { it.value }, if (fill) Modifier.fillMaxWidth().weight(1f).heightIn(min = 32.dp).padding(vertical = 4.dp) else Modifier.fillMaxWidth().height(40.dp).padding(vertical = 4.dp))
             Text(tile.deltaText, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
         }
     }

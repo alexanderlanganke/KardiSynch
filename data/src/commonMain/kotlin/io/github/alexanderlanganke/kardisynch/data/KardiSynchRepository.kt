@@ -127,6 +127,9 @@ class KardiSynchRepository(
         val sensingUnit: String?,
         val pacingThresholdValue: Double?,
         val pacingThresholdUnit: String?,
+        /** The programmed output (a setting, not a measurement), for the safety margin shown beside the threshold. */
+        val pacingAmplitudeValue: Double? = null,
+        val pacingAmplitudeUnit: String? = null,
     )
 
     /** `Leads.sq`'s `selectLeadTrendByLocation` had no repository wrapper at all until now — the original battery-only trend chart's doc comment flagged this as scoped-out "additional per-lead trends" work (issue #198's follow-up, Phase 5). */
@@ -141,6 +144,8 @@ class KardiSynchRepository(
                 sensingUnit = row.sensingUnit,
                 pacingThresholdValue = row.pacingThresholdValue,
                 pacingThresholdUnit = row.pacingThresholdUnit,
+                pacingAmplitudeValue = row.pacingAmplitudeValue,
+                pacingAmplitudeUnit = row.pacingAmplitudeUnit,
             )
         }
     }

@@ -114,8 +114,8 @@ internal fun LeadTrendSection(repository: KardiSynchRepository, patientId: Strin
         TrendChart(tr("Sensing trend"), sensingUnit, sensingPoints)
         val thresholdUnit = io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(leadPoints.firstNotNullOfOrNull { it.pacingThresholdUnit }).unit
         val thresholdPoints = leadPoints.mapNotNull { p ->
-            p.pacingThresholdValue?.let { TrendPoint(isoDateOnly(p.interrogationDate), it, p.deviceSerialNumber, io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(p.pacingThresholdUnit).pulseWidthMs) }
+            p.pacingThresholdValue?.let { TrendPoint(isoDateOnly(p.interrogationDate), it, p.deviceSerialNumber, io.github.alexanderlanganke.kardisynch.core.util.splitPulseUnit(p.pacingThresholdUnit).pulseWidthMs, p.pacingAmplitudeValue) }
         }
-        TrendChart(tr("Pacing threshold trend"), thresholdUnit, thresholdPoints)
+        ThresholdStackChart(tr("Pacing threshold trend"), thresholdUnit, thresholdPoints)
     }
 }
